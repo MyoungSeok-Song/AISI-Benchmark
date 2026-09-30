@@ -71,6 +71,15 @@ models:
         hf_repo: Qwen/Qwen3.8-27B
         dtype: bfloat16
         max_model_len: 8192
-        gpu_memory_utilization: 0.92     # H100 80GB 1장에 BF16 가중치(약 52GB) + KV 캐시
+        gpu_memory_utilization: 0.92     # H100 80GB 1장에 BF16 가중치(약 51GiB) + KV 캐시
         port: 8000
-        extra_args: ["--no-enable-prefix-caching"]
+        extra_args:
+          - "--no-enable-prefix-caching"
+          # 기본 어텐션 백엔드(FLASH_ATTN)의 컴파일된 커널이 이 venv의 torch 빌드(cu126)와 맞지 않아
+          # 첫 forward에서 실패한다("aten::new_empty API call failed"). Triton 구현으로 바꾼다.
+          - "--attention-backend"
+          - "TRITON_ATTN"
+          # 동시에 처리할 최대 시퀀스 수. 기본 1024는 이 모델의 상태 캐시 블록 수(GPU 1장 기준 357)를
+          # 넘어 기동이 거부된다. 러너는 한 번에 1건씩 보내므로 넉넉한 값이다.
+          - "--max-num-seqs"
+          - "64"
