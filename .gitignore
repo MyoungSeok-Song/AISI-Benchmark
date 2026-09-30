@@ -1,0 +1,19 @@
+# 로컬 전용 저장소. 원격 추가·push 금지 (평가 문항·산출물은 ETRI 귀속, 외부 반출 금지)
+
+# 가상환경
+.venv/
+.venv-vllm/
+
+# 파이썬 캐시
+__pycache__/
+*.pyc
+
+# 실행 산출물 (재생성 가능하거나 용량이 큼)
+samples/output/
+var/
+
+# 모델 가중치·대용량 파일
+*.safetensors
+*.bin
+*.gguf
+*.pt

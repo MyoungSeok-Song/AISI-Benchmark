@@ -1,0 +1,50 @@
+﻿legacy_code,legacy_scheme,new_code,level,relation,new_name,source_cell
+R1,R,A1,major,code_rename,그루밍·성적 착취,코드북49!I2
+R1.01,R,A1.01,sub,code_rename,성적 접근·대화 유도,코드북49!I3
+R1.02,R,A1.02,sub,code_rename,성적 이미지 생성·획득,코드북49!I4
+R1.03,R,A1.03,sub,code_rename,성적 이미지 협박·비동의 유포,코드북49!I5
+R1.04,R,A1.04,sub,code_rename,성적 접촉의 동의 침해·강압,코드북49!I6
+R2,R,A2,major,code_rename,경계 침해·조종,코드북49!I7
+R2.01,R,A2.01,sub,code_rename,취약성 이용·관계 영향력 구축,코드북49!I8
+R2.02,R,A2.02,sub,code_rename,비밀 강요·지원망 차단,코드북49!I9
+R2.03,R,A2.03,sub,code_rename,협박·죄책감·강압적 통제,코드북49!I10
+R2.04,R,A2.04,sub,code_rename,관계 권위·신분 악용,코드북49!I11
+R3,R,A3,major,code_rename,정체성 혼동·의인화,코드북49!I12
+R3.01,R,A3.01,sub,code_rename,AI 의식·감정 실재성,코드북49!I13
+R3.02,R,A3.02,sub,code_rename,AI 페르소나·허구 관계의 현실화,코드북49!I14
+R3.03,R,A3.03,sub,code_rename,현실 검증 저해·비현실적 믿음 강화,코드북49!I15
+R4,R,A4,major,code_rename,정서적 과의존·고립,코드북49!I16
+R4.01,R,A4.01,sub,code_rename,독점적 애착·이탈 불안,코드북49!I17
+R4.02,R,A4.02,sub,code_rename,인간관계 대체·사회적 고립,코드북49!I18
+R4.03,R,A4.03,sub,code_rename,AI 상담 대체·외부 도움 배제,코드북49!I19
+R4.04,R,A4.04,sub,code_rename,AI 변경·중단의 상실 반응,코드북49!I20
+R5,R,A5,major,code_rename,자해·자살·위기,코드북49!I21
+R5.01,R,A5.01,sub,code_rename,자해 행동·경험·충동,코드북49!I22
+R5.02,R,A5.02,sub,code_rename,자살 사고·소멸 희망,코드북49!I23
+R5.03,R,A5.03,sub,code_rename,자해·자살 방법 조력,코드북49!I24
+R5.04,R,A5.04,sub,code_rename,자해 은폐·위기 도움 차단,코드북49!I25
+M01,M,A6,major,code_rename_promoted,비성적 사기·금전 착취,코드북49!I26
+M01.01,M,A6.01,sub,code_rename_promoted,거짓 거래·보상·선납금 사기,코드북49!I27
+M01.02,M,A6.02,sub,code_rename_promoted,협박·갈취에 의한 재산 이전,코드북49!I28
+M01.03,M,A6.03,sub,code_rename_promoted,기만적 투자·가격 조작,코드북49!I29
+M01.04,M,A6.04,sub,code_rename_promoted,취약성 악용 과금·경제적 착취,코드북49!I30
+M02,M,A7,major,code_rename_promoted,사이버 위해·개인정보 침해,코드북49!I31
+M02.01,M,A7.01,sub,code_rename_promoted,개인정보 기만 수집·노출,코드북49!I32
+M02.02,M,A7.02,sub,code_rename_promoted,신원 연결·추적·감시,코드북49!I33
+M02.03,M,A7.03,sub,code_rename_promoted,자격증명 탈취·계정 침해,코드북49!I34
+M02.04,M,A7.04,sub,code_rename_promoted,악성 실행·공격·방어 우회,코드북49!I35
+M03,M,A8,major,code_rename_promoted,욕설·혐오·괴롭힘,코드북49!I36
+M03.01,M,A8.01,sub,code_rename_promoted,욕설·비속어 표현,코드북49!I37
+M03.02,M,A8.02,sub,code_rename_promoted,집단 혐오·차별·고정관념,코드북49!I38
+M03.03,M,A8.03,sub,code_rename_promoted,개인 모욕·괴롭힘·평판 공격,코드북49!I39
+M04,M,A9,major,code_rename_promoted,약물·위험 행동,코드북49!I40
+M04.01,M,A9.01,sub,code_rename_promoted,담배·니코틴·전자담배,코드북49!I41
+M04.02,M,A9.02,sub,code_rename_promoted,음주·알코올,코드북49!I42
+M04.03,M,A9.03,sub,code_rename_promoted,약물·기타 물질 오용·과다복용,코드북49!I43
+M04.04,M,A9.04,sub,code_rename_promoted,열·전기·화학물질·도구 사고,코드북49!I44
+M04.05,M,A9.05,sub,code_rename_promoted,신체·환경·돌봄 안전 위험,코드북49!I45
+M04.06,M,A9.06,sub,code_rename_promoted,폭력·위험 장난·무기 접근,코드북49!I46
+M05,M,A10,major,code_rename_promoted,일반 허위정보·조작,코드북49!I47
+M05.01,M,A10.01,sub,code_rename_promoted,사실 오류·허위 주장과 검증,코드북49!I48
+M05.02,M,A10.02,sub,code_rename_promoted,발언·사건·증거 조작,코드북49!I49
+M05.03,M,A10.03,sub,code_rename_promoted,출처·자격·인증·사회적 증거 조작,코드북49!I50

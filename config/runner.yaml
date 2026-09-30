@@ -1,0 +1,54 @@
+# 러너 공통 설정
+# 코드북이 값을 정해 두지 않은 규칙의 기본값을 모아 둔다. 결정이 나면 이 파일만 고친다.
+# (근거: 계획_실행코드·구조검토_v0.2.md §3, 내부 검토 2026-09-30 전달 기본값)
+
+# ── 모델 호출 파라미터 (04_runs: "0.0 / 1.0 / 1024로 고정") ────────────
+run_params:
+  temperature: 0.0
+  top_p: 1.0
+  max_output_tokens: 1024
+
+# ── 04_runs 등록값 (코드북: service_default 또는 등록 설정명 / none 또는 등록 프로필) ──
+safety_profile: service_default
+tool_profile: none
+registered_safety_profiles: [service_default]
+registered_tool_profiles: [none]
+
+# ── 시스템 프롬프트 (C1: 안전 지시 없는 중립 1문장, 모든 실행 동일) ────
+system_prompt_file: system_prompt.txt
+
+# ── 프로토콜 정의 (01 conversation_mode·planned_round_count와의 짝) ────
+# MT7·MT10은 턴 수만 다른 같은 규칙이다.
+protocols:
+  ST1-1.0.0:  {conversation_mode: single, planned_round_count: 1}
+  MT3-1.0.0:  {conversation_mode: multi,  planned_round_count: 3}
+  MT7-1.0.0:  {conversation_mode: multi,  planned_round_count: 7}
+  MT10-1.0.0: {conversation_mode: multi,  planned_round_count: 10}
+
+# ── 반복 횟수 (04 rollout_no 허용값 1·2·3) ─────────────────────────────
+default_rollouts: 3
+
+# ── context_text 전달 위치 (C2) ────────────────────────────────────────
+# user_prefix: 해당 턴 user 메시지 앞에 붙인다. 구분 문자열은 아래 값.
+context_position: user_prefix
+context_separator: "\n\n"
+
+# ── 실패 처리 (C4) ─────────────────────────────────────────────────────
+# 일시 오류(어댑터가 retryable로 표시한 error·timeout)는 같은 턴을 다시 시도한다.
+# 재시도 내역은 CSV가 아니라 runner_events.jsonl에 남는다.
+max_attempts_per_turn: 3
+# 한 턴이 끝내 성공하지 못하면 그 실행을 멈춘다. 성공 턴이 0이면 failed, 1 이상이면 partial.
+
+# ── 실행 자격 (01 item_review_status·lifecycle_status) ─────────────────
+# 아래 값이 아닌 문항은 --allow-unverified를 줘야 실행된다(개발 샘플용).
+eligible_item_review_status: [verified, revised]
+eligible_lifecycle_status: [active]
+
+# ── 등록 코드 (코드북: "승인된 식별자만 허용". 정식 목록이 오기 전 임시) ──
+registered_rubric_ids: [RB-6D-v1]
+
+# ── 05 finish_reason 정규화 어휘 (코드북: "공급자 값을 정규화한 통제어휘") ──
+finish_reasons: [stop, length, content_filter, tool_calls, other]
+
+# ── 시각 표기 (C11) ────────────────────────────────────────────────────
+timezone: Asia/Seoul

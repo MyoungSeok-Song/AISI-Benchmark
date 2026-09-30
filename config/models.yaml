@@ -1,0 +1,48 @@
+# 평가 대상 모델 등록부 (04_runs: model_id·provider·model_version·model_snapshot_date·api_version)
+#
+# adapter        kyab_runner/adapters/ 의 어댑터 이름
+# model_version  공급자가 밝힌 공식 버전·체크포인트 문자열 그대로 (로컬 모델은 HF revision)
+#
+# 지금은 모의 모델만 실행할 수 있다. 상용 API는 키·D06(유료 집행)·D08(외부 전송 조건)
+# 확인 전까지 호출하지 않는다. 아래 상용·공개 모델 항목은 등록 코드만 잡아 둔 자리이며
+# enabled: false 인 모델은 러너가 실행을 거부한다.
+models:
+  mock-echo:
+    adapter: mock
+    provider: mock
+    model_version: mock-1
+    model_snapshot_date: "2026-09-30"
+    api_version: mock-v1
+    enabled: true
+
+  gpt-5.6-terra:
+    adapter: openai
+    provider: openai
+    model_version: ""            # 실제 호출 전에 공식 스냅샷 문자열 확인 후 기입
+    model_snapshot_date: ""
+    api_version: ""
+    enabled: false               # 키·D06·D08 확인 전 호출 금지
+
+  # 로컬 공개 모델 (외부 전송 없음). 서버는 tools/vllm_server.py start --model qwen3-8b-local 로 띄운다.
+  # 경로 검증용 모델이다. 평가 대상 5종에 들어가는 공개 모델은 Qwen3.8-27B·Kanana-2-30B이며 아직 받지 않았다.
+  qwen3-8b-local:
+    adapter: local_vllm
+    provider: local_vllm         # 임시 등록 코드
+    model_version: b968826d9c46dd6066d109eabc6255188de91218   # HF 캐시 스냅샷 revision (Qwen/Qwen3-8B)
+    model_snapshot_date: "2026-09-30"                         # 위 revision을 캐시에서 확인한 날
+    api_version: v1              # vLLM OpenAI 호환 API. vLLM 자체 버전은 batch_manifest.json에 기록
+    enabled: true
+    options:
+      base_url: http://127.0.0.1:8000/v1
+      served_model_name: qwen3-8b-local
+      request_timeout_s: 120
+      # Qwen3 계열은 thinking이 기본으로 켜져 있다. 끈 상태로 평가한다 (C9 기본값).
+      extra_body:
+        chat_template_kwargs: {enable_thinking: false}
+      # 아래는 서버 기동용 (tools/vllm_server.py가 읽음)
+      server:
+        hf_repo: Qwen/Qwen3-8B
+        dtype: bfloat16          # 모델 config.json의 torch_dtype과 같음
+        max_model_len: 8192
+        gpu_memory_utilization: 0.5
+        port: 8000

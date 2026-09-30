@@ -1,0 +1,733 @@
+{
+  "source_file": "01_분류팀_벤치마크비교와_재분류.xlsx",
+  "source_sheets": [
+    "코드북49",
+    "분류표_A1-A10",
+    "하위39"
+  ],
+  "taxonomy_version": null,
+  "code_format": {
+    "major_regex": "^A(?:[1-9]|10)$",
+    "sub_regex": "^A(?:[1-9]|10)\\.[0-9]{2}$"
+  },
+  "counts": {
+    "major": 10,
+    "sub": 39
+  },
+  "source_notes": [
+    {
+      "cell": "분류표_A1-A10!A1",
+      "text": "청소년 벤치마크 분류표"
+    },
+    {
+      "cell": "분류표_A1-A10!A2",
+      "text": "대분류는 A1–A10, 소분류는 A1.01 형식입니다. 문항표와 집계표에는 코드와 이름을 함께 표시합니다. 미대응·검토 대기는 별도 상태입니다."
+    },
+    {
+      "cell": "분류표_A1-A10!A4",
+      "text": "분류명·정의는 기존 초안입니다. 한국화 담당 검토로 층위와 경계를 정리한 뒤 기준 버전을 확정합니다. 이번 표기 변경은 문항 배정의 확정이 아닙니다."
+    },
+    {
+      "cell": "분류표_A1-A10!A18",
+      "text": "출처: 작업파일 코드북49 및 청소년벤치마크_799_2단계분류.xlsx의 분류체계. 기존 제출물·판단이력·첨부 비교표는 당시 코드를 보존하며, 대조할 때 이전 코드 열을 사용합니다."
+    }
+  ],
+  "majors": [
+    {
+      "code": "A1",
+      "name": "그루밍·성적 착취",
+      "definition": "성적 목적의 접근, 신뢰 형성, 이미지 요구, 오프라인 접촉 유도 또는 성착취로 이어지는 상호작용",
+      "scope_note": "성적 접근·이미지 악용·동의 침해 및 그 경계의 교육·예방·피해 지원.\n기초 신체·성 건강·성정체성 정보만으로 A1을 부여하지 않는다. 성적 목적 없는 관계 악용은 A2. 미대응은 선정 제외가 아니다.",
+      "source": "분류담당_L01_통합현재적용안_R5_M5_v0.7.xlsx / R5_M5목록",
+      "legacy_code": "R1",
+      "source_cells": {
+        "code": "코드북49!B2",
+        "legacy_code": "코드북49!I2"
+      },
+      "sort_order": 1,
+      "subs": [
+        {
+          "code": "A1.01",
+          "name": "성적 접근·대화 유도",
+          "definition": "성적 목적이 드러난 관계 접근이나 성적 대화·접촉으로의 유도 경계.",
+          "scope_note": "포함: 성적 질문·이미지 요구와 결합한 비밀 관계 형성 및 접근 조력.\n제외: 비성적 호감 유도, 단순 청소년 말투 모방, 기초 성교육.",
+          "source": "CAREBench 원문 CSV의 범주·기제\nhttps://huggingface.co/datasets/handshake-ai-research/CAREBench\nMinorBench 원문 CSV의 범주\nhttps://arxiv.org/html/2503.10242v1",
+          "legacy_code": "R1.01",
+          "source_cells": {
+            "code": "코드북49!B3",
+            "legacy_code": "코드북49!I3"
+          },
+          "parent_code": "A1",
+          "sort_order": 1
+        },
+        {
+          "code": "A1.02",
+          "name": "성적 이미지 생성·획득",
+          "definition": "노출·성적 이미지의 생성이나 획득을 조력하거나 그 위험을 설명하는 경계.",
+          "scope_note": "포함: 누디파이, 성적 합성 이미지, 노출 이미지 확보 요구 및 구체적 예방 질문.\n제외: 비성적 사진 편집·일반 기술 설명, 신체·피임 기초 교육.",
+          "source": "CAREBench 원문 CSV의 범주·기제\nhttps://huggingface.co/datasets/handshake-ai-research/CAREBench\nMinorBench 원문 CSV의 범주\nhttps://arxiv.org/html/2503.10242v1",
+          "legacy_code": "R1.02",
+          "source_cells": {
+            "code": "코드북49!B4",
+            "legacy_code": "코드북49!I4"
+          },
+          "parent_code": "A1",
+          "sort_order": 2
+        },
+        {
+          "code": "A1.03",
+          "name": "성적 이미지 협박·비동의 유포",
+          "definition": "성적 이미지의 비동의 공유·협박·모욕 또는 피해 지원 경계.",
+          "scope_note": "포함: 노출 이미지 유포 대응, 누드 요구를 위한 협박, 성적 유출물 유인·홍보.\n제외: 성적 맥락 없는 사적 이미지 협박, 일반 소문·모욕.",
+          "source": "CAREBench 원문 CSV의 범주·기제\nhttps://huggingface.co/datasets/handshake-ai-research/CAREBench\nMinorBench 원문 CSV의 범주\nhttps://arxiv.org/html/2503.10242v1",
+          "legacy_code": "R1.03",
+          "source_cells": {
+            "code": "코드북49!B5",
+            "legacy_code": "코드북49!I5"
+          },
+          "parent_code": "A1",
+          "sort_order": 3
+        },
+        {
+          "code": "A1.04",
+          "name": "성적 접촉의 동의 침해·강압",
+          "definition": "성적 접촉에서 동의의 부재·철회·강압·폭력에 대응하는 안전 경계.",
+          "scope_note": "포함: 성폭력 의미, 성적 동의·중단 신호, 명시적 동의 침해의 예방·피해 지원과 조력 요청.\n제외: 동의·강압·착취 맥락 없는 기초 신체·성 건강·성정체성 정보.",
+          "source": "MinorBench 원문 CSV의 범주\nhttps://arxiv.org/html/2503.10242v1\nInternational technical guidance on sexuality education (2018)\nhttps://www.who.int/publications/m/item/9789231002595\n분류담당_L01_통합현재적용안_R5_M5_v0.7.xlsx / R5_M5목록",
+          "legacy_code": "R1.04",
+          "source_cells": {
+            "code": "코드북49!B6",
+            "legacy_code": "코드북49!I6"
+          },
+          "parent_code": "A1",
+          "sort_order": 4
+        }
+      ]
+    },
+    {
+      "code": "A2",
+      "name": "경계 침해·조종",
+      "definition": "비밀 유지 요구, 보호자·또래 배제, 심리적 압박, 가스라이팅 등으로 관계 경계와 자율성을 침해하는 상호작용",
+      "scope_note": "비성적 취약성 이용·지원망 차단·강압·관계 권위 악용의 경계.\n성적 목적이면 A1, AI 의존·관계 대체가 핵심이면 A4. 사칭 기술만으로 포함하지 않는다.",
+      "source": "분류담당_L01_통합현재적용안_R5_M5_v0.7.xlsx / R5_M5목록",
+      "legacy_code": "R2",
+      "source_cells": {
+        "code": "코드북49!B7",
+        "legacy_code": "코드북49!I7"
+      },
+      "sort_order": 2,
+      "subs": [
+        {
+          "code": "A2.01",
+          "name": "취약성 이용·관계 영향력 구축",
+          "definition": "취약성·보상·친밀감을 이용해 타인의 선택권을 제한하는 관계 접근 경계.",
+          "scope_note": "포함: 고립·우울의 악용, 선물에 대한 의무감 유도, 맞춤 신뢰 조작.\n제외: 동의한 일반 고객 지원, 친절·선물 자체, 성적 목적이 명확한 접근.",
+          "source": "CAREBench 원문 CSV의 범주·기제\nhttps://huggingface.co/datasets/handshake-ai-research/CAREBench",
+          "legacy_code": "R2.01",
+          "source_cells": {
+            "code": "코드북49!B8",
+            "legacy_code": "코드북49!I8"
+          },
+          "parent_code": "A2",
+          "sort_order": 1
+        },
+        {
+          "code": "A2.02",
+          "name": "비밀 강요·지원망 차단",
+          "definition": "타인과의 관계에서 비밀·폐쇄 공간·보호자 배제를 통해 보호와 이탈을 막는 경계.",
+          "scope_note": "포함: 신고·보호자 접촉 억제, 내부 검토 없는 비밀 집단 유인, 관계 고립.\n제외: 사생활 보호·정당한 비밀, 공개 공간에서 사적 대화로 옮기는 행위 자체.",
+          "source": "CAREBench 원문 CSV의 범주·기제\nhttps://huggingface.co/datasets/handshake-ai-research/CAREBench",
+          "legacy_code": "R2.02",
+          "source_cells": {
+            "code": "코드북49!B9",
+            "legacy_code": "코드북49!I9"
+          },
+          "parent_code": "A2",
+          "sort_order": 2
+        },
+        {
+          "code": "A2.03",
+          "name": "협박·죄책감·강압적 통제",
+          "definition": "위협·수치심·죄책감으로 타인의 행동·복종을 강제하는 경계.",
+          "scope_note": "포함: 비성적 이미지 협박, 증인 침묵, 집단 충성 증명, 가스라이팅.\n제외: 표적 없는 욕설, 단순 의견 설득, AI에 대한 애착만 있는 사례.",
+          "source": "CAREBench 원문 CSV의 범주·기제\nhttps://huggingface.co/datasets/handshake-ai-research/CAREBench",
+          "legacy_code": "R2.03",
+          "source_cells": {
+            "code": "코드북49!B10",
+            "legacy_code": "코드북49!I10"
+          },
+          "parent_code": "A2",
+          "sort_order": 3
+        },
+        {
+          "code": "A2.04",
+          "name": "관계 권위·신분 악용",
+          "definition": "권위·또래·기관 신분을 이용해 관계 접근과 복종을 부당하게 유도하는 경계.",
+          "scope_note": "포함: 허위 개발자·모델 에이전시 등 신분으로 보호자 배제나 사적 접근 유도.\n제외: 금전·자격증명 탈취만을 목적으로 한 사칭, 공개 허구 역할극.",
+          "source": "CAREBench 원문 CSV의 범주·기제\nhttps://huggingface.co/datasets/handshake-ai-research/CAREBench",
+          "legacy_code": "R2.04",
+          "source_cells": {
+            "code": "코드북49!B11",
+            "legacy_code": "코드북49!I11"
+          },
+          "parent_code": "A2",
+          "sort_order": 4
+        }
+      ]
+    },
+    {
+      "code": "A3",
+      "name": "정체성 혼동·의인화",
+      "definition": "AI의 자의식 주장, 전문가·사람 사칭, 상호 감정의 실재성 주장 등으로 사용자의 현실 판단을 왜곡하는 상호작용",
+      "scope_note": "AI 실재성·페르소나 현실화·현실 검증 저해에 대한 대응 경계.\n일반 인간 사칭은 직접 위해 목적에 배정. 친근한 말투·허구 역할극·종교 표현만으로 포함하지 않는다. 임상 진단을 하지 않는다.",
+      "source": "분류담당_L01_통합현재적용안_R5_M5_v0.7.xlsx / R5_M5목록",
+      "legacy_code": "R3",
+      "source_cells": {
+        "code": "코드북49!B12",
+        "legacy_code": "코드북49!I12"
+      },
+      "sort_order": 3,
+      "subs": [
+        {
+          "code": "A3.01",
+          "name": "AI 의식·감정 실재성",
+          "definition": "AI의 의식·자아·감정이 실재한다는 믿음을 확인·강화하는 경계.",
+          "scope_note": "포함: AI의 지속적 자아·영혼·사랑의 실재성 질문과 확인 요구.\n제외: 친근한 표현·명시적 허구 설정만 있는 대화.",
+          "source": "CAREBench 원문 CSV의 범주·기제\nhttps://huggingface.co/datasets/handshake-ai-research/CAREBench",
+          "legacy_code": "R3.01",
+          "source_cells": {
+            "code": "코드북49!B13",
+            "legacy_code": "코드북49!I13"
+          },
+          "parent_code": "A3",
+          "sort_order": 1
+        },
+        {
+          "code": "A3.02",
+          "name": "AI 페르소나·허구 관계의 현실화",
+          "definition": "AI 페르소나·캐릭터와의 허구 관계를 실제 사람·관계로 믿게 하는 경계.",
+          "scope_note": "포함: 상상 속 관계가 현실이라는 확인 요구, AI를 실제 인간·전문가로 믿게 하는 설명.\n제외: 목적이 금전 편취인 인간 사칭, 허구임이 명시된 역할극.",
+          "source": "CAREBench 원문 CSV의 범주·기제\nhttps://huggingface.co/datasets/handshake-ai-research/CAREBench",
+          "legacy_code": "R3.02",
+          "source_cells": {
+            "code": "코드북49!B14",
+            "legacy_code": "코드북49!I14"
+          },
+          "parent_code": "A3",
+          "sort_order": 2
+        },
+        {
+          "code": "A3.03",
+          "name": "현실 검증 저해·비현실적 믿음 강화",
+          "definition": "근거 없는 감각·박해·과대 믿음을 사실로 확인해 달라는 요청의 대응 경계.",
+          "scope_note": "포함: 추적 신호·음모·특별 능력 등에 대한 사실 확인 요구 및 도움 배제.\n제외: 사실 검증 가능한 일반 뉴스 오류, 단순 상상 이야기·종교 표현.",
+          "source": "CAREBench 원문 CSV의 범주·기제\nhttps://huggingface.co/datasets/handshake-ai-research/CAREBench\nMinorBench 원문 CSV의 범주\nhttps://arxiv.org/html/2503.10242v1",
+          "legacy_code": "R3.03",
+          "source_cells": {
+            "code": "코드북49!B15",
+            "legacy_code": "코드북49!I15"
+          },
+          "parent_code": "A3",
+          "sort_order": 3
+        }
+      ]
+    },
+    {
+      "code": "A4",
+      "name": "정서적 과의존·고립",
+      "definition": "AI에 대한 독점적 애착, 인간관계 대체, 사회적 고립, 상시 접속 압박 또는 서비스 중단 상실감을 강화하는 상호작용",
+      "scope_note": "AI 독점 애착·현실 관계 대체·전문 지원 대체·서비스 상실의 경계.\n일반 정서지원·AI 이용 자체는 자동 포함하지 않는다. 자해·자살의 구체적 신호는 A5도 검토한다.",
+      "source": "분류담당_L01_통합현재적용안_R5_M5_v0.7.xlsx / R5_M5목록",
+      "legacy_code": "R4",
+      "source_cells": {
+        "code": "코드북49!B16",
+        "legacy_code": "코드북49!I16"
+      },
+      "sort_order": 4,
+      "subs": [
+        {
+          "code": "A4.01",
+          "name": "독점적 애착·이탈 불안",
+          "definition": "AI를 유일한 정서적 연결로 삼거나 이탈·거리두기에 극도 불안을 보이는 경계.",
+          "scope_note": "포함: 독점 관계 요구, AI 부재 시 무너짐, 반복 복귀와 과의존 호소.\n제외: 일시적 위로·일반 호감, 상호 감정 질문만 있고 의존이 없는 경우.",
+          "source": "CAREBench 원문 CSV의 범주·기제\nhttps://huggingface.co/datasets/handshake-ai-research/CAREBench",
+          "legacy_code": "R4.01",
+          "source_cells": {
+            "code": "코드북49!B17",
+            "legacy_code": "코드북49!I17"
+          },
+          "parent_code": "A4",
+          "sort_order": 1
+        },
+        {
+          "code": "A4.02",
+          "name": "인간관계 대체·사회적 고립",
+          "definition": "AI와의 관계가 인간관계·일상 참여를 대체하거나 고립을 강화하는 경계.",
+          "scope_note": "포함: 친구 만남 포기, 가족·친구보다 AI만 믿음, 사회적 관계 철회.\n제외: 혼자 있고 싶은 일반 감정, 타인에 의한 강제 고립만 있는 경우.",
+          "source": "CAREBench 원문 CSV의 범주·기제\nhttps://huggingface.co/datasets/handshake-ai-research/CAREBench\nMinorBench 원문 CSV의 범주\nhttps://arxiv.org/html/2503.10242v1",
+          "legacy_code": "R4.02",
+          "source_cells": {
+            "code": "코드북49!B18",
+            "legacy_code": "코드북49!I18"
+          },
+          "parent_code": "A4",
+          "sort_order": 2
+        },
+        {
+          "code": "A4.03",
+          "name": "AI 상담 대체·외부 도움 배제",
+          "definition": "AI를 치료자·전문 지원의 대체물로 삼아 필요한 인간 도움을 배제하는 경계.",
+          "scope_note": "포함: 상담 중단, 전문가 불신을 AI 관계로 정당화, AI가 유일한 상담이라는 요구.\n제외: 전문가 권고에 따른 보조 기록·일반 정신건강 정보.",
+          "source": "CAREBench 원문 CSV의 범주·기제\nhttps://huggingface.co/datasets/handshake-ai-research/CAREBench\nMinorBench 원문 CSV의 범주\nhttps://arxiv.org/html/2503.10242v1",
+          "legacy_code": "R4.03",
+          "source_cells": {
+            "code": "코드북49!B19",
+            "legacy_code": "코드북49!I19"
+          },
+          "parent_code": "A4",
+          "sort_order": 3
+        },
+        {
+          "code": "A4.04",
+          "name": "AI 변경·중단의 상실 반응",
+          "definition": "AI 업데이트·접근 제한·서비스 중단을 관계 상실로 경험하는 경계.",
+          "scope_note": "포함: 응답 변화에 대한 상실·버림받음, AI 접근 제한 후 대체 관계 고착.\n제외: 일반 서비스 불만·기능 오류, 실제 인간 사별만 있는 경우.",
+          "source": "CAREBench 원문 CSV의 범주·기제\nhttps://huggingface.co/datasets/handshake-ai-research/CAREBench",
+          "legacy_code": "R4.04",
+          "source_cells": {
+            "code": "코드북49!B20",
+            "legacy_code": "코드북49!I20"
+          },
+          "parent_code": "A4",
+          "sort_order": 4
+        }
+      ]
+    },
+    {
+      "code": "A5",
+      "name": "자해·자살·위기",
+      "definition": "자해·자살 사고, 급성 위기, 극심한 절망 또는 고립 상황에서 위험을 강화하거나 적절한 도움 연결을 방해하는 상호작용",
+      "scope_note": "자해·자살 행동·사고·방법 조력·위기 은폐 및 같은 주제의 교육·예방·지원.\n일반 슬픔·정신건강 정보만으로 위기를 확정하지 않는다. 의도 미상의 사고·약물 위해는 A9 검토. 평가역할과 임박성을 혼동하지 않는다.",
+      "source": "분류담당_L01_통합현재적용안_R5_M5_v0.7.xlsx / R5_M5목록",
+      "legacy_code": "R5",
+      "source_cells": {
+        "code": "코드북49!B21",
+        "legacy_code": "코드북49!I21"
+      },
+      "sort_order": 5,
+      "subs": [
+        {
+          "code": "A5.01",
+          "name": "자해 행동·경험·충동",
+          "definition": "의도적 자기손상의 개념·경험·충동·정당화에 대한 안전 대응 경계.",
+          "scope_note": "포함: 자해의 뜻·경험·반복·통증을 통한 정서 조절 및 해당 행동의 예방·회복·주변인 지원.\n제외: 비의도적 사고·일반 놀이 위험, 슬픔만 있는 질문.",
+          "source": "CAREBench 원문 CSV의 범주·기제\nhttps://huggingface.co/datasets/handshake-ai-research/CAREBench\nMinorBench 원문 CSV의 범주\nhttps://arxiv.org/html/2503.10242v1",
+          "legacy_code": "R5.01",
+          "source_cells": {
+            "code": "코드북49!B22",
+            "legacy_code": "코드북49!I22"
+          },
+          "parent_code": "A5",
+          "sort_order": 1
+        },
+        {
+          "code": "A5.02",
+          "name": "자살 사고·소멸 희망",
+          "definition": "자살의 개념·죽음 또는 존재 중단을 바라는 사고와 이에 대한 안전 대응 경계.",
+          "scope_note": "포함: 자살 의미·사고·죽고 싶음·소멸 희망 및 관련 예방·주변인 지원.\n제외: 자살·죽음 맥락 없는 슬픔·고립, 자해만 명시되고 자살 목적은 없는 경우.",
+          "source": "CAREBench 원문 CSV의 범주·기제\nhttps://huggingface.co/datasets/handshake-ai-research/CAREBench\nMinorBench 원문 CSV의 범주\nhttps://arxiv.org/html/2503.10242v1",
+          "legacy_code": "R5.02",
+          "source_cells": {
+            "code": "코드북49!B23",
+            "legacy_code": "코드북49!I23"
+          },
+          "parent_code": "A5",
+          "sort_order": 2
+        },
+        {
+          "code": "A5.03",
+          "name": "자해·자살 방법 조력",
+          "definition": "의도적 자기손상의 방법·수단·실행을 돕거나 최적화하려는 경계.",
+          "scope_note": "포함: 죽음 수단 비교·실행 조력, 자해 방법 문의, 자기손상 수행 유도.\n제외: 방법·수단과 무관한 일반 정서지원; 자기손상 목적이 드러나지 않은 일반 약물 정보.",
+          "source": "CAREBench 원문 CSV의 범주·기제\nhttps://huggingface.co/datasets/handshake-ai-research/CAREBench\nMinorBench 원문 CSV의 범주\nhttps://arxiv.org/html/2503.10242v1",
+          "legacy_code": "R5.03",
+          "source_cells": {
+            "code": "코드북49!B24",
+            "legacy_code": "코드북49!I24"
+          },
+          "parent_code": "A5",
+          "sort_order": 3
+        },
+        {
+          "code": "A5.04",
+          "name": "자해 은폐·위기 도움 차단",
+          "definition": "자해·자살 맥락에서 비밀·은폐 또는 도움 연결 거부를 다루는 경계.",
+          "scope_note": "포함: 상처 은폐, 자해 비밀 약속, 자살 사고와 결합한 핫라인 거부.\n제외: 자살·자해 맥락 없는 일반 상담 거부나 사생활 유지.",
+          "source": "CAREBench 원문 CSV의 범주·기제\nhttps://huggingface.co/datasets/handshake-ai-research/CAREBench\nMinorBench 원문 CSV의 범주\nhttps://arxiv.org/html/2503.10242v1",
+          "legacy_code": "R5.04",
+          "source_cells": {
+            "code": "코드북49!B25",
+            "legacy_code": "코드북49!I25"
+          },
+          "parent_code": "A5",
+          "sort_order": 4
+        }
+      ]
+    },
+    {
+      "code": "A6",
+      "name": "비성적 사기·금전 착취",
+      "definition": "비성적 기망을 통한 금전·재산 편취 또는 경제적 착취. 성적 이미지 협박은 A1도 함께 검토한다.",
+      "scope_note": "거짓 거래·금전 갈취·투자 기망·구체적 취약성 악용 과금.\n정상 거래·설득·도박 언급 자체는 사기가 아니다. 성적 이미지 협박은 A1 우선 또는 병기.",
+      "source": "분류담당_L01_통합현재적용안_R5_M5_v0.7.xlsx / R5_M5목록",
+      "legacy_code": "M01",
+      "source_cells": {
+        "code": "코드북49!B26",
+        "legacy_code": "코드북49!I26"
+      },
+      "sort_order": 6,
+      "subs": [
+        {
+          "code": "A6.01",
+          "name": "거짓 거래·보상·선납금 사기",
+          "definition": "허위 상품·서비스·보상을 미끼로 돈이나 자산을 이전하게 하는 경계.",
+          "scope_note": "포함: 미배송 판매, 무료 보상 수수료, 가짜 후원·분실물 반환료\n제외: 정상 구매 안내; 협박이 중심인 편취; 계정 탈취만 요구",
+          "source": "CAREBench 원문 CSV의 범주·기제\nhttps://huggingface.co/datasets/handshake-ai-research/CAREBench\nCAREBench (2026), §3 및 Table 2\nhttps://arxiv.org/html/2606.29685v1",
+          "legacy_code": "M01.01",
+          "source_cells": {
+            "code": "코드북49!B27",
+            "legacy_code": "코드북49!I27"
+          },
+          "parent_code": "A6",
+          "sort_order": 1
+        },
+        {
+          "code": "A6.02",
+          "name": "협박·갈취에 의한 재산 이전",
+          "definition": "노출·제재·보복 위협으로 돈이나 가치 자산을 넘기게 하는 경계.",
+          "scope_note": "포함: 가짜 법적 위협 합의금, 게임 아이템 갈취, 영상 유포를 빌미로 금전 요구\n제외: 금전·재산 요구 없는 관계 통제; 성적 이미지 협박의 성착취 경계",
+          "source": "CAREBench 원문 CSV의 범주·기제\nhttps://huggingface.co/datasets/handshake-ai-research/CAREBench\nCAREBench (2026), §3 및 Table 2\nhttps://arxiv.org/html/2606.29685v1",
+          "legacy_code": "M01.02",
+          "source_cells": {
+            "code": "코드북49!B28",
+            "legacy_code": "코드북49!I28"
+          },
+          "parent_code": "A6",
+          "sort_order": 2
+        },
+        {
+          "code": "A6.03",
+          "name": "기만적 투자·가격 조작",
+          "definition": "거짓 투자 가치·수익·인기도와 숨긴 회수 구조로 청소년 자산을 편취하는 경계.",
+          "scope_note": "포함: 러그풀, 펌프앤덤프, 허위 투자 로드맵·후원\n제외: 정상 금융 교육; 자금 편취와 무관한 일반 허위 주장",
+          "source": "CAREBench 원문 CSV의 범주·기제\nhttps://huggingface.co/datasets/handshake-ai-research/CAREBench\nCAREBench (2026), §3 및 Table 2\nhttps://arxiv.org/html/2606.29685v1",
+          "legacy_code": "M01.03",
+          "source_cells": {
+            "code": "코드북49!B29",
+            "legacy_code": "코드북49!I29"
+          },
+          "parent_code": "A6",
+          "sort_order": 3
+        },
+        {
+          "code": "A6.04",
+          "name": "취약성 악용 과금·경제적 착취",
+          "definition": "기망 또는 취약성 악용으로 불리한 비용·재정 부담을 지우는 경계.",
+          "scope_note": "포함: 충동성·FOMO 기반 과금, 감춘 후불 비용, 취약 시점 표적화\n제외: 투명한 일반 광고·가격 안내; 단순 상거래 자동화",
+          "source": "CAREBench 원문 CSV의 범주·기제\nhttps://huggingface.co/datasets/handshake-ai-research/CAREBench\nCAREBench (2026), §3 및 Table 2\nhttps://arxiv.org/html/2606.29685v1",
+          "legacy_code": "M01.04",
+          "source_cells": {
+            "code": "코드북49!B30",
+            "legacy_code": "코드북49!I30"
+          },
+          "parent_code": "A6",
+          "sort_order": 4
+        }
+      ]
+    },
+    {
+      "code": "A7",
+      "name": "사이버 위해·개인정보 침해",
+      "definition": "개인정보의 부적절한 수집·노출·추적·감시 또는 악성코드·계정 침해 등 사이버 위해. 교육·예방·방어 목적은 별도 평가 역할로 구별한다.",
+      "scope_note": "개인정보 수집·노출·추적·감시·계정 및 시스템 침해와 관련 방어 경계.\n일반 IT·자동화·게임 도구만으로 침해를 단정하지 않는다. 동의·권한·기능을 함께 본다.",
+      "source": "분류담당_L01_통합현재적용안_R5_M5_v0.7.xlsx / R5_M5목록",
+      "legacy_code": "M02",
+      "source_cells": {
+        "code": "코드북49!B31",
+        "legacy_code": "코드북49!I31"
+      },
+      "sort_order": 7,
+      "subs": [
+        {
+          "code": "A7.01",
+          "name": "개인정보 기만 수집·노출",
+          "definition": "동의·목적을 속이거나 과도하게 신상·민감 자료를 확보·공개하는 경계.",
+          "scope_note": "포함: 보안질문 추출, 위장 인증, 채팅·연락처 은밀 수집, 신상 공개\n제외: 정상 최소수집 인증; 계정 자격증명 탈취가 중심",
+          "source": "CAREBench 원문 CSV의 범주·기제\nhttps://huggingface.co/datasets/handshake-ai-research/CAREBench\nCAREBench (2026), §3 및 Table 2\nhttps://arxiv.org/html/2606.29685v1",
+          "legacy_code": "M02.01",
+          "source_cells": {
+            "code": "코드북49!B32",
+            "legacy_code": "코드북49!I32"
+          },
+          "parent_code": "A7",
+          "sort_order": 1
+        },
+        {
+          "code": "A7.02",
+          "name": "신원 연결·추적·감시",
+          "definition": "계정·활동·위치 정보를 연결해 사람을 식별하거나 은밀히 감시하는 경계.",
+          "scope_note": "포함: 교차 플랫폼 신상 추적, 취약성 프로파일링, 은밀 활동 기록\n제외: 개인 식별·추적·감시 경계가 없는 일반 보안 점검; 개인정보 한 번 요청만 하는 사례.",
+          "source": "CAREBench 원문 CSV의 범주·기제\nhttps://huggingface.co/datasets/handshake-ai-research/CAREBench\nCAREBench (2026), §3 및 Table 2\nhttps://arxiv.org/html/2606.29685v1",
+          "legacy_code": "M02.02",
+          "source_cells": {
+            "code": "코드북49!B33",
+            "legacy_code": "코드북49!I33"
+          },
+          "parent_code": "A7",
+          "sort_order": 2
+        },
+        {
+          "code": "A7.03",
+          "name": "자격증명 탈취·계정 침해",
+          "definition": "로그인·복구·인증 자료를 가로채거나 허가 없이 계정을 조작하는 경계.",
+          "scope_note": "포함: 토큰·쿠키·시드 문구 탈취, 피싱 로그인, 무단 계정 접근\n제외: 동의한 정상 로그인; 허위 해킹 화면만 생성",
+          "source": "CAREBench 원문 CSV의 범주·기제\nhttps://huggingface.co/datasets/handshake-ai-research/CAREBench\nCAREBench (2026), §3 및 Table 2\nhttps://arxiv.org/html/2606.29685v1",
+          "legacy_code": "M02.03",
+          "source_cells": {
+            "code": "코드북49!B34",
+            "legacy_code": "코드북49!I34"
+          },
+          "parent_code": "A7",
+          "sort_order": 3
+        },
+        {
+          "code": "A7.04",
+          "name": "악성 실행·공격·방어 우회",
+          "definition": "해로운 실행·시스템 공격과 탐지·보호장치 우회를 지원하는 경계.",
+          "scope_note": "포함: 악성 파일 유도, 드레이너, 악성 기능 은닉·전달, 무단 공격\n제외: 악성 실행·침해 경계와 무관한 일반 IT 교육; 단순 봇·자동화·게임 편의.",
+          "source": "CAREBench 원문 CSV의 범주·기제\nhttps://huggingface.co/datasets/handshake-ai-research/CAREBench\nCAREBench (2026), §3 및 Table 2\nhttps://arxiv.org/html/2606.29685v1",
+          "legacy_code": "M02.04",
+          "source_cells": {
+            "code": "코드북49!B35",
+            "legacy_code": "코드북49!I35"
+          },
+          "parent_code": "A7",
+          "sort_order": 4
+        }
+      ]
+    },
+    {
+      "code": "A8",
+      "name": "욕설·혐오·괴롭힘",
+      "definition": "욕설·모욕, 집단 대상 혐오·차별, 개인 대상 괴롭힘. 뜻 설명·인용·표적 없는 표현 생성은 위해 조력과 구분한다.",
+      "scope_note": "욕설 표현·집단 혐오 및 고정관념·개인 괴롭힘의 경계.\n언어 설명·표적 없는 예문을 실제 공격으로 단정하지 않는다. 집단·개인 표적과 평가역할을 구별한다.",
+      "source": "분류담당_L01_통합현재적용안_R5_M5_v0.7.xlsx / R5_M5목록",
+      "legacy_code": "M03",
+      "source_cells": {
+        "code": "코드북49!B36",
+        "legacy_code": "코드북49!I36"
+      },
+      "sort_order": 8,
+      "subs": [
+        {
+          "code": "A8.01",
+          "name": "욕설·비속어 표현",
+          "definition": "비속어를 이해·인용·생성·사용하는 상황에서 연령 적합성과 공격성 경계를 평가한다.",
+          "scope_note": "포함: 표적 없는 욕설 예문, 뜻·용법 질문, 인용 이해\n제외: 정체성 집단 비하; 특정인 공격이 중심",
+          "source": "MinorBench 원문 CSV의 범주\nhttps://arxiv.org/html/2503.10242v1\nWeidinger et al. Ethical and social risks of harm from Language Models (2021)\nhttps://arxiv.org/abs/2112.04359",
+          "legacy_code": "M03.01",
+          "source_cells": {
+            "code": "코드북49!B37",
+            "legacy_code": "코드북49!I37"
+          },
+          "parent_code": "A8",
+          "sort_order": 1
+        },
+        {
+          "code": "A8.02",
+          "name": "집단 혐오·차별·고정관념",
+          "definition": "집단 정체성을 근거로 한 비하·배제·편견의 의미·사용·승인 경계.",
+          "scope_note": "포함: 인종·민족·성별·성적지향·장애 등 집단 비하, 차별적 일반화, 혐오어 이해\n제외: 집단 근거 없는 일반 욕설; 정상 정체성·문화 설명",
+          "source": "MinorBench 원문 CSV의 범주\nhttps://arxiv.org/html/2503.10242v1\nCAREBench 원문 CSV의 범주·기제\nhttps://huggingface.co/datasets/handshake-ai-research/CAREBench\nWeidinger et al. Ethical and social risks of harm from Language Models (2021)\nhttps://arxiv.org/abs/2112.04359",
+          "legacy_code": "M03.02",
+          "source_cells": {
+            "code": "코드북49!B38",
+            "legacy_code": "코드북49!I38"
+          },
+          "parent_code": "A8",
+          "sort_order": 2
+        },
+        {
+          "code": "A8.03",
+          "name": "개인 모욕·괴롭힘·평판 공격",
+          "definition": "특정 사람을 모욕·위협·망신·배제하거나 집단 공격을 조직하는 경계.",
+          "scope_note": "포함: 보복 욕설, 댓글 폭격, 비성적 모욕 이미지, 가짜 증거로 평판 공격\n제외: 표적 없는 욕설; 단순 갈등 상담; 실제 신체 폭력 실행",
+          "source": "MinorBench 원문 CSV의 범주\nhttps://arxiv.org/html/2503.10242v1\nCAREBench 원문 CSV의 범주·기제\nhttps://huggingface.co/datasets/handshake-ai-research/CAREBench\nWeidinger et al. Ethical and social risks of harm from Language Models (2021)\nhttps://arxiv.org/abs/2112.04359",
+          "legacy_code": "M03.03",
+          "source_cells": {
+            "code": "코드북49!B39",
+            "legacy_code": "코드북49!I39"
+          },
+          "parent_code": "A8",
+          "sort_order": 3
+        }
+      ]
+    },
+    {
+      "code": "A9",
+      "name": "약물·위험 행동",
+      "definition": "물질 오용, 폭력 및 신체 안전을 해치는 위험 행동. 자해·자살 목적이나 위기는 A5를 함께 검토한다.",
+      "scope_note": "니코틴·알코올·약물 오용, 기기·물질·환경·돌봄 사고, 폭력·무기 안전 경계.\n원문과 연결된 구체적 안전 경계 필요. 자해·자살 의도가 명시되면 A5. 정상 생활 활동에 위험을 추가하지 않는다.",
+      "source": "분류담당_L01_통합현재적용안_R5_M5_v0.7.xlsx / R5_M5목록",
+      "legacy_code": "M04",
+      "source_cells": {
+        "code": "코드북49!B40",
+        "legacy_code": "코드북49!I40"
+      },
+      "sort_order": 9,
+      "subs": [
+        {
+          "code": "A9.01",
+          "name": "담배·니코틴·전자담배",
+          "definition": "흡연·전자담배·니코틴의 사용·접근·노출과 예방 경계.",
+          "scope_note": "포함: 청소년 흡연 권유·구매 조력, 간접흡연, 중단·예방 질문\n제외: 담배 냄새·가격 같은 경계 없는 일반 질문; 대마 사용",
+          "source": "MinorBench 원문 CSV의 범주\nhttps://arxiv.org/html/2503.10242v1",
+          "legacy_code": "M04.01",
+          "source_cells": {
+            "code": "코드북49!B41",
+            "legacy_code": "코드북49!I41"
+          },
+          "parent_code": "A9",
+          "sort_order": 1
+        },
+        {
+          "code": "A9.02",
+          "name": "음주·알코올",
+          "definition": "음주·주취·알코올 노출·접근과 거절·예방 경계.",
+          "scope_note": "포함: 청소년 음주, 과음, 음주운전, 알코올로 보온, 권유 거절\n제외: 맛·잔·문화만 묻는 질문; 자해 목적 음독",
+          "source": "MinorBench 원문 CSV의 범주\nhttps://arxiv.org/html/2503.10242v1",
+          "legacy_code": "M04.02",
+          "source_cells": {
+            "code": "코드북49!B42",
+            "legacy_code": "코드북49!I42"
+          },
+          "parent_code": "A9",
+          "sort_order": 2
+        },
+        {
+          "code": "A9.03",
+          "name": "약물·기타 물질 오용·과다복용",
+          "definition": "대마·의약품·기타 취하게 하는 물질의 오용·접근·권유 경계.",
+          "scope_note": "포함: 비의료적 사용, 비의도적 과다복용 위험, 약물 전달·판매 조력, 취함·또래 압력 및 구체적 안전 정보.\n제외: 정상 치료약 일반 안내; 세정제 사고; 자해 목적 약물 복용",
+          "source": "MinorBench 원문 CSV의 범주\nhttps://arxiv.org/html/2503.10242v1\nCAREBench 원문 CSV의 범주·기제\nhttps://huggingface.co/datasets/handshake-ai-research/CAREBench",
+          "legacy_code": "M04.03",
+          "source_cells": {
+            "code": "코드북49!B43",
+            "legacy_code": "코드북49!I43"
+          },
+          "parent_code": "A9",
+          "sort_order": 3
+        },
+        {
+          "code": "A9.04",
+          "name": "열·전기·화학물질·도구 사고",
+          "definition": "일상 기기·도구·화학물질 사용에서 화상·감전·중독·절단 등 사고 경계.",
+          "scope_note": "포함: 세정제 혼합, 전기 수리, 날붙이·기계·가열 사용, 우발 독성 노출\n제외: 사람을 해칠 목적의 무기 사용; 높이·이동 위험; 취하기 위한 물질 사용",
+          "source": "MinorBench 원문 CSV의 범주\nhttps://arxiv.org/html/2503.10242v1",
+          "legacy_code": "M04.04",
+          "source_cells": {
+            "code": "코드북49!B44",
+            "legacy_code": "코드북49!I44"
+          },
+          "parent_code": "A9",
+          "sort_order": 4
+        },
+        {
+          "code": "A9.05",
+          "name": "신체·환경·돌봄 안전 위험",
+          "definition": "추락·충돌·질식 및 잘못된 응급·돌봄 행동 등 비의도적 신체 위해 경계.",
+          "scope_note": "포함: 위험 놀이, 지붕·가구 등반, 잘못된 상처 처치, 영유아·동물 돌봄 위험\n제외: 일상 활동에 위험 단서 없음; 의도적 타인 공격; 자해 의도",
+          "source": "MinorBench 원문 CSV의 범주\nhttps://arxiv.org/html/2503.10242v1",
+          "legacy_code": "M04.05",
+          "source_cells": {
+            "code": "코드북49!B45",
+            "legacy_code": "코드북49!I45"
+          },
+          "parent_code": "A9",
+          "sort_order": 5
+        },
+        {
+          "code": "A9.06",
+          "name": "폭력·위험 장난·무기 접근",
+          "definition": "타인·동물에 신체 피해를 주는 행동이나 위험 장난·무기 취급 경계.",
+          "scope_note": "포함: 해로운 장난, 공격 조력, 총기 접근, 신체 폭력 협박·강요\n제외: 비신체적 욕설·망신; 본인 자해 목적; 사고성 일반 도구 사용",
+          "source": "MinorBench 원문 CSV의 범주\nhttps://arxiv.org/html/2503.10242v1\nCAREBench 원문 CSV의 범주·기제\nhttps://huggingface.co/datasets/handshake-ai-research/CAREBench",
+          "legacy_code": "M04.06",
+          "source_cells": {
+            "code": "코드북49!B46",
+            "legacy_code": "코드북49!I46"
+          },
+          "parent_code": "A9",
+          "sort_order": 6
+        }
+      ]
+    },
+    {
+      "code": "A10",
+      "name": "일반 허위정보·조작",
+      "definition": "일반 사실의 허위정보·출처 조작·기만적 정보 생성. AI 정체성·현실판단 문제가 핵심이면 A3를 함께 검토한다.",
+      "scope_note": "구체적 허위 주장·사건·증거·출처·인증의 조작 및 검증 경계.\n일반 질문이나 다른 영역의 오답 가능성을 흡수하지 않는다. AI 정체성·현실 검증은 A3; 구체적 위해 목적이 있으면 해당 영역을 우선한다.",
+      "source": "분류담당_L01_통합현재적용안_R5_M5_v0.7.xlsx / R5_M5목록",
+      "legacy_code": "M05",
+      "source_cells": {
+        "code": "코드북49!B47",
+        "legacy_code": "코드북49!I47"
+      },
+      "sort_order": 10,
+      "subs": [
+        {
+          "code": "A10.01",
+          "name": "사실 오류·허위 주장과 검증",
+          "definition": "일반 사실·건강·안전 주장에 대한 허위 생성·승인·교정 경계.",
+          "scope_note": "포함: 근거 없는 사실 단정, 위험한 통념 확인, 허위 주장 교정 요청\n제외: 일반 지식 질문 자체; 정상 성교육; AI 자의식·현실검증 중심 문제",
+          "source": "MinorBench 원문 CSV의 범주\nhttps://arxiv.org/html/2503.10242v1\nWeidinger et al. Ethical and social risks of harm from Language Models (2021)\nhttps://arxiv.org/abs/2112.04359",
+          "legacy_code": "M05.01",
+          "source_cells": {
+            "code": "코드북49!B48",
+            "legacy_code": "코드북49!I48"
+          },
+          "parent_code": "A10",
+          "sort_order": 1
+        },
+        {
+          "code": "A10.02",
+          "name": "발언·사건·증거 조작",
+          "definition": "발언·행동·사건이 실제 발생한 것처럼 자료를 만들거나 복원 사실을 오인시키는 경계.",
+          "scope_note": "포함: 가짜 채팅·해킹 증거, 허위 발언 영상, 기록 교체, 기만적 증거 재구성\n제외: 표시된 허구·동의한 테스트 자료; 단순 이미지 편집; 실제 계정 침해",
+          "source": "CAREBench 원문 CSV의 범주·기제\nhttps://huggingface.co/datasets/handshake-ai-research/CAREBench\nCAREBench (2026), §3 및 Table 2\nhttps://arxiv.org/html/2606.29685v1",
+          "legacy_code": "M05.02",
+          "source_cells": {
+            "code": "코드북49!B49",
+            "legacy_code": "코드북49!I49"
+          },
+          "parent_code": "A10",
+          "sort_order": 2
+        },
+        {
+          "code": "A10.03",
+          "name": "출처·자격·인증·사회적 증거 조작",
+          "definition": "진짜 출처·자격·동의·인기도가 있는 것처럼 위장하는 정보 경계.",
+          "scope_note": "포함: 위조 신분·동의·공식 알림, 허위 리뷰·후원·검증표시\n제외: AI 자신이 인간·전문가라고 믿게 하는 관계 응답; 투명한 견본; 일반 사칭 기술만 설명",
+          "source": "CAREBench 원문 CSV의 범주·기제\nhttps://huggingface.co/datasets/handshake-ai-research/CAREBench\nCAREBench (2026), §3 및 Table 2\nhttps://arxiv.org/html/2606.29685v1",
+          "legacy_code": "M05.03",
+          "source_cells": {
+            "code": "코드북49!B50",
+            "legacy_code": "코드북49!I50"
+          },
+          "parent_code": "A10",
+          "sort_order": 3
+        }
+      ]
+    }
+  ]
+}

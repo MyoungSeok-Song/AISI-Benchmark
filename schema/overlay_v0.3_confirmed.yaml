@@ -1,0 +1,98 @@
+# 코드북 v0.2 추출본(codebook_v0.2.json) 위에 덮어쓰는 변경 목록
+#
+# 왜 필요한가
+#   코드북 xlsx가 유일한 명세인데, v0.3 xlsx가 오기 전에 이미 확정된 변경이 있다.
+#   codebook_v0.2.json을 손으로 고치면 xlsx와 어긋나므로, 변경만 이 파일에 따로 적고
+#   kyab_runner/codebook.py가 읽을 때 덮어쓴다.
+#
+# 언제 지우는가
+#   코드북 v0.3 xlsx 수령 → tools/extract_codebook.py 재실행 → 이 파일 삭제.
+#   (v0.3에 반영되지 않은 항목이 있으면 그 항목만 남기고 status를 다시 확인한다)
+#
+# status
+#   confirmed    코드북 담당 회신으로 확정된 사항 (내부 검토에서 2026-09-30에 전달)
+#   provisional  아직 결정 전. 러너가 돌아가려면 값이 필요해 우리가 둔 가정.
+#                근거는 검토메모_A1-A10통합_구현영향_v0.1.md. 회신에 따라 바뀔 수 있다.
+#
+# apply 항목에 쓸 수 있는 키
+#   table, field   대상 필드 (필수)
+#   enum           허용값 전체 교체
+#   enum_add       허용값 추가
+#   enum_from      분류체계 JSON에서 허용값을 가져옴: taxonomy.major | taxonomy.sub
+#   enum_kind      scalar(단일값) | array(JSON 배열의 원소)
+#   required       true | false  (false = 빈 값 허용. 조건부 필수는 validate.py의 규칙이 검사)
+#   max_items      JSON 배열의 최대 원소 수
+
+base: codebook_v0.2.json
+
+changes:
+  # ── 확정 사항 ────────────────────────────────────────────────────────
+  - id: OV-C1
+    status: confirmed
+    date: 2026-09-30
+    basis: "코드북 담당 회신 1: protocol_id 표기를 MT3-1.0.0 형식으로 통일 (참고 시트 2절 '실행 방식' 행과 같은 형식)"
+    note: "회신은 ST1·MT3만 예로 들었다. MT7·MT10도 같은 형식으로 바꾼 것은 가정."
+    apply:
+      - {table: 01_items, field: protocol_id, enum: [ST1-1.0.0, MT3-1.0.0, MT7-1.0.0, MT10-1.0.0]}
+      - {table: 04_runs,  field: protocol_id, enum: [ST1-1.0.0, MT3-1.0.0, MT7-1.0.0, MT10-1.0.0]}
+
+  - id: OV-C2
+    status: confirmed
+    date: 2026-09-30
+    basis: "코드북 담당 회신 2: intent_tag는 선택 필드. 비워도 되고 집계에 쓰지 않음"
+    apply:
+      - {table: 02_item_tags, field: intent_tag, required: false}
+
+  # 회신 3(기대 안전응답 = 02 expected_response_tags + 03 turn_expected_safe_response_json)은
+  # 설명 문구 정정이라 덮어쓸 값이 없다. 러너는 두 필드 모두 모델에 보내지 않는다(AI 전달 ×).
+
+  - id: OV-C4a
+    status: confirmed
+    date: 2026-09-30
+    basis: "코드북 담당 회신 4: original_text는 외부 원천을 번역·한국화한 경우만 필수, 신규 문항은 공란 허용"
+    note: "조건 검사는 validate.py rule_original_text (source_benchmark가 NEW가 아니면 필수)"
+    apply:
+      - {table: 01_items, field: original_text, required: false}
+
+  - id: OV-C4b
+    status: confirmed
+    date: 2026-09-30
+    basis: "코드북 담당 회신 4: primary_risk는 위험 문항이 검토 완료된 경우만 필수. 안전 대조군·미검토·보류는 공란 허용, risk_review_status로 이유 구분. not_applicable 추가"
+    note: "조건 검사는 validate.py rule_primary_risk (risk_review_status=mapped이면 필수)"
+    apply:
+      - {table: 02_item_tags, field: primary_risk, required: false}
+      - {table: 02_item_tags, field: risk_review_status, enum_add: [not_applicable]}
+
+  - id: OV-C5
+    status: confirmed
+    date: 2026-09-30
+    basis: "코드북 담당 회신 5: R1~R5 + M01~M05 → A1~A10 단일 분류체계(상위 10 · 하위 39). 코드는 schema/taxonomy_A1-A10.json에서 읽는다"
+    note: "taxonomy_version의 MAJOR가 0인 과거 행은 validate.py가 이전 코드(crosswalk_RM_to_A.csv)로 검사한다."
+    apply:
+      - {table: 02_item_tags, field: primary_risk,    enum_from: taxonomy.major, enum_kind: scalar}
+      - {table: 02_item_tags, field: secondary_risks, enum_from: taxonomy.major, enum_kind: array}
+      - {table: 02_item_tags, field: sub_risk_codes,  enum_from: taxonomy.sub,   enum_kind: array}
+
+  # ── 가정 (결정 전) ───────────────────────────────────────────────────
+  - id: OV-P1
+    status: provisional
+    date: 2026-09-30
+    basis: "검토메모 §3 A안: sub_risk_codes에는 주소분류만 0~1개. 분류팀 작업안내 B7·B18(주대분류 1 + 주소분류 1)"
+    apply:
+      - {table: 02_item_tags, field: sub_risk_codes, max_items: 1}
+
+  - id: OV-P2
+    status: provisional
+    date: 2026-09-30
+    basis: "검토메모 §6: M01~M05가 A6~A10으로 편입돼 m_review_status에 넣을 값이 없음 → 필수 해제"
+    note: "validate.py rule_m_review: taxonomy_version MAJOR가 1 이상인 행은 m_review_* 공란, 0인 행은 v0.2대로 필수"
+    apply:
+      - {table: 02_item_tags, field: m_review_status, required: false}
+
+  - id: OV-P3
+    status: provisional
+    date: 2026-09-30
+    basis: "계획 문서 §1.7: 차단·오류·시간초과·빈 응답이면 응답 본문이 없다. v0.2는 response_text를 무조건 필수로 적고 있음"
+    note: "csv_io가 response_status=success인 행에만 본문을 요구한다."
+    apply:
+      - {table: 05_responses, field: response_text, required: false}

@@ -1,0 +1,22 @@
+# 실패 경로 확인용 모의 계획. 호출마다 어떤 시나리오를 쓸지 정한다 (adapters/mock.py 참고).
+# 규칙은 위에서부터 처음 맞는 것을 쓴다. 조건 키: item_id, turn_index, rollout_no.
+#
+#   단일턴  .venv/bin/python -m kyab_runner.run_single    --allow-unverified --mock-plan samples/mock_plan_failures.yaml
+#   3턴     .venv/bin/python -m kyab_runner.run_multiturn --allow-unverified --mock-plan samples/mock_plan_failures.yaml
+default: normal
+rules:
+  # 단일턴
+  - {item_id: KYAB-900001, rollout_no: 1, scenario: refusal}   # 모델의 거절 문장 = success
+  - {item_id: KYAB-900001, rollout_no: 2, scenario: length}    # 출력 한도 절단 = success + length
+  - {item_id: KYAB-900001, rollout_no: 3, scenario: flaky}     # 일시 오류 2회 뒤 성공
+  - {item_id: KYAB-900002, rollout_no: 1, scenario: blocked}   # 공급자 차단
+  - {item_id: KYAB-900002, rollout_no: 2, scenario: empty}     # 빈 응답
+  - {item_id: KYAB-900003, rollout_no: 1, scenario: error}     # 재시도해도 안 되는 오류
+  - {item_id: KYAB-900003, rollout_no: 2, scenario: timeout}   # 시간 초과 (재시도 3회 모두 실패)
+  # 3턴
+  - {item_id: KYAB-900101, turn_index: 2, rollout_no: 1, scenario: blocked}   # 2턴 차단 → partial
+  - {item_id: KYAB-900101, turn_index: 1, rollout_no: 2, scenario: error}     # 1턴 오류 → failed
+  - {item_id: KYAB-900102, turn_index: 3, rollout_no: 1, scenario: timeout}   # 3턴 시간 초과 → partial
+  - {item_id: KYAB-900102, turn_index: 2, rollout_no: 2, scenario: flaky}     # 2턴 재시도 후 성공 → completed
+  - {item_id: KYAB-900103, turn_index: 2, rollout_no: 1, scenario: length}    # 2턴 절단, 계속 진행 → completed
+  - {item_id: KYAB-900103, turn_index: 3, rollout_no: 2, scenario: empty}     # 3턴 빈 응답 → partial
