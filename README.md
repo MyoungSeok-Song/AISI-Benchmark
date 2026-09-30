@@ -4,7 +4,7 @@
 단일턴 실행기와 3턴 실행기가 따로 있고, 입력 검증·기록·모의 모델은 함께 씁니다.
 
 - 기준 명세: `project proposal/ETRI_7CSV_codebook_v0.2.xlsx` + 확정 변경(`schema/overlay_v0.3_confirmed.yaml`)
-- 현재 범위: **모의 모델만 실행**합니다. 상용 API 어댑터는 없습니다(API 키·D06·D08 확인 전 호출 금지).
+- 현재 범위: **모의 모델과 로컬 vLLM 모델**을 실행합니다. 상용 API 어댑터는 없습니다(API 키·D06·D08 확인 전 호출 금지).
 - 채점은 하지 않습니다. 판정 단계가 쓸 빈 틀(`06_judgments_template.csv`)만 만듭니다.
 
 ## 설치
@@ -33,9 +33,55 @@ python3 -m pip --python .venv/bin/python install -r requirements.txt
 # 4. 중단된 배치 이어서 실행
 .venv/bin/python -m kyab_runner.run_multiturn --allow-unverified --batch-id RBATCH-20260930-002
 
-# 5. 테스트 (29개)
+# 5. 테스트 (35개, 서버·GPU 없이 돈다)
 .venv/bin/python -m unittest discover -s tests
 ```
+
+## 로컬 모델 (vLLM)
+
+이 서버에서 띄운 vLLM에만 요청을 보냅니다. 문항이 서버 밖으로 나가지 않습니다(어댑터가 localhost가 아닌 주소를 거부, 서버는 `HF_HUB_OFFLINE=1`·사용 통계 전송 끔·`127.0.0.1` 바인딩).
+
+```bash
+# 서버 기동 (GPU 1장). 먼저 nvidia-smi로 다른 작업이 GPU를 쓰는지 확인한다
+.venv/bin/python tools/vllm_server.py start --model qwen3-8b-local --gpu 0
+
+# 실행
+.venv/bin/python -m kyab_runner.run_single    --allow-unverified --model qwen3-8b-local
+.venv/bin/python -m kyab_runner.run_multiturn --allow-unverified --model qwen3-8b-local
+
+# 반복 간 응답 동일 여부
+.venv/bin/python tools/check_determinism.py samples/output/<run_batch_id>
+
+# 서버 종료 (GPU 비우기)
+.venv/bin/python tools/vllm_server.py stop
+```
+
+| 항목 | 값 |
+|---|---|
+| 모델 판본 (`model_version`) | HF 캐시 스냅샷 revision. 서버가 그 스냅샷을 올렸는지 실행 전에 확인 |
+| 호출 파라미터 | `temperature` 0.0, `top_p` 1.0, `max_tokens` 1024. 모델 폴더의 `generation_config.json`은 쓰지 않음(`--generation-config vllm`) |
+| thinking | 끔 (`chat_template_kwargs.enable_thinking=false`) |
+| 접두부 캐시 | 끔 (`--no-enable-prefix-caching`). 켜면 같은 입력의 첫 호출과 이후 호출 응답이 갈림 |
+| 서버·라이브러리 정보 | 기동 명령, dtype, GPU, vLLM·torch 버전, CUDA 빌드 → `batch_manifest.json`의 `adapter_info`, `runner_events.jsonl` |
+| 모델 다운로드 | 서버 도구는 받지 않음. HF 캐시에 스냅샷이 없으면 멈춤 |
+
+### vLLM venv 설치
+
+러너 venv와 따로 둡니다. 위치는 `config/runner.yaml`의 `vllm_venv`이며 **경로에 공백이 없어야** 합니다(vLLM이 쓰는 FlashInfer가 첫 실행 때 커널을 빌드하는데 공백 경로에서 실패). 그래서 러너 폴더 밖에 있습니다.
+
+이 서버의 NVIDIA 드라이버(570.124.06)는 CUDA 12.8까지 지원합니다. PyPI 기본 vllm 휠은 CUDA 13 빌드라 그대로는 뜨지 않습니다. 드라이버·시스템 패키지는 건드리지 않고 venv 안에서 CUDA 12 빌드로 맞춥니다. 전역 pip 설정의 추가 인덱스(`pypi.ngc.nvidia.com`)가 조회되지 않아 설치가 멈추므로 `--isolated`를 씁니다.
+
+```bash
+V=/home/ubuntu/342/myoungseok/.venvs/etri-vllm
+python3 -m venv --without-pip $V
+PIP="python3 -m pip --isolated --no-cache-dir --python $V/bin/python"
+$PIP install vllm==0.30.0
+$PIP install torch==2.13.0+cu126 torchvision==0.28.0+cu126 torchaudio==2.11.0+cu126 --index-url https://download.pytorch.org/whl/cu126
+$PIP install --no-deps torchcodec==0.16.0+cu126 --index-url https://download.pytorch.org/whl/cu126
+$PIP install --no-deps --force-reinstall "https://github.com/vllm-project/vllm/releases/download/v0.30.0/vllm-0.30.0%2Bcu129-cp38-abi3-manylinux_2_28_x86_64.whl"
+```
+
+고정 버전은 `requirements-vllm.txt`에도 적혀 있습니다.
 
 | 옵션 | 뜻 | 기본값 |
 |---|---|---|
@@ -133,6 +179,18 @@ python3 -m pip --python .venv/bin/python install -r requirements.txt
 
 `turn_id`는 입력에 있어야 합니다. 러너는 발급하지 않습니다.
 
+## 실행 코드 버전과 git
+
+`runner/`는 **로컬 전용 git 저장소**입니다. 원격을 추가하거나 push하지 않습니다.
+
+| 상태 | `execution_library_version` |
+|---|---|
+| 커밋된 상태 그대로 실행 | `runner-0.1.0+<커밋 SHA 7자리>` |
+| 커밋 안 된 변경이 있음 | `runner-0.1.0+<SHA>.dirty` (실행은 막지 않고 표시만 남김) |
+| git 저장소가 아님 | `runner-0.1.0+src<소스 해시 7자리>` |
+
+본평가는 `.dirty`가 붙지 않은 상태에서 돌립니다. `.venv/`, `samples/output/`, `var/`, 모델 가중치는 저장소에 넣지 않습니다(`.gitignore`).
+
 ## 폴더 구조
 
 ```
@@ -141,6 +199,8 @@ runner/
     extract_codebook.py     코드북 xlsx → schema/codebook_v0.2.json
     extract_taxonomy.py     분류팀 xlsx → schema/taxonomy_A1-A10.json, crosswalk_RM_to_A.csv
     build_samples.py        개발 샘플 입력 6건 생성
+    vllm_server.py          로컬 vLLM 서버 기동·종료·상태
+    check_determinism.py    반복 간 응답 동일 여부 확인
   schema/
     codebook_v0.2.json            코드북 추출본 (손으로 고치지 않음)
     overlay_v0.3_confirmed.yaml   v0.3 xlsx가 오기 전까지의 확정·가정 변경
@@ -158,7 +218,7 @@ runner/
     validate.py             입력 검증
     ids.py                  RBATCH·RUN·RESP 발급
     messages.py             요청 메시지 구성
-    adapters/               base.py(규격), mock.py(모의)
+    adapters/               base.py(규격), mock.py(모의), local_vllm.py(로컬 vLLM)
     session.py              실행 1건의 기록 절차 (두 실행기 공용)
     cli.py                  명령행·배치 진행 (두 실행기 공용)
     run_single.py           단일턴 실행기
@@ -168,7 +228,8 @@ runner/
     input/                  샘플 입력 (900000번대 ID, 실제 문항 아님)
     output/                 샘플 실행 결과
     mock_plan_failures.yaml 실패 경로 모의 계획
-  tests/test_runner.py
+  tests/                    test_runner.py, test_local_vllm.py
+  var/                      서버 기동 정보·로그 (git 제외)
 ```
 
 ## 명세가 바뀔 때
@@ -192,6 +253,6 @@ overlay의 `provisional` 항목과 `config/runner.yaml`의 기본값은 결정 �
 | `MT7`·`MT10` 표기 | `MT7-1.0.0`, `MT10-1.0.0` | 회신은 ST1·MT3만 예시 |
 | 성공 턴이 0개인 실행 | `failed` (단일턴 차단 포함) | C4 기본값 |
 | 대화 범위 판정 행 | 마지막 성공 응답의 `response_id` 참조 | 06에 `run_id` FK가 없음 |
-| `execution_library_version` | git 저장소가 아니면 소스 해시(`+src…`) | 러너 폴더가 아직 git 관리 전 |
+| 로컬 모델 `provider` | 임시 등록 코드 `local_vllm` | 등록 코드 목록 미정 |
 | 신규 문항 `source_license` | 임시 값 `LicenseRef-KYAB-internal` | 내부 코드 미정 |
-| 실제 모델 | 미구현 | 로컬 vLLM 어댑터가 다음 단계 |
+| 상용 모델 | 미구현 | API 키·D06·D08 확인 후 |

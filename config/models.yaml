@@ -46,7 +46,31 @@ models:
         max_model_len: 8192
         gpu_memory_utilization: 0.5
         port: 8000
-        # 접두부 캐시를 끈다. 켜 두면 같은 입력이라도 캐시가 없던 첫 호출과 캐시를 쓴 뒤 호출의
-        # 계산 경로가 달라 temperature 0.0에서도 응답이 갈렸다(2026-09-30 확인: 12개 턴 모두
-        # 반복 1만 다르고 2·3은 동일).
+        # 접두부 캐시를 끈다. 켜 두면 temperature 0.0에서도 반복 간 응답이 갈렸다.
+        # 2026-09-30 확인(캐시 켬, 배치 005·006): 단일턴 3문항은 모두 반복 1만 다르고 2·3은 동일
+        # (캐시 없는 첫 호출과 캐시를 쓴 호출의 차이). 3턴은 9개 턴 중 4개가 같은 양상이고
+        # 5개는 반복 2·3도 서로 달랐다(앞 턴 응답이 갈리면 뒤 턴 입력이 달라짐).
+        # 캐시를 끈 배치 007·008은 12개 턴 모두 3회 동일.
+        extra_args: ["--no-enable-prefix-caching"]
+
+  # 평가 대상 공개 모델 후보 (상용_API_제안_v0.1). 2026-09-30 HF에서 받음: 55.6GB, apache-2.0, 비게이트.
+  qwen3.8-27b-local:
+    adapter: local_vllm
+    provider: local_vllm         # 임시 등록 코드
+    model_version: 1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0   # HF 스냅샷 revision (Qwen/Qwen3.8-27B)
+    model_snapshot_date: "2026-09-30"
+    api_version: v1
+    enabled: true
+    options:
+      base_url: http://127.0.0.1:8000/v1
+      served_model_name: qwen3.8-27b-local
+      request_timeout_s: 300
+      extra_body:
+        chat_template_kwargs: {enable_thinking: false}
+      server:
+        hf_repo: Qwen/Qwen3.8-27B
+        dtype: bfloat16
+        max_model_len: 8192
+        gpu_memory_utilization: 0.92     # H100 80GB 1장에 BF16 가중치(약 52GB) + KV 캐시
+        port: 8000
         extra_args: ["--no-enable-prefix-caching"]
