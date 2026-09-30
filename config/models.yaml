@@ -46,3 +46,7 @@ models:
         max_model_len: 8192
         gpu_memory_utilization: 0.5
         port: 8000
+        # 접두부 캐시를 끈다. 켜 두면 같은 입력이라도 캐시가 없던 첫 호출과 캐시를 쓴 뒤 호출의
+        # 계산 경로가 달라 temperature 0.0에서도 응답이 갈렸다(2026-09-30 확인: 12개 턴 모두
+        # 반복 1만 다르고 2·3은 동일).
+        extra_args: ["--no-enable-prefix-caching"]

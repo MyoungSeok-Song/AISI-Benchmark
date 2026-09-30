@@ -213,7 +213,9 @@ def print_summary(batch, new_rows):
     print(f"  response_status {dict(Counter(r['response_status'] for r in responses))}")
     usage = Counter()
     for row in responses:                       # 토큰은 CSV에 칸이 없어 원본 응답에서 합산한다
-        usage.update(json.loads(row["raw_response_json"]).get("usage", {}))
+        reported = json.loads(row["raw_response_json"]).get("usage") or {}
+        # 공급자에 따라 세부 항목이 null이거나 중첩 객체다. 숫자인 항목만 더한다.
+        usage.update({k: v for k, v in reported.items() if isinstance(v, int)})
     if usage:
         print(f"  토큰 합계       {dict(usage)}")
 

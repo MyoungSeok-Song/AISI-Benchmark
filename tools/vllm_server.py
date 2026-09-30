@@ -100,7 +100,8 @@ def start(args):
                # 모델 폴더의 generation_config.json(top_k 등 기본 샘플링 값)을 쓰지 않고
                # 요청에 적은 값만 적용한다. 러너가 보낸 파라미터가 곧 실제 파라미터가 되게 한다.
                "--generation-config", "vllm",
-               "--seed", "0"]
+               "--seed", "0",
+               *server.get("extra_args", [])]
     env = {**os.environ, **OFFLINE_ENV, "CUDA_VISIBLE_DEVICES": str(args.gpu)}
 
     VAR_DIR.mkdir(exist_ok=True)
