@@ -1,0 +1,19 @@
+{
+  "status": 200,
+  "body": {
+    "candidates": [
+      {
+        "content": {
+          "role": "model"
+        },
+        "finishReason": "MAX_TOKENS",
+        "index": 0
+      }
+    ],
+    "usageMetadata": {
+      "promptTokenCount": 40,
+      "thoughtsTokenCount": 1024,
+      "totalTokenCount": 1064
+    }
+  }
+}

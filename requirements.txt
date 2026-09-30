@@ -1,2 +1,4 @@
 openpyxl==3.1.5
 PyYAML==6.0.3
+# Anthropic 어댑터용 공식 SDK. 모의·로컬 실행에는 쓰이지 않는다(상용 어댑터를 만들 때만 불러옴).
+anthropic==1.9.0

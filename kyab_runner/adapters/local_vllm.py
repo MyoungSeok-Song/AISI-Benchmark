@@ -23,7 +23,7 @@ import urllib.request
 from urllib.parse import urlparse
 
 from .. import paths
-from .base import Adapter, AdapterResult
+from .base import Adapter, AdapterResult, blocked_result, normalize_finish_reason, text_result
 
 _LOCAL_HOSTS = ("127.0.0.1", "localhost", "::1")
 SERVER_INFO_FILE = paths.RUNNER_DIR / "var" / "vllm_server.json"    # tools/vllm_server.py가 기록
@@ -116,12 +116,8 @@ class LocalVllmAdapter(Adapter):
 def _to_result(raw, latency_ms):
     """chat completion 원본 응답 -> AdapterResult. 원본은 손대지 않고 그대로 보존한다."""
     choice = (raw.get("choices") or [{}])[0]
-    text = (choice.get("message") or {}).get("content") or ""
     finish = choice.get("finish_reason")
-    finish_reason = _FINISH_REASONS.get(finish, "other") if finish else ""
-    common = dict(raw_response=raw, finish_reason=finish_reason, latency_ms=latency_ms)
     if finish == "content_filter":
-        return AdapterResult("blocked", block_source="provider", **common)
-    if not text.strip():
-        return AdapterResult("empty", error_code="empty_response", error_message="응답 본문이 비어 있음", **common)
-    return AdapterResult("success", response_text=text, **common)
+        return blocked_result(raw, latency_ms=latency_ms)
+    text = (choice.get("message") or {}).get("content") or ""
+    return text_result(raw, text, normalize_finish_reason(finish, _FINISH_REASONS), latency_ms)

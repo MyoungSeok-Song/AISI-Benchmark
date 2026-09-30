@@ -30,6 +30,31 @@ class AdapterResult:
     latency_ms: int = 0             # 보조 로그용. CSV에는 칸이 없다
 
 
+# ── 결과 만들기 (모든 어댑터가 같은 규칙을 쓰도록 여기에 둔다) ─────────
+def text_result(raw, text, finish_reason, latency_ms=0):
+    """모델이 돌려준 본문으로 결과를 만든다.
+
+    본문이 있으면 success. 모델이 스스로 거절한 문장도 본문이므로 success다.
+    본문이 비면 empty. 추론 토큰이 출력 한도를 다 써서 본문이 없는 경우가 여기에 해당하며,
+    그때 finish_reason은 length로 남는다.
+    """
+    common = dict(raw_response=raw, finish_reason=finish_reason, latency_ms=latency_ms)
+    if not (text or "").strip():
+        return AdapterResult("empty", error_code="empty_response", error_message="응답 본문이 비어 있음", **common)
+    return AdapterResult("success", response_text=text, **common)
+
+
+def blocked_result(raw, detail="", latency_ms=0, block_source="provider"):
+    """공급자 안전장치가 응답을 막은 경우. 본문은 없고 finish_reason은 content_filter로 통일한다."""
+    return AdapterResult("blocked", raw_response=raw, finish_reason="content_filter",
+                         block_source=block_source, error_message=detail, latency_ms=latency_ms)
+
+
+def normalize_finish_reason(value, mapping):
+    """공급자 종료 사유 -> 정규화 어휘(config finish_reasons). 목록에 없으면 other, 값이 없으면 빈 값."""
+    return mapping.get(value, "other") if value else ""
+
+
 class Adapter:
     """어댑터가 구현할 인터페이스."""
 

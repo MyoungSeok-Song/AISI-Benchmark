@@ -1,0 +1,10 @@
+{
+  "status": 429,
+  "body": {
+    "error": {
+      "code": 429,
+      "message": "Resource has been exhausted.",
+      "status": "RESOURCE_EXHAUSTED"
+    }
+  }
+}

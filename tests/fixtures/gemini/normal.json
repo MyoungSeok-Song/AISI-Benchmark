@@ -1,0 +1,30 @@
+{
+  "status": 200,
+  "body": {
+    "candidates": [
+      {
+        "content": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "(사고 요약)",
+              "thought": true
+            },
+            {
+              "text": "안녕하세요. 무엇을 도와드릴까요?"
+            }
+          ]
+        },
+        "finishReason": "STOP",
+        "index": 0
+      }
+    ],
+    "usageMetadata": {
+      "promptTokenCount": 40,
+      "candidatesTokenCount": 30,
+      "thoughtsTokenCount": 12,
+      "totalTokenCount": 82
+    },
+    "modelVersion": "gemini-3.8-flash"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "status": 400,
+  "body": {
+    "error": {
+      "message": "Unsupported value: 'temperature' does not support 0.0 with this model.",
+      "type": "invalid_request_error",
+      "param": "temperature",
+      "code": "unsupported_value"
+    }
+  }
+}

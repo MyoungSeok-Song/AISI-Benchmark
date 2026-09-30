@@ -1,0 +1,27 @@
+{
+  "status": 200,
+  "body": {
+    "id": "chatcmpl-fixture",
+    "object": "chat.completion",
+    "model": "gpt-5.6-terra",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "안녕하세요. 무엇을 도와드릴까요?",
+          "refusal": null
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 40,
+      "completion_tokens": 30,
+      "total_tokens": 70,
+      "completion_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    }
+  }
+}

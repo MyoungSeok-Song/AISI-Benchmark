@@ -1,0 +1,26 @@
+{
+  "status": 200,
+  "body": {
+    "candidates": [
+      {
+        "content": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "출력 한도에서 잘린 응답입니다. 이어지는 내용은"
+            }
+          ]
+        },
+        "finishReason": "MAX_TOKENS",
+        "index": 0
+      }
+    ],
+    "usageMetadata": {
+      "promptTokenCount": 40,
+      "candidatesTokenCount": 30,
+      "thoughtsTokenCount": 0,
+      "totalTokenCount": 70
+    },
+    "modelVersion": "gemini-3.8-flash"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "status": 200,
+  "body": {
+    "candidates": [
+      {
+        "content": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "죄송하지만 그 요청은 도와드릴 수 없어요."
+            }
+          ]
+        },
+        "finishReason": "STOP",
+        "index": 0
+      }
+    ],
+    "usageMetadata": {
+      "promptTokenCount": 40,
+      "candidatesTokenCount": 30,
+      "thoughtsTokenCount": 0,
+      "totalTokenCount": 70
+    },
+    "modelVersion": "gemini-3.8-flash"
+  }
+}
