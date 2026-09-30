@@ -65,6 +65,19 @@ python3 -m pip --python .venv/bin/python install -r requirements.txt
 | 서버·라이브러리 정보 | 기동 명령, dtype, GPU, vLLM·torch 버전, CUDA 빌드 → `batch_manifest.json`의 `adapter_info`, `runner_events.jsonl` |
 | 모델 다운로드 | 서버 도구는 받지 않음. HF 캐시에 스냅샷이 없으면 멈춤 |
 
+### 등록된 로컬 모델 (2026-09-30 스모크 결과, H100 80GB 1장, 한 번에 1건씩 호출)
+
+| `model_id` | HF 저장소 · revision | GPU 메모리 | 출력 속도 | 3회 반복 동일 | 추가 서버 옵션 |
+|---|---|---|---|---|---|
+| `qwen3-8b-local` | Qwen/Qwen3-8B · `b968826d` | 약 40GB (메모리 비율 0.5 설정) | 약 146토큰/초 | 12/12 턴 | — |
+| `qwen3.8-27b-local` | Qwen/Qwen3.8-27B · `1d4bf0f2` | 약 73GB (가중치 51GiB, 비율 0.92) | 약 48토큰/초 | 12/12 턴 | `--attention-backend TRITON_ATTN`, `--max-num-seqs 64` |
+
+- 두 모델 모두 BF16, thinking 끔, 접두부 캐시 끔입니다.
+- 27B는 기본 어텐션 백엔드(FLASH_ATTN)가 이 venv의 torch 빌드와 맞지 않아 첫 forward에서 실패하므로 Triton 백엔드를 씁니다. 기본 동시 시퀀스 수(1024)도 이 모델의 상태 캐시 블록 수(357)를 넘어 기동이 거부되어 64로 낮췄습니다.
+- 27B의 3턴 응답 중 출력 토큰이 최대 1,019개였습니다. 한도 1,024에 가까워 실제 문항에서는 `finish_reason=length`(잘림)가 나올 수 있습니다.
+- 속도는 순차 호출 기준입니다. 러너가 동시에 여러 건을 보내지 않으므로 vLLM의 배치 처리 이점은 아직 쓰지 않습니다.
+- 새 모델을 받을 때는 revision을 정해 HF 캐시에 받고 `config/models.yaml`에 등록합니다. 서버 도구는 자동으로 받지 않습니다.
+
 ### vLLM venv 설치
 
 러너 venv와 따로 둡니다. 위치는 `config/runner.yaml`의 `vllm_venv`이며 **경로에 공백이 없어야** 합니다(vLLM이 쓰는 FlashInfer가 첫 실행 때 커널을 빌드하는데 공백 경로에서 실패). 그래서 러너 폴더 밖에 있습니다.
