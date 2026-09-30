@@ -52,3 +52,7 @@ finish_reasons: [stop, length, content_filter, tool_calls, other]
 
 # ── 시각 표기 (C11) ────────────────────────────────────────────────────
 timezone: Asia/Seoul
+
+# ── 로컬 vLLM 서버용 venv (tools/vllm_server.py) ───────────────────────
+# 경로에 공백이 있으면 안 된다(FlashInfer 커널 빌드 실패). 그래서 러너 폴더 밖에 둔다.
+vllm_venv: /home/ubuntu/342/myoungseok/.venvs/etri-vllm

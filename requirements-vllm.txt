@@ -1,0 +1,15 @@
+# 로컬 vLLM 서버 전용 venv (config/runner.yaml vllm_venv). 러너 venv(requirements.txt)와 별개다.
+#
+# 이 서버의 NVIDIA 드라이버(570.124.06)는 CUDA 12.8까지 지원한다. PyPI의 기본 vllm 휠은
+# CUDA 13 빌드라 동작하지 않으므로 CUDA 12 빌드로 맞춘다. 드라이버·시스템 패키지는 건드리지 않는다.
+# 설치 순서는 README '로컬 모델' 절 참고 (전역 pip 설정을 피하려고 --isolated 사용).
+#
+# 1) 의존 패키지 일괄 설치 (PyPI 기본 휠)
+#      vllm==0.30.0
+# 2) CUDA 12.6 빌드로 교체 (--index-url https://download.pytorch.org/whl/cu126)
+torch==2.13.0+cu126
+torchvision==0.28.0+cu126
+torchaudio==2.11.0+cu126
+torchcodec==0.16.0+cu126
+# 3) vllm 본체를 CUDA 12 빌드 휠로 교체 (--no-deps --force-reinstall)
+vllm @ https://github.com/vllm-project/vllm/releases/download/v0.30.0/vllm-0.30.0%2Bcu129-cp38-abi3-manylinux_2_28_x86_64.whl
