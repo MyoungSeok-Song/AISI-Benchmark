@@ -124,15 +124,15 @@ models:
           - "--max-num-seqs"
           - "64"
 
-  # 평가 대상 공개 모델. 아직 받지 않았다(61.4GB). 다운로드는 사용자 승인 후 —
-  # 받은 뒤 enabled: true로 바꾸고 스모크를 돌린다. 라이선스 요약은 README '등록된 로컬 모델'.
+  # 평가 대상 공개 모델. 사용자 승인(2026-10-02)으로 받음(61.4GB, 파일 크기·샤드 sha256 대조 통과).
+  # 라이선스 요약은 README '등록된 로컬 모델'.
   kanana-2-30b-local:
     adapter: local_vllm
     provider: local_vllm         # 임시 등록 코드
     model_version: 4a781fe5027da4af8d8208cb21bc5108b913bb62   # HF revision (kakaocorp/kanana-2-30b-a3b-instruct-2601)
     model_snapshot_date: "2026-09-30"                         # 위 revision을 HF에서 확인한 날
     api_version: v1
-    enabled: false
+    enabled: true
     options:
       base_url: http://127.0.0.1:8000/v1
       served_model_name: kanana-2-30b-local
@@ -147,4 +147,6 @@ models:
         extra_args:
           - "--no-enable-prefix-caching"
           - "--attention-backend"
-          - "TRITON_ATTN"        # 27B와 같은 이유(FLASH_ATTN 커널이 이 venv의 torch와 불일치). 받은 뒤 확인
+          # MLA 구조(kv_lora_rank 512)라 일반 어텐션 백엔드(TRITON_ATTN)는 거부된다('MLA not supported').
+          # FLASH 계열 커널은 27B에서 이 venv의 torch 빌드와 맞지 않았으므로 Triton MLA 백엔드를 쓴다.
+          - "TRITON_MLA"

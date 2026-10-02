@@ -42,14 +42,18 @@ from kyab_runner.config import load_config          # noqa: E402
 VAR_DIR = RUNNER_DIR / "var"
 INFO_FILE = VAR_DIR / "vllm_server.json"
 LOG_FILE = VAR_DIR / "vllm_server.log"
-HF_HUB_DIR = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface")) / "hub"
 STARTUP_TIMEOUT_S = 900
 OFFLINE_ENV = {"HF_HUB_OFFLINE": "1", "VLLM_NO_USAGE_STATS": "1", "DO_NOT_TRACK": "1"}
 
 
-def snapshot_dir(hf_repo, revision):
+def hf_home(config):
+    """모델 가중치 캐시 위치. 환경변수 HF_HOME이 우선, 없으면 config/runner.yaml hf_home."""
+    return Path(os.environ.get("HF_HOME") or config["hf_home"])
+
+
+def snapshot_dir(config, hf_repo, revision):
     """HF 캐시의 스냅샷 폴더. 없으면 중단한다(자동 다운로드 금지)."""
-    path = HF_HUB_DIR / f"models--{hf_repo.replace('/', '--')}" / "snapshots" / revision
+    path = hf_home(config) / "hub" / f"models--{hf_repo.replace('/', '--')}" / "snapshots" / revision
     if not (path / "config.json").exists():
         sys.exit(f"HF 캐시에 스냅샷이 없습니다: {path}\n모델 다운로드는 사용자 승인 후 별도로 진행합니다.")
     return path
@@ -88,7 +92,7 @@ def start(args):
         sys.exit(f"이미 서버가 떠 있습니다: {INFO_FILE}. 먼저 stop 하세요.")
 
     server = model.options["server"]
-    model_path = snapshot_dir(server["hf_repo"], model.model_version)
+    model_path = snapshot_dir(config, server["hf_repo"], model.model_version)
     python = str(vllm_python(config))
     command = [python, "-m", "vllm.entrypoints.openai.api_server",
                "--model", str(model_path),
@@ -102,7 +106,11 @@ def start(args):
                "--generation-config", "vllm",
                "--seed", "0",
                *server.get("extra_args", [])]
-    env = {**os.environ, **OFFLINE_ENV, "CUDA_VISIBLE_DEVICES": str(args.gpu)}
+    # 재현에 필요한 환경변수(서버 고유 설정)는 기록에도 남긴다. os.environ 전체는 남기지 않는다.
+    server_env = {**OFFLINE_ENV, "CUDA_VISIBLE_DEVICES": str(args.gpu),
+                  "HF_HOME": str(hf_home(config)),
+                  **{k: str(v) for k, v in config.raw.get("vllm_env", {}).items()}}
+    env = {**os.environ, **server_env}
 
     VAR_DIR.mkdir(exist_ok=True)
     with open(LOG_FILE, "w") as log:
@@ -117,7 +125,7 @@ def start(args):
             "revision": model.model_version, "model_path": str(model_path),
             "dtype": server["dtype"], "gpu": args.gpu, "port": server["port"],
             "vllm_version": version, "torch_version": torch_version, "cuda_build": cuda_build,
-            "command": command, "env": {**OFFLINE_ENV, "CUDA_VISIBLE_DEVICES": str(args.gpu)},
+            "command": command, "env": server_env,
             "started_at": datetime.now(ZoneInfo(config["timezone"])).isoformat(timespec="seconds")}
     INFO_FILE.write_text(json.dumps(info, ensure_ascii=False, indent=2), encoding="utf-8")
 

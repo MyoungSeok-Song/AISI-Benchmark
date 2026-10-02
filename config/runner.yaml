@@ -56,3 +56,20 @@ timezone: Asia/Seoul
 # ── 로컬 vLLM 서버용 venv (tools/vllm_server.py) ───────────────────────
 # 경로에 공백이 있으면 안 된다(FlashInfer 커널 빌드 실패). 그래서 러너 폴더 밖에 둔다.
 vllm_venv: /home/ubuntu/342/myoungseok/.venvs/etri-vllm
+
+# ── 로컬 모델 가중치 캐시 (HF_HOME) ────────────────────────────────────
+# 홈 디렉터리(~/.cache)는 워크로드 재시작 때 지워진다(2026-10-02 재시작으로 Qwen 가중치 소실).
+# 그래서 영구 디스크(/home/ubuntu/342, NFS)에 둔다. 환경변수 HF_HOME이 있으면 그쪽이 우선이다.
+hf_home: /home/ubuntu/342/myoungseok/.cache/huggingface
+
+# ── vLLM 서버 프로세스에 줄 환경변수 ────────────────────────────────────
+# VLLM_USE_FLASHINFER_SAMPLER=0: vLLM은 기동 때 FlashInfer top-k/top-p 샘플러를 예열하며 커널을 nvcc로
+#   빌드하는데, 이 서버에서는 빌드할 수 없다(시스템 nvcc 12.3은 FlashInfer 0.6.18의 '--compress-mode' 옵션을
+#   모르고, venv의 CUDA 13 묶음은 nvcc 13.4·헤더 13.0으로 버전이 어긋난다). 러너는 temperature 0(greedy,
+#   argmax)만 쓰므로 vLLM 기본(PyTorch) 샘플러로 바꿔도 출력은 같다. (2026-10-02 재시작 뒤 확인)
+# FLASHINFER_WORKSPACE_BASE·VLLM_CACHE_ROOT: 빌드한 커널과 torch.compile 결과를 영구 디스크에 둔다
+#   (기본값 ~/.cache는 재시작 때 지워진다).
+vllm_env:
+  VLLM_USE_FLASHINFER_SAMPLER: "0"
+  FLASHINFER_WORKSPACE_BASE: /home/ubuntu/342/myoungseok
+  VLLM_CACHE_ROOT: /home/ubuntu/342/myoungseok/.cache/vllm
