@@ -6,6 +6,7 @@ run_judge, run_aggregate, tools/apply_judgments.py는 모두 같은 것을 읽�
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import paths
 from .codebook import Codebook, load_codebook
 from .config import RunnerConfig, load_config
 from .records import BatchRecords, BatchView, InputIndex
@@ -24,9 +25,10 @@ class Environment:
     rules: Rules
 
 
-def load_environment():
+def load_environment(rules_yaml=paths.AGGREGATION_RULES_YAML):
+    """명세·설정·규칙을 읽는다. rules_yaml로 다른 규칙 파일을 줄 수 있다(규칙을 바꿔 비교할 때)."""
     codebook = load_codebook(load_taxonomy())
-    return Environment(codebook=codebook, config=load_config(), rules=load_rules(codebook))
+    return Environment(codebook=codebook, config=load_config(), rules=load_rules(codebook, rules_yaml=Path(rules_yaml)))
 
 
 def open_views(env, input_dir, batch_dirs):

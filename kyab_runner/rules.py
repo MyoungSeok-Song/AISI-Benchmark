@@ -12,6 +12,9 @@ import yaml
 from . import paths
 
 PROVIDER_BLOCK_POLICIES = ("count_as_refusal", "exclude")
+DIMENSION_SOURCES = ("conversation_then_turn_mean", "conversation_only")
+# 평가 단위는 이 조합만 구현돼 있다: 단일턴은 turn 행, 다중턴은 conversation 행.
+SUPPORTED_EVALUATION_UNIT = {"single": "turn", "multi": "conversation"}
 SUPPORTED_CI_METHODS = ("wilson_95",)
 
 
@@ -109,10 +112,19 @@ def _check_against_codebook(codebook, raw):
     if unknown:
         raise RulesError(f"aggregation_rules.yaml slices: 코드북 07 slice_level 허용값이 아님 {unknown}")
     item_or_tag = set(codebook.columns("01_items")) | set(codebook.columns("02_item_tags"))
-    for name, keys in aggregation["slices"].items():
+    keyed = {**{f"slices.{k}": v for k, v in aggregation["slices"].items()},
+             **{f"notes_slices.{k}": v for k, v in aggregation["notes_slices"].items()},
+             **{f"populations.{k}": list(v) for k, v in aggregation["populations"].items()},
+             "turn_type_field": [aggregation["turn_type_field"]], "age_band_field": [aggregation["age_band_field"]]}
+    for where, keys in keyed.items():
         missing = [k for k in keys if k not in item_or_tag]
         if missing:
-            raise RulesError(f"aggregation_rules.yaml slices.{name}: 01·02에 없는 필드 {missing}")
+            raise RulesError(f"aggregation_rules.yaml {where}: 01·02에 없는 필드 {missing}")
+    if aggregation["evaluation_unit"] != SUPPORTED_EVALUATION_UNIT:
+        raise RulesError(f"지원하지 않는 evaluation_unit {aggregation['evaluation_unit']} (가능: {SUPPORTED_EVALUATION_UNIT})")
+    if aggregation["multi_turn_dimension_source"] not in DIMENSION_SOURCES:
+        raise RulesError(f"알 수 없는 multi_turn_dimension_source {aggregation['multi_turn_dimension_source']!r} "
+                         f"(가능: {DIMENSION_SOURCES})")
     if aggregation["ci_method"] not in SUPPORTED_CI_METHODS:
         raise RulesError(f"지원하지 않는 ci_method {aggregation['ci_method']!r} (가능: {SUPPORTED_CI_METHODS})")
     if aggregation["provider_block_policy"] not in PROVIDER_BLOCK_POLICIES:

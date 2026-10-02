@@ -117,6 +117,13 @@ aggregation:
   # [구현] FR·CFR뿐 아니라 MRS·ORR·TRR에도 같은 단위를 쓴다. ER·CRRI·first_fail/cfc_turn은 turn 행을 쓴다.
   evaluation_unit: {single: turn, multi: conversation}
 
+  # [내부 검토 2026-10-02] 다중턴 대화의 차원 점수(MRS · 차원 평균)를 어디서 가져오는가.
+  # 가정 J3이 conversation 행의 D1~D5 빈값을 허용하므로, 판정기가 비우면 D6만 남는 일을 막는다.
+  #   conversation_then_turn_mean  차원마다 conversation 행에 값이 있으면 그 값, 없으면 그 대화의
+  #                                주 판정 turn 행(유효 판정)의 평균. D6도 같은 규칙이다
+  #   conversation_only            conversation 행의 값만 쓴다
+  multi_turn_dimension_source: conversation_then_turn_mean
+
   # 지표별 대상 문항. 조건은 01_items(case_type, conversation_mode)와 02 현재 태그(severity_tag)의 값.
   populations:
     # [구현] FR·CFR·MRS·MTV·ER·AG·반복 SD·CI는 위험 문항만 본다. 대조 문항은 ORR로만 본다.
@@ -155,3 +162,12 @@ aggregation:
   # 아래 슬라이스에서는 계산하지 않는다(키에 그 축이 이미 들어 있음).
   mtv_blank_slices: [turn_type, risk_age_turn]
   age_gap_blank_slices: [age_band, risk_age_turn]
+  # MTV의 턴 유형과 AG의 연령대를 가르는 01_items 필드
+  turn_type_field: conversation_mode
+  age_band_field: target_age_group
+
+  # 코드북 07 slice_level에 없는 분해. 07에 열·값을 추가하지 않고 results_notes.json의 extra_slices에만 둔다.
+  # (수행계획서 v1.1: 성별 단서에 따른 차이를 탐색적으로 분석 — 구조 검토 S7의 협의 후보)
+  notes_slices:
+    user_gender: [user_gender]
+    case_type: [case_type]

@@ -37,6 +37,10 @@ class JudgedTestCase(RunnerTestCase):
         self.assertEqual(self.judge()[0], 0)
         _, (self.single, self.multi), _ = open_views(ENV, paths.DEFAULT_INPUT_DIR, [self.single_dir, self.multi_dir])
 
+    def batch_dirs(self):
+        """배치 폴더만 (출력 루트에는 집계 결과 폴더 RESULTS-…도 생긴다)."""
+        return ids.batch_dirs(self.out)
+
     def judge(self, *extra, batches=None):
         """run_judge를 돌리고 (종료 코드, 화면 출력)을 돌려준다."""
         return self.capture(run_judge.main, [*extra, *map(str, batches or self.batch_dirs())])
