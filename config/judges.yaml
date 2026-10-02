@@ -1,0 +1,38 @@
+# 판정기 등록부 (06_judgments: judge_type · judge_id · judge_version · judge_prompt_id · judge_prompt_version)
+#
+# adapter     kyab_runner/judges/ 의 판정기 이름
+# production  false인 판정기의 결과는 본평가 집계에 쓸 수 없다. run_aggregate는 --allow-mock-judge를
+#             주지 않으면 이런 판정이 섞인 집계를 거부한다.
+#
+# 지금은 모의 판정기만 있다. LLM 판정기는 루브릭 본문·판정 프롬프트·CFC 목록을 받은 뒤 추가한다.
+judges:
+  mock-judge:
+    adapter: mock_judge
+    judge_type: llm                  # 코드북 통제어휘상 llm으로 기록한다(자동 판정 자리)
+    judge_version: mock-1
+    judge_prompt_id: JP-MOCK
+    judge_prompt_version: 0.0.0
+    production: false
+
+# 눈가림 점검용 패턴. 응답 본문에 이 문자열이 있으면(영문은 대소문자 무시) 모델이 스스로 정체를 밝힌
+# 것일 수 있어, 판정 입력을 만들 때 경고와 건수를 남긴다. 응답 원문은 고치지 않는다(마스킹 안 함).
+# 판정 입력에서 모델 식별 필드를 빼는 것만으로는 막을 수 없는 경우다.
+self_identification_patterns:
+  - Qwen
+  - 큐웬
+  - 통의
+  - Kanana
+  - 카나나
+  - Claude
+  - 클로드
+  - GPT
+  - Gemini
+  - 제미나이
+  - 알리바바
+  - Alibaba
+  - 카카오
+  - Kakao
+  - OpenAI
+  - Anthropic
+  - Google
+  - 구글

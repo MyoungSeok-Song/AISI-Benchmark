@@ -11,5 +11,8 @@ OVERLAY_YAML = SCHEMA_DIR / "overlay_v0.3_confirmed.yaml"
 TAXONOMY_JSON = SCHEMA_DIR / "taxonomy_A1-A10.json"
 CROSSWALK_CSV = SCHEMA_DIR / "crosswalk_RM_to_A.csv"
 
+AGGREGATION_RULES_YAML = CONFIG_DIR / "aggregation_rules.yaml"   # 판정·집계 가정 모음
+JUDGES_YAML = CONFIG_DIR / "judges.yaml"                         # 판정기 등록부
+
 DEFAULT_INPUT_DIR = SAMPLES_DIR / "input"
 DEFAULT_OUTPUT_DIR = SAMPLES_DIR / "output"

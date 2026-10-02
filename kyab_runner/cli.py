@@ -20,11 +20,10 @@ from .adapters import create_adapter
 from .codebook import load_codebook
 from .config import load_config
 from .ids import IdAllocator
+from .records import INPUT_FILES, MANIFEST_FILE, InputIndex, load_inputs   # noqa: F401  (INPUT_FILES는 테스트가 쓴다)
 from .session import Batch, RunSession
 from .taxonomy import load_taxonomy
 
-INPUT_FILES = {"01_items": "01_items.csv", "02_item_tags": "02_item_tags.csv", "03_prompts": "03_prompts.csv"}
-MANIFEST_FILE = "batch_manifest.json"
 # 재시작할 때 처음 실행과 같아야 하는 값. 하나라도 다르면 같은 배치로 이어 쓸 수 없다.
 _MANIFEST_LOCKED = ("protocol_id", "model_id", "dataset_version", "system_prompt_hash", "input_sha256")
 
@@ -80,16 +79,6 @@ def library_version():
     for source in sorted((paths.RUNNER_DIR / "kyab_runner").rglob("*.py")):
         digest.update(source.read_bytes())
     return f"runner-{__version__}+src{digest.hexdigest()[:7]}"
-
-
-def load_inputs(codebook, input_dir):
-    """입력 3종을 읽는다. 반환: ({표 이름: 행 목록}, {파일명: sha256})."""
-    tables, digests = {}, {}
-    for table, filename in INPUT_FILES.items():
-        path = input_dir / filename
-        tables[table] = csv_io.read_table(codebook, table, path)
-        digests[filename] = hashlib.sha256(path.read_bytes()).hexdigest()
-    return tables, digests
 
 
 def report_issues(issues):
@@ -269,6 +258,6 @@ def main(description, default_protocol, conversation_mode, conduct, argv=None):
     except KeyboardInterrupt:
         print(f"\n중단됨. 이어서 실행: --batch-id {batch.run_batch_id}")
         return EXIT_INTERRUPTED
-    judge_io.write_template(batch, items, tags)
+    judge_io.write_template(batch, InputIndex(items, tags, prompts, input_digests))
     print_summary(batch, new_rows)
     return EXIT_OK

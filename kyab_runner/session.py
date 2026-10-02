@@ -20,13 +20,10 @@ from zoneinfo import ZoneInfo
 
 from . import csv_io
 from .adapters.base import CallInfo
+from .records import EVENTS_FILE, RESPONSES_FILE, RUNS_FILE
 
 # 러너가 채우는 필드의 '생성 단계'. 이 단계의 필수 필드가 비면 기록을 거부한다.
 RUNNER_STAGES = ("실행 자동기록 필수",)
-
-RUNS_FILE = "04_runs.csv"
-RESPONSES_FILE = "05_responses.csv"
-EVENTS_FILE = "runner_events.jsonl"
 
 # 응답 상태 -> 실행 중단 사유 (04 stop_reason). 차단만 provider_block, 나머지 실패는 error.
 _STOP_REASON = {"blocked": "provider_block", "error": "error", "timeout": "error", "empty": "error"}

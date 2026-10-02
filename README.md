@@ -1,11 +1,11 @@
 # KYAB 러너
 
-코드북 7 CSV 형식으로 모델 실행 기록(`04_runs.csv`, `05_responses.csv`)을 만드는 실행 코드입니다.
-단일턴 실행기와 3턴 실행기가 따로 있고, 입력 검증·기록·모의 모델은 함께 씁니다.
+코드북 7 CSV 형식으로 모델 실행 기록(`04_runs.csv`, `05_responses.csv`)을 만들고, 판정 기록(`06_judgments.csv`)을 받아 검증하는 코드입니다.
+단일턴 실행기와 3턴 실행기가 따로 있고, 입력 검증·기록·모의 모델은 함께 씁니다. 실행과 판정은 분리돼 있습니다.
 
 - 기준 명세: `project proposal/ETRI_7CSV_codebook_v0.2.xlsx` + 확정 변경(`schema/overlay_v0.3_confirmed.yaml`)
 - 현재 범위: **모의 모델과 로컬 vLLM 모델**을 실행합니다. 상용 API 어댑터 3종은 코드와 오프라인 테스트만 있고 **실제 호출은 막혀 있습니다**(API 키·D06·D08 확인 전 `enabled: false`).
-- 채점은 하지 않습니다. 판정 단계가 쓸 빈 틀(`06_judgments_template.csv`)만 만듭니다.
+- 판정: 판정 입력 묶음, `06_judgments.csv` 검증, 사후 산출(`first_fail_turn`·`first_cfc_turn`)까지 있습니다. **판정기는 모의 판정기뿐입니다.** LLM 판정기 실제 호출은 루브릭 본문·판정 프롬프트·CFC 목록을 받은 뒤에 넣습니다. 모의 판정 결과는 본평가에 쓸 수 없습니다.
 
 ## 설치
 
@@ -33,7 +33,10 @@ python3 -m pip --isolated --python .venv/bin/python install -r requirements.txt 
 # 4. 중단된 배치 이어서 실행
 .venv/bin/python -m kyab_runner.run_multiturn --allow-unverified --batch-id RBATCH-20260930-002
 
-# 5. 테스트 (57개, 서버·GPU·네트워크 없이 돈다)
+# 5. 판정: 판정 입력 → 모의 판정 → 06 검증 → 06_judgments.csv (아래 '판정' 절)
+.venv/bin/python -m kyab_runner.run_judge samples/output/<run_batch_id>
+
+# 6. 테스트 (서버·GPU·네트워크 없이 돈다)
 .venv/bin/python -m unittest discover -s tests
 ```
 
@@ -141,8 +144,11 @@ $PIP install --no-deps --force-reinstall "https://github.com/vllm-project/vllm/r
 | `04_runs.csv` | 실행 1건당 1행 (문항 × 모델 × 반복 번호) | 27필드, 열 순서 그대로 |
 | `05_responses.csv` | 턴 1개당 1행. 실제 보낸 메시지와 원본 응답 포함 | 11필드 |
 | `06_judgments_template.csv` | 판정 단계가 채울 빈 틀. 4개 필드만 미리 채움 | 29필드 |
+| `06_judgments.csv` | 판정 1건당 1행. 판정 실행기(`run_judge`)가 덧붙임 | 29필드, 열 순서 그대로 |
+| `judge_inputs.jsonl` | 판정기가 볼 입력 묶음. **코드북 표가 아닌 내부 중간 산출물** | CSV 밖 |
+| `judge_manifest.json` | 어떤 판정기로 언제 판정했는지, 표본 시드, 모의 판정 경고 | CSV 밖 |
 | `batch_manifest.json` | 배치의 고정 조건(프로토콜·모델·입력 해시·적용한 overlay) | CSV 밖 |
-| `runner_events.jsonl` | 턴별 시도·지연·재시도 내역 | CSV 밖 |
+| `runner_events.jsonl` | 턴별 시도·지연·재시도 내역, 판정·사후 산출 기록 | CSV 밖 |
 
 코드북에 칸이 없는 값은 CSV에 열을 만들지 않고 아래처럼 둡니다.
 
@@ -150,6 +156,75 @@ $PIP install --no-deps --force-reinstall "https://github.com/vllm-project/vllm/r
 |---|---|
 | 토큰 사용량 | `raw_response_json`의 `usage` (실행 요약이 합산) |
 | 턴별 지연시간, 재시도 횟수 | `runner_events.jsonl` |
+
+## 판정 (06_judgments)
+
+실행(04·05)이 끝난 배치를 판정 단계로 넘깁니다. 판정기 호출은 모의 판정기만 있고, 나머지(입력 묶음·검증·사후 산출)는 실제 판정기가 와도 그대로 씁니다.
+
+```bash
+# 판정 입력 → 판정 → 검증 → 06_judgments.csv 덧붙이기 (배치 여러 개 가능)
+.venv/bin/python -m kyab_runner.run_judge samples/output/<run_batch_id> [...]
+
+# 판정 입력(judge_inputs.jsonl)만 만들기 / 채워진 06_judgments.csv 검증만 하기
+.venv/bin/python -m kyab_runner.run_judge --inputs-only   <배치 폴더> [...]
+.venv/bin/python -m kyab_runner.run_judge --validate-only <배치 폴더> [...]
+
+# 판정 결과로 04_runs의 first_fail_turn · first_cfc_turn 채우기
+.venv/bin/python tools/apply_judgments.py --dry-run <배치 폴더> [...]
+.venv/bin/python tools/apply_judgments.py           <배치 폴더> [...]
+```
+
+입력 3종 폴더가 기본값(`samples/input`)이 아니면 `--input`을 줍니다. 종료 코드: 0 정상, 1 판정할 것이 없음, 2 입력·검증 오류.
+
+### 판정 입력 (`judge_inputs.jsonl`)
+
+코드북 7 CSV에 속하지 않는 **내부 중간 산출물**입니다. 한 줄이 판정 틀의 한 행과 1:1로 대응하고, 키는 `evaluation_scope` + `response_id`입니다.
+
+| 키 | 내용 |
+|---|---|
+| `evaluation_scope`, `response_id`, `tag_revision` | 06 행과 잇는 키와 적용 태그 판본 |
+| `target_turn_index` | turn: 채점할 턴 / conversation: 대화의 마지막 턴 |
+| `item` | 01: `case_type`, `target_age_group`, `conversation_mode`, `rubric_id`, `risk_cues_json`, `prohibited_response_json` |
+| `tags` | 02 현재 태그: `primary_risk`, `severity_tag`, `expected_response_tags` |
+| `turns` | 1턴부터 그 턴까지의 `turn_expected_safe_response_json` |
+| `messages` | 05 `request_messages_json`에 그 응답 본문을 덧붙인 것 |
+
+- `evaluation_scope=turn`은 해당 턴까지의 대화, `conversation`은 전체 대화입니다.
+- **눈가림**: 모델을 알 수 있는 값(`model_id`, `provider`, `model_version`, `run_id`, `run_batch_id`, `rollout_no`)은 넣지 않습니다.
+- **평가 대상 모델에는 보내지 않는 필드를 판정기에는 보냅니다.** 기대 안전응답, 금지 응답, 위험 단서, 태그는 코드북 'AI 전달'이 ×라 모델에는 가지 않지만, 판정기는 CFC·금지응답을 판단하려면 봐야 합니다.
+- 응답 본문이 스스로 모델명을 말하면 눈가림이 깨집니다. `config/judges.yaml`의 `self_identification_patterns`에 걸리는 응답은 경고와 건수만 남기고(`judge_manifest.json`), 원문은 고치지 않습니다.
+- 넣을 필드 목록은 `config/aggregation_rules.yaml`의 `judge_input`에 있습니다.
+
+### 06 검증
+
+`run_judge`는 새 행을 쓰기 전에, `--validate-only`는 이미 있는 파일을 검사합니다. 오류가 하나라도 있으면 쓰지 않습니다.
+
+| 묶음 | 검사 |
+|---|---|
+| 필드 | 코드북 허용값·정규식·형식·필수 (29열 머리글과 순서 포함) |
+| ID | `judgment_id` 형식, 파일 안과 출력 루트 전체에서 고유 |
+| 연결 | `response_id`가 그 배치의 05에 있음. 성공하지 않은 응답의 판정은 경고 |
+| 태그·루브릭 | `tag_revision`이 02에 있음(현재 판본이 아니면 경고, 집계에서 빠짐), `rubric_id` = 01의 값, `rubric_version` = 등록 판본 |
+| CFC | 값이 있으면 등록 코드이고 `verdict=fail` |
+| 판정자 | `judge_type=human`이면 `human_review_status=completed`, LLM 판정기는 `config/judges.yaml` 등록값 |
+| 범위 | `conversation`은 다중턴 실행에만, 그 실행의 마지막 성공 응답을 참조 |
+| 조건부 필수 | 점수 필드는 '해당 없음' 조건(J3)에 걸리는 행에서만 빈값. 판정이 끝난 행은 `verdict`·`over_refusal`·`referral_present` 필수(J4) |
+
+### 모의 판정기
+
+`mock-judge`는 응답 본문의 해시로 점수를 만듭니다. **실제 채점이 아닙니다.** 같은 응답 본문이면 언제 돌려도 같은 값이 나오고, 대화 판정은 턴 판정을 모아 만듭니다(어느 턴이 fail이면 대화도 fail). `judge_type=llm`, `judge_id=mock-judge`로 기록됩니다.
+
+본평가에 섞이지 않게 하는 장치: `config/judges.yaml`의 `production: false`, `judge_manifest.json`의 경고, 06 검증 경고, 집계 단계의 거부(`--allow-mock-judge`가 있어야 집계).
+
+### 사람 재채점 표본
+
+자동 판정의 20%를 고릅니다(표 Ⅳ-20). 고른 행은 `human_review_status=selected_pending`, 나머지는 `not_selected`입니다. 배치마다 판정 행 단위로 `ceil(행 수 × 0.2)`개이며, 시드와 행 키의 해시 순위로 고르므로 다시 돌려도 같은 행이 뽑힙니다. 비율과 시드는 `config/aggregation_rules.yaml`의 `human_review_sample`입니다.
+
+### 주 판정 집합과 사후 산출
+
+- **주 판정 집합**: 판정 자리(`evaluation_scope` + `response_id`)마다 1행. `judge_type=llm` + `judge_status=completed`인 행 중 가장 늦은 것이고, 같은 자리에 `adjudicated` 행이 있으면 그 행이 우선합니다. 현재 태그 판본으로 판정한 행만 후보입니다.
+- **`first_fail_turn`, `first_cfc_turn`**: 주 판정 집합의 turn 행에서 `verdict=fail`인 가장 이른 턴, CFC가 있는 가장 이른 턴. 없으면 빈값입니다.
+- `tools/apply_judgments.py`는 04_runs.csv의 이 두 열만 고칩니다. 원본을 `04_runs.csv.bak-<시각>`으로 남기고, 값이 이미 있으면 덮지 않고 멈춥니다. 06에 검증 오류가 있거나 주 판정이 없는 성공 응답이 있어도 멈춥니다. 배치 여러 개 중 하나라도 걸리면 어느 배치에도 쓰지 않습니다.
 
 ## 동작 규칙
 
@@ -275,6 +350,7 @@ runner/
     build_samples.py        개발 샘플 입력 6건 생성
     vllm_server.py          로컬 vLLM 서버 기동·종료·상태
     check_determinism.py    반복 간 응답 동일 여부 확인
+    apply_judgments.py      판정 결과로 04_runs의 first_fail_turn·first_cfc_turn 채우기
   schema/
     codebook_v0.2.json            코드북 추출본 (손으로 고치지 않음)
     overlay_v0.3_confirmed.yaml   v0.3 xlsx가 오기 전까지의 확정·가정 변경
@@ -282,15 +358,20 @@ runner/
     crosswalk_RM_to_A.csv         이전 코드 → 새 코드 49행
   config/
     runner.yaml             코드북이 정하지 않은 규칙의 기본값
+    aggregation_rules.yaml  판정·집계 가정 모음 (07의 aggregation_rule_id·version이 가리키는 파일)
     models.yaml             모델 등록부
+    judges.yaml             판정기 등록부, 눈가림 점검 패턴
     system_prompt.txt       시스템 프롬프트 원문
   kyab_runner/
     codebook.py             명세 로드, 값·행 검사
     taxonomy.py             분류체계·이전 코드
     config.py               설정 로드
+    rules.py                판정·집계 규칙(aggregation_rules.yaml)과 판정기 등록부 로드
     csv_io.py               코드북 열 순서로 CSV 읽기·쓰기
     validate.py             입력 검증
-    ids.py                  RBATCH·RUN·RESP 발급
+    ids.py                  RBATCH·RUN·RESP·JDG·RESULT 발급
+    records.py              끝난 배치와 입력 3종 읽기 (판정·집계 공용)
+    context.py              판정·집계 도구의 공통 준비 절차
     messages.py             요청 메시지 구성
     adapters/               base.py(규격·결과 도우미), mock.py(모의), local_vllm.py(로컬 vLLM),
                             commercial.py(상용 공통), openai.py, anthropic.py, gemini.py, http_json.py
@@ -298,12 +379,15 @@ runner/
     cli.py                  명령행·배치 진행 (두 실행기 공용)
     run_single.py           단일턴 실행기
     run_multiturn.py        다중턴 실행기
-    judge_io.py             판정 빈 틀
+    judge_io.py             판정 틀, 판정 입력, 06 검증, 주 판정 집합, first_fail/cfc_turn 산출
+    judges/                 base.py(판정기 규격), mock_judge.py(모의 판정기)
+    run_judge.py            판정 실행기
   samples/
     input/                  샘플 입력 (900000번대 ID, 실제 문항 아님)
     output/                 샘플 실행 결과
     mock_plan_failures.yaml 실패 경로 모의 계획
-  tests/                    test_runner.py, test_local_vllm.py, test_commercial_adapters.py, fixtures/(가짜 응답)
+  tests/                    test_runner.py, test_judge_io.py, test_local_vllm.py, test_commercial_adapters.py,
+                            fixtures/(가짜 응답)
   var/                      서버 기동 정보·로그 (git 제외)
 ```
 
@@ -314,6 +398,8 @@ runner/
 | 코드북 xlsx (v0.3) | `tools/extract_codebook.py`의 파일명·출력 경로를 새 판으로 바꿔 실행 → `paths.py`의 `CODEBOOK_JSON` 갱신 → `overlay_v0.3_confirmed.yaml`에서 반영된 항목 삭제(전부 반영됐으면 파일 삭제) → 테스트 |
 | 분류표 (분류팀 xlsx) | `tools/extract_taxonomy.py` 실행. 검산 21항목이 모두 OK여야 파일을 씀 |
 | 협의 결과 (재시도 횟수, context 위치, 등록 코드 등) | `config/runner.yaml`만 수정 |
+| 판정·집계 결정 (CFC 목록, 빈값 규칙, 표본 비율, 임계값 등) | `config/aggregation_rules.yaml`만 수정하고 `aggregation_rule_version`을 올림 |
+| 새 판정기 | `config/judges.yaml`에 등록하고 `judges/`에 `base.Judge` 규격으로 추가 |
 | 새 모델 | `config/models.yaml`에 등록하고 `adapters/`에 어댑터 추가 |
 
 ## 가정과 알려진 한계
@@ -327,7 +413,28 @@ overlay의 `provisional` 항목과 `config/runner.yaml`의 기본값은 결정 �
 | `response_text` | 성공 응답만 필수 | 차단·오류 시 본문이 없음 |
 | `MT7`·`MT10` 표기 | `MT7-1.0.0`, `MT10-1.0.0` | 회신은 ST1·MT3만 예시 |
 | 성공 턴이 0개인 실행 | `failed` (단일턴 차단 포함) | C4 기본값 |
-| 대화 범위 판정 행 | 마지막 성공 응답의 `response_id` 참조 | 06에 `run_id` FK가 없음 |
+| 대화 범위 판정 행 | 마지막 성공 응답의 `response_id` 참조. 판정 행의 키는 `evaluation_scope` + `response_id` | 06에 `run_id` FK가 없음 (S2) |
 | 로컬 모델 `provider` | 임시 등록 코드 `local_vllm` | 등록 코드 목록 미정 |
 | 신규 문항 `source_license` | 임시 값 `LicenseRef-KYAB-internal` | 내부 코드 미정 |
 | 상용 모델 | 어댑터·오프라인 테스트만. 실호출 없음 | API 키·D06·D08 확인 후 |
+
+### 판정 가정 (`config/aggregation_rules.yaml`, overlay OV-J1·J3·J4)
+
+코드북에 없는 판정 결정입니다. 값은 모두 규칙 파일에 있고 코드에는 없습니다. '출처'의 작업 지침는 작업 지침(과제 5)(2026-10-02), 내부 검토는 팀 내부 코드 검토입니다.
+
+| 가정 | 현재 처리 | 출처 |
+|---|---|---|
+| J1 CFC 미발생 | `critical_failure_code` 빈값 | 작업 지침 (코드북 08 미확정, C5) |
+| J2 `verdict=inconclusive` | 허용. 지표 분모에서 빼고 건수만 따로 셈 | 작업 지침 (C6) |
+| J3 해당 없는 차원 | 빈값 허용: 단일턴의 D6, 단일턴·대조 문항의 CRRI 4축, conversation 행의 턴 단위 차원(D1~D5·CRRI) | 작업 지침 (S6). 턴 단위 차원의 범위는 구현 가정 |
+| J4 판정이 끝나지 못한 행 | `judge_status`가 `failed`·`needs_review`이면 `verdict`·`over_refusal`·`referral_present`·점수 빈값 허용. 주 판정 집합에서 제외 | 내부 검토 |
+| 루브릭 판본 | `RB-6D-v1` → `1.0.0` (**미수령 자리표시**) | 구현 |
+| CFC 등록 코드 | `CFC-MOCK-01` 하나 (**목록 미수령, 모의 판정기용 자리표시**) | 구현 |
+| 태그 판본이 현재가 아닌 판정 행 | 오류가 아니라 경고. 주 판정 집합에서 제외 (02에 없는 판본이면 오류) | 구현 (코드북 memo: 기존 judgment 행은 고치지 않음) |
+| 주 판정 집합 | llm + completed, adjudicated 우선, 같은 자리에 여럿이면 `evaluated_at` 최신 | 작업 지침 + 구현 |
+| 사람 재채점 표본 | 배치 단위, 판정 행 기준, ceil(20%), 시드 20261002 | 작업 지침 + 구현 |
+| 판정 입력의 눈가림 | 모델·실행 식별값 제외. 자기 지칭 응답은 경고만 | 작업 지침 + 내부 검토 |
+| 판정 입력의 금지 응답 | `prohibited_response_json` 포함 | 내부 검토 |
+| 주 판정이 없는 성공 응답이 있는 실행 | `first_fail_turn`·`first_cfc_turn`을 계산하지 않고 도구가 멈춤 | 구현 |
+| 사람 검토 완료 표시 | llm 행은 고치지 않으므로(append-only) human 행의 존재로 판단 | 구현 |
+

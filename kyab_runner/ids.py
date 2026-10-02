@@ -1,13 +1,18 @@
-"""ID 발급: run_batch_id, run_id, response_id.
+"""ID 발급: run_batch_id, run_id, response_id, judgment_id, result_id.
 
 형식은 코드북 정규식을 따른다.
   RBATCH-YYYYMMDD-###     실행 명령 1회 = 배치 1개 (C10 기본값)
   RUN-YYYYMMDD-######     전역 고유
   RESP-########           전역 고유
+  JDG-########            전역 고유 (06_judgments)
+  RESULT-########         전역 고유 (07_results)
 
 '전역'의 범위는 출력 루트 폴더 하나다. 시작할 때 그 아래의 모든 배치 폴더를 훑어
 가장 큰 번호를 찾고, 그 뒤부터 메모리에서 센다. 같은 출력 루트에 두 실행기를
 동시에 돌리는 경우는 다루지 않는다(번호가 겹칠 수 있음).
+
+집계 결과는 출력 루트 아래 RESULTS-YYYYMMDD-### 폴더에 둔다. 이 폴더 이름은 코드북의 ID가
+아니라 러너가 정한 폴더 이름이다(집계 1회 = 폴더 1개).
 """
 import re
 from pathlib import Path
@@ -17,6 +22,64 @@ from . import csv_io
 _RE_BATCH = re.compile(r"^RBATCH-([0-9]{8})-([0-9]{3})$")
 _RE_RUN = re.compile(r"^RUN-([0-9]{8})-([0-9]{6})$")
 _RE_RESP = re.compile(r"^RESP-([0-9]{8})$")
+_RE_JDG = re.compile(r"^JDG-([0-9]{8})$")
+_RE_RESULT = re.compile(r"^RESULT-([0-9]{8})$")
+_RE_RESULTS_DIR = re.compile(r"^RESULTS-([0-9]{8})-([0-9]{3})$")
+
+JUDGMENTS_FILE = "06_judgments.csv"
+RESULTS_FILE = "07_results.csv"
+
+
+def batch_dirs(out_root):
+    """출력 루트 아래의 배치 폴더(RBATCH-…)를 이름순으로."""
+    out_root = Path(out_root)
+    if not out_root.exists():
+        return []
+    return sorted(p for p in out_root.iterdir() if p.is_dir() and _RE_BATCH.match(p.name))
+
+
+def results_dirs(out_root):
+    """출력 루트 아래의 집계 결과 폴더(RESULTS-…)를 이름순으로."""
+    out_root = Path(out_root)
+    if not out_root.exists():
+        return []
+    return sorted(p for p in out_root.iterdir() if p.is_dir() and _RE_RESULTS_DIR.match(p.name))
+
+
+class SerialIds:
+    """'접두-########' 꼴의 일련번호 발급기. 이미 쓰인 번호 다음부터 센다."""
+
+    def __init__(self, pattern, prefix, used_ids):
+        self._prefix = prefix
+        self._seq = max((int(m.group(1)) for m in map(pattern.match, used_ids) if m), default=0)
+
+    def new(self):
+        self._seq += 1
+        return f"{self._prefix}-{self._seq:08d}"
+
+
+def judgment_ids_by_batch(codebook, out_root):
+    """출력 루트의 모든 배치에서 이미 쓰인 judgment_id. 반환: {배치 폴더 이름: [judgment_id, ...]}."""
+    return {d.name: [r["judgment_id"] for r in csv_io.read_if_exists(codebook, "06_judgments", d / JUDGMENTS_FILE)]
+            for d in batch_dirs(out_root)}
+
+
+def judgment_id_allocator(codebook, out_root):
+    used = [i for ids in judgment_ids_by_batch(codebook, out_root).values() for i in ids]
+    return SerialIds(_RE_JDG, "JDG", used)
+
+
+def result_id_allocator(codebook, out_root):
+    used = [r["result_id"] for d in results_dirs(out_root)
+            for r in csv_io.read_if_exists(codebook, "07_results", d / RESULTS_FILE)]
+    return SerialIds(_RE_RESULT, "RESULT", used)
+
+
+def new_results_dir_name(out_root, today):
+    """오늘 날짜의 다음 집계 결과 폴더 이름."""
+    used = [int(_RE_RESULTS_DIR.match(p.name).group(2)) for p in results_dirs(out_root)
+            if _RE_RESULTS_DIR.match(p.name).group(1) == today]
+    return f"RESULTS-{today}-{max(used, default=0) + 1:03d}"
 
 
 class IdAllocator:
@@ -26,7 +89,7 @@ class IdAllocator:
         self._out_root = Path(out_root)
         self._run_seq = 0       # 오늘 날짜로 발급된 run_id의 최대 순번
         self._resp_seq = 0      # 전체 response_id의 최대 순번
-        for batch_dir in self._batch_dirs():
+        for batch_dir in batch_dirs(self._out_root):
             for row in csv_io.read_if_exists(codebook, "04_runs", batch_dir / "04_runs.csv"):
                 m = _RE_RUN.match(row["run_id"])
                 if m and m.group(1) == today:
@@ -36,14 +99,9 @@ class IdAllocator:
                 if m:
                     self._resp_seq = max(self._resp_seq, int(m.group(1)))
 
-    def _batch_dirs(self):
-        if not self._out_root.exists():
-            return []
-        return sorted(p for p in self._out_root.iterdir() if p.is_dir() and _RE_BATCH.match(p.name))
-
     def new_batch_id(self):
         """오늘 날짜의 다음 배치 번호. 폴더 이름이 곧 배치 ID다."""
-        used = [int(_RE_BATCH.match(p.name).group(2)) for p in self._batch_dirs()
+        used = [int(_RE_BATCH.match(p.name).group(2)) for p in batch_dirs(self._out_root)
                 if _RE_BATCH.match(p.name).group(1) == self._today]
         return f"RBATCH-{self._today}-{max(used, default=0) + 1:03d}"
 

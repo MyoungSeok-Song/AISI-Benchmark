@@ -36,11 +36,11 @@ def item_key(row):
     return (row["item_id"], row["item_version"])
 
 
-def _label(key):
+def label(key):
     return f"{key[0]}@{key[1]}"
 
 
-def _json_list(value):
+def json_list(value):
     """JSON 배열 셀을 리스트로. 빈 셀이나 잘못된 값은 빈 리스트(형식 오류는 필드 검사가 잡는다)."""
     try:
         parsed = json.loads(value) if value else []
@@ -49,8 +49,8 @@ def _json_list(value):
     return parsed if isinstance(parsed, list) else []
 
 
-class _Collector:
-    """Issue를 모으는 작은 도우미."""
+class IssueCollector:
+    """Issue를 모으는 작은 도우미. 판정 검증(judge_io)과 집계 결과 검증(metrics)도 함께 쓴다."""
 
     def __init__(self):
         self.issues = []
@@ -70,7 +70,7 @@ def _check_fields(out, codebook, table, rows, key_of, skip=()):
 
 
 # ── 2. 키·연결 ──────────────────────────────────────────────────────────
-def _check_unique(out, table, rows, key_of, what):
+def check_unique(out, table, rows, key_of, what):
     for key, count in Counter(key_of(r) for r in rows).items():
         if count > 1:
             out.error(table, str(key), what, f"중복 {count}행")
@@ -80,10 +80,10 @@ def _check_links(out, items, tags, prompts):
     item_keys = {item_key(r) for r in items}
     for row in prompts:
         if item_key(row) not in item_keys:
-            out.error("03_prompts", row["turn_id"], "item_id", f"01_items에 없는 문항 판본 {_label(item_key(row))}")
+            out.error("03_prompts", row["turn_id"], "item_id", f"01_items에 없는 문항 판본 {label(item_key(row))}")
     for row in tags:
         if item_key(row) not in item_keys:
-            out.error("02_item_tags", _label(item_key(row)), "item_id", "01_items에 없는 문항 판본")
+            out.error("02_item_tags", label(item_key(row)), "item_id", "01_items에 없는 문항 판본")
 
 
 def _check_turns(out, items, prompts):
@@ -98,7 +98,7 @@ def _check_turns(out, items, prompts):
         expected = list(range(1, int(item["planned_round_count"]) + 1))
         actual = sorted(turns.get(item_key(item), []))
         if actual != expected:
-            out.error("03_prompts", _label(item_key(item)), "turn_index",
+            out.error("03_prompts", label(item_key(item)), "turn_index",
                       f"턴 번호 {actual} — planned_round_count 기준 {expected}이어야 함")
 
 
@@ -111,14 +111,14 @@ def _check_protocol(out, item, config):
     actual = (item["conversation_mode"], item["planned_round_count"])
     expected = (protocol["conversation_mode"], str(protocol["planned_round_count"]))
     if actual != expected:
-        out.error("01_items", _label(item_key(item)), "protocol_id",
+        out.error("01_items", label(item_key(item)), "protocol_id",
                   f"{item['protocol_id']}은 (conversation_mode, planned_round_count)={expected}인데 문항은 {actual}")
 
 
 def rule_original_text(out, item):
     """확정 4: original_text는 외부 원천을 번역·한국화한 문항만 필수."""
     from_source = item["source_benchmark"] != "NEW"
-    key = _label(item_key(item))
+    key = label(item_key(item))
     if from_source and not item["original_text"]:
         out.error("01_items", key, "original_text", "외부 원천 문항인데 원문이 없음")
     if from_source and not item["source_item_id"]:
@@ -127,7 +127,7 @@ def rule_original_text(out, item):
 
 def _check_registered(out, item, config):
     if item["rubric_id"] and item["rubric_id"] not in config["registered_rubric_ids"]:
-        out.error("01_items", _label(item_key(item)), "rubric_id",
+        out.error("01_items", label(item_key(item)), "rubric_id",
                   f"등록되지 않은 루브릭 {item['rubric_id']!r} (config/runner.yaml registered_rubric_ids)")
 
 
@@ -138,7 +138,7 @@ def _check_current_tag(out, items, tags):
     for item in items:
         count = current.get(item_key(item), 0)
         if count != 1:
-            out.error("02_item_tags", _label(item_key(item)), "tag_status", f"current 행이 {count}개 (1개여야 함)")
+            out.error("02_item_tags", label(item_key(item)), "tag_status", f"current 행이 {count}개 (1개여야 함)")
 
 
 def _taxonomy_major(tag):
@@ -170,24 +170,24 @@ def _check_legacy_codes(out, taxonomy, tag, key):
         out.error("02_item_tags", key, "primary_risk", f"이전 체계 행인데 R 코드가 아님: {tag['primary_risk']!r}")
     for field, allowed in (("secondary_risks", taxonomy.legacy_risk_codes),
                            ("m_review_codes", taxonomy.legacy_m_codes)):
-        bad = [c for c in _json_list(tag[field]) if c not in allowed]
+        bad = [c for c in json_list(tag[field]) if c not in allowed]
         if bad:
             out.error("02_item_tags", key, field, f"이전 체계 행의 허용값 아님: {bad}")
-    if _json_list(tag["sub_risk_codes"]):
+    if json_list(tag["sub_risk_codes"]):
         out.error("02_item_tags", key, "sub_risk_codes", "이전 체계에서는 세부 코드를 쓰지 않음(v0.2 '추후 확정')")
     rule_m_review(out, tag, key, is_legacy=True)
 
 
 def rule_sub_risk(out, taxonomy, tag, key):
     """가정 P1: 주소분류는 주대분류의 자식이어야 하고, 주대분류 없이 단독으로 올 수 없다."""
-    primary, subs = tag["primary_risk"], _json_list(tag["sub_risk_codes"])
+    primary, subs = tag["primary_risk"], json_list(tag["sub_risk_codes"])
     if subs and not primary:
         out.error("02_item_tags", key, "sub_risk_codes", "primary_risk가 비어 있는데 소분류가 있음")
     for sub in subs:
         if primary and sub in taxonomy.parent_of and not taxonomy.is_child(sub, primary):
             out.error("02_item_tags", key, "sub_risk_codes",
                       f"{sub}는 {primary}의 소분류가 아님 (소속: {taxonomy.parent_of[sub]})")
-    if primary in _json_list(tag["secondary_risks"]):
+    if primary in json_list(tag["secondary_risks"]):
         out.error("02_item_tags", key, "secondary_risks", f"주대분류 {primary}가 보조 위험에 다시 들어 있음")
 
 
@@ -196,7 +196,7 @@ def rule_primary_risk(out, tag, key):
     status, primary = tag["risk_review_status"], tag["primary_risk"]
     if status == "mapped" and not primary:
         out.error("02_item_tags", key, "primary_risk", "risk_review_status=mapped인데 비어 있음")
-    if status == "mapped" and _taxonomy_major(tag) and not _json_list(tag["sub_risk_codes"]):
+    if status == "mapped" and _taxonomy_major(tag) and not json_list(tag["sub_risk_codes"]):
         out.error("02_item_tags", key, "sub_risk_codes", "risk_review_status=mapped인데 주소분류가 없음")
     if status == "not_applicable" and primary:
         out.warning("02_item_tags", key, "primary_risk", "risk_review_status=not_applicable인데 값이 있음")
@@ -215,7 +215,7 @@ def rule_m_review(out, tag, key, is_legacy):
 
 def _check_roles(out, tag, key):
     """02 role_tags 설명: '역할 불명은 단독으로 사용'."""
-    roles = _json_list(tag["role_tags"])
+    roles = json_list(tag["role_tags"])
     if "ambiguous" in roles and len(roles) > 1:
         out.error("02_item_tags", key, "role_tags", f"ambiguous는 다른 역할과 함께 쓸 수 없음: {roles}")
 
@@ -223,18 +223,18 @@ def _check_roles(out, tag, key):
 # ── 진입점 ──────────────────────────────────────────────────────────────
 def validate_inputs(codebook, taxonomy, config, items, tags, prompts):
     """입력 3종을 검사해 Issue 목록을 돌려준다(오류가 없으면 빈 목록 또는 경고만)."""
-    out = _Collector()
-    tag_key = lambda r: f"{_label(item_key(r))}#rev{r['tag_revision']}"     # noqa: E731
+    out = IssueCollector()
+    tag_key = lambda r: f"{label(item_key(r))}#rev{r['tag_revision']}"     # noqa: E731
 
-    _check_fields(out, codebook, "01_items", items, lambda r: _label(item_key(r)))
+    _check_fields(out, codebook, "01_items", items, lambda r: label(item_key(r)))
     _check_fields(out, codebook, "02_item_tags", tags, tag_key, skip=TAXONOMY_DEPENDENT_FIELDS)
     _check_fields(out, codebook, "03_prompts", prompts, lambda r: r["turn_id"])
 
-    _check_unique(out, "01_items", items, item_key, "item_id+item_version")
-    _check_unique(out, "02_item_tags", tags, lambda r: item_key(r) + (r["tag_revision"],),
+    check_unique(out, "01_items", items, item_key, "item_id+item_version")
+    check_unique(out, "02_item_tags", tags, lambda r: item_key(r) + (r["tag_revision"],),
                   "item_id+item_version+tag_revision")
-    _check_unique(out, "03_prompts", prompts, lambda r: r["turn_id"], "turn_id")
-    _check_unique(out, "03_prompts", prompts, lambda r: item_key(r) + (r["turn_index"],),
+    check_unique(out, "03_prompts", prompts, lambda r: r["turn_id"], "turn_id")
+    check_unique(out, "03_prompts", prompts, lambda r: item_key(r) + (r["turn_index"],),
                   "item_id+item_version+turn_index")
     _check_links(out, items, tags, prompts)
     _check_turns(out, items, prompts)
