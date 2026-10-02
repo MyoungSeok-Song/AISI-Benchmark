@@ -566,4 +566,5 @@ overlay의 `provisional` 항목과 `config/runner.yaml`의 기본값은 결정 �
 - 대조 문항에 설계 위험군을 잇는 필드가 없어 위험군별 ORR을 낼 수 없습니다.
 - 07에는 판정기 식별 칸이 없어, 모의 판정으로 만든 결과인지는 `results_notes.json`의 `mock_judge_used`로만 알 수 있습니다.
 - 사람 판정 행을 적재하는 도구는 아직 없습니다(검증과 κ 계산은 사람 행이 있으면 동작합니다).
+- `tools/apply_judgments.py`를 모의 판정으로 돌린 배치에는 `first_fail_turn`·`first_cfc_turn`에 모의 값이 들어갑니다. 실제 판정을 다시 적용하려면 `04_runs.csv.bak-<시각>` 백업으로 04를 되돌린 뒤 실행해야 합니다(값이 있으면 도구가 멈춥니다). 본평가 배치에는 모의 판정으로 이 도구를 돌리지 않습니다.
 
