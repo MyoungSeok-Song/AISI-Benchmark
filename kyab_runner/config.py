@@ -31,6 +31,9 @@ class RunnerConfig:
     def __getitem__(self, key):
         return self.raw[key]
 
+    def get(self, key, default=None):
+        return self.raw.get(key, default)
+
     def protocol(self, protocol_id):
         """프로토콜 정의 {conversation_mode, planned_round_count}. 없으면 KeyError."""
         return self.raw["protocols"][protocol_id]

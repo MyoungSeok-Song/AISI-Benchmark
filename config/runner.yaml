@@ -44,6 +44,11 @@ max_attempts_per_turn: 3
 eligible_item_review_status: [verified, revised]
 eligible_lifecycle_status: [active]
 
+# ── 대조 문항의 위험군 연결 (02 control_target_risk, overlay OV-P4 잠정) ─────
+# 대조 문항(safe_control)의 current 태그에 값이 없으면 경고만 내고 실행한다(집계에서 그 문항은 위험군 행에 빠진다).
+# true로 바꾸면 오류가 되어 실행이 막힌다. 분류팀 02에 이 칸이 다 채워진 뒤에 켤 것.
+control_link_required: false
+
 # ── 등록 코드 (코드북: "승인된 식별자만 허용". 정식 목록이 오기 전 임시) ──
 registered_rubric_ids: [RB-6D-v1]
 

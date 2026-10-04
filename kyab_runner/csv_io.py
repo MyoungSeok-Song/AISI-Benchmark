@@ -6,6 +6,7 @@
 import csv
 import json
 import os
+import sys
 
 
 class CsvFormatError(Exception):
@@ -27,20 +28,30 @@ def to_cell(value):
 
 
 def read_table(codebook, table, path):
-    """CSV를 읽어 행 dict 목록으로 돌려준다. 머리글이 코드북과 정확히 같아야 한다."""
+    """CSV를 읽어 행 dict 목록으로 돌려준다. 머리글이 코드북과 정확히 같아야 한다.
+
+    예외: overlay가 넣은 열(codebook.added_columns)만 빠진 옛 머리글은 읽어 준다. 그 열은 공란으로
+    채우고 큰 경고를 낸다(다른 팀이 코드북 원본 머리글로 만든 파일을 막지 않기 위해). 쓰기는 항상 새 머리글이다.
+    """
     with open(path, encoding="utf-8-sig", newline="") as f:
         reader = csv.reader(f)
-        header = next(reader, None)
+        header = next(reader, None) or []
         expected = codebook.columns(table)
-        if header != expected:
-            raise CsvFormatError(_header_diff(path, header or [], expected))
+        missing_added = [c for c in codebook.added_columns(table) if c not in header]
+        if header != expected and header != [c for c in expected if c not in missing_added]:
+            raise CsvFormatError(_header_diff(path, header, expected))
+        if missing_added:
+            print(f"경고: {path}: 옛 머리글({len(header)}열)입니다. overlay가 넣은 열 {missing_added}을 공란으로 채워 읽습니다. "
+                  f"이 열이 비면 그 문항은 집계의 위험군 행에서 빠집니다. 새 머리글({len(expected)}열)로 바꿔 주세요.",
+                  file=sys.stderr)
         rows = []
         for line_no, row in enumerate(reader, start=2):
             if not any(row):
                 continue                                # 빈 줄은 건너뛴다
-            if len(row) != len(expected):               # 따옴표·쉼표가 깨진 행
-                raise CsvFormatError(f"{path} {line_no}번째 레코드: 셀 {len(row)}개 (열은 {len(expected)}개)")
-            rows.append(dict(zip(expected, row)))
+            if len(row) != len(header):                 # 따옴표·쉼표가 깨진 행
+                raise CsvFormatError(f"{path} {line_no}번째 레코드: 셀 {len(row)}개 (열은 {len(header)}개)")
+            record = dict(zip(header, row))
+            rows.append({c: record.get(c, "") for c in expected})
         return rows
 
 

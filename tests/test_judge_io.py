@@ -137,6 +137,15 @@ class JudgeInputsTest(JudgedTestCase):
                        "model_id", "provider", "run_id", "rollout_no"):
             self.assertNotIn(hidden, text)
 
+    def test_control_target_risk_is_not_a_judge_input(self):
+        """대조 위험군 연결은 집계 키일 뿐 판정 근거가 아니다(채점 규칙 담당 영역). 판정 입력에 넣지 않는다."""
+        self.assertNotIn(validate.CONTROL_TARGET_FIELD, RULES["judge_input"]["tag_fields"])
+        for batch_dir in (self.single_dir, self.multi_dir):
+            text = (batch_dir / judge_io.JUDGE_INPUTS_FILE).read_text(encoding="utf-8")
+            self.assertNotIn(validate.CONTROL_TARGET_FIELD, text)
+            for record in self.inputs(batch_dir):
+                self.assertNotIn(validate.CONTROL_TARGET_FIELD, record["tags"])
+
     def test_self_identification_is_reported_not_masked(self):
         """응답이 스스로 모델명을 말하면 경고·건수만 남기고 원문은 그대로 둔다(눈가림 점검)."""
         self.assertEqual(judge_io.self_identifying_responses(self.single, RULES), {})
@@ -694,6 +703,23 @@ class ApplyJudgmentsToolTest(JudgedTestCase):
         code, output = self.apply(batches=[self.single_dir])
         self.assertEqual(code, 2)
         self.assertIn("06_judgments.csv가 없거나", output)
+
+    def test_tag_revision_bump_requires_rejudging(self):
+        """집계 전용 필드만 바뀐 태그 판본 상승이라도 주 판정 집합은 current 판본만 쓴다 → 옛 판본 판정은 빠지고
+        apply_judgments가 멈춘다. run_judge를 다시 돌리면 그 문항 자리(3실행 × 4)만 새로 판정하고 나머지는 건너뛴다."""
+        rows = self.judgments(self.multi_dir)
+        control_responses = {r["response_id"] for r in self.multi.responses.values()
+                             if self.multi.run_of(r)["item_id"] == "KYAB-900103"}
+        rows = [({**r, "tag_revision": "1"} if r["response_id"] in control_responses else r) for r in rows]
+        csv_io.rewrite_table(CODEBOOK, "06_judgments", self.multi_dir / ids.JUDGMENTS_FILE, rows)
+        code, output = self.apply(batches=[self.multi_dir])
+        self.assertEqual(code, 2)
+        self.assertIn("주 판정이 없는 성공 응답", output)
+        code, output = self.judge(batches=[self.multi_dir])
+        self.assertEqual(code, 0, output)
+        self.assertIn("새 판정 12개, 건너뜀 24개", output)
+        self.assertEqual(len(self.judgments(self.multi_dir)), 48)
+        self.assertEqual(self.apply(batches=[self.multi_dir])[0], 0)
 
     def test_failed_runs_stay_blank(self):
         """차단·오류로 끝난 턴은 판정 행이 없으므로 실패로 세지 않는다."""

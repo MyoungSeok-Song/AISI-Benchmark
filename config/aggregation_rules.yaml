@@ -9,7 +9,7 @@
 # 근거 문서: 코드북 v0.2 (06·07·08 시트), 수행계획서 v1.1 표 Ⅳ-20 · Ⅳ-22 · Ⅳ-5-나
 
 aggregation_rule_id: AGG-RB6D-1
-aggregation_rule_version: 0.2.1
+aggregation_rule_version: 0.2.2
 
 # ── 필드 묶음 (코드북 06의 열 이름. 로드할 때 코드북에 있는지 확인한다) ──────────
 rubric_dimensions:                 # 07 dimension_means_json의 키 -> 06 열
@@ -164,7 +164,13 @@ aggregation:
 
   # 슬라이스 정의. 이름은 코드북 07 slice_level 허용값, 값은 slice_key_json의 키(01·02의 필드).
   # 모델(model_id + model_version)별로 따로 행을 만든다.
-  # [구현] 키 값이 빈 실행(예: 대조 문항의 primary_risk)은 그 슬라이스에 넣지 않는다.
+  # [구현] 키 값이 빈 실행(예: 미검토 문항의 primary_risk)은 그 슬라이스에 넣지 않는다.
+  # [확정 — 코드북 담당 회신 2026-10-05 ②] 대조 문항이 어느 위험군의 대조인지 잇는 열(02 control_target_risk, 열 이름은 잠정 OV-P4).
+  # [구현, 잠정] primary_risk 키의 묶음(risk_group·risk_age_turn)에 대조 문항은 primary_risk 대신 control_target_risk 값으로
+  #   들어간다(위험군별 ORR 산출). slice_key_json의 키 표기는 {"primary_risk": X}를 유지하고, 행별 notes에
+  #   slice_key_sources·control_items·control_runs를 둔다. 그 행의 n_items·n_runs·n_responses·κ·사람 검토율에는 대조 문항이
+  #   포함된다 — 지표 명세(코드북 담당) 확인 대상. false면 대조 문항은 위험군 행에 들어가지 않는다(0.2.1 이전 동작).
+  substitute_control_target_risk: true
   slices:
     overall: []
     risk_group: [primary_risk]

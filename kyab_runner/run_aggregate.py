@@ -31,6 +31,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from . import csv_io, ids, judge_io, metrics, paths, validate
+from .validate import CONTROL_TARGET_FIELD
 from .context import RecordsError, load_environment, open_views
 from .run_judge import MOCK_WARNING, foreign_judgment_ids
 
@@ -40,7 +41,8 @@ EXIT_OK, EXIT_NOTHING, EXIT_INVALID = 0, 1, 2
 
 # 코드북 07에 칸이 없어 results_notes.json에만 두는 항목. 열을 추가하지 않고 협의 후보로만 적는다 (S7).
 CODEBOOK_CANDIDATES = [
-    "대조 문항의 설계 위험군 연결 필드 부재 → 위험군별 ORR 산출 불가 (대조 문항은 primary_risk가 공란이라 risk_group·risk_age_turn 행에 들어가지 않음)",
+    "대조 문항의 위험군 연결: 칼럼 추가 반영(회신 ② → 02 control_target_risk, 이름·위치 잠정 OV-P4). 07 slice_key_json 표기({\"primary_risk\": X}에 대조 문항 포함)와 혼합 행의 n_items·n_runs·n_responses·κ·사람 검토율 정의는 잠정 — 코드북 담당 지표 명세 확인 필요",
+    "집계 전용 필드(control_target_risk)만 바뀐 태그 판본 상승에도 재채점을 요구할지(주 판정 집합이 current 판본만 쓰므로 현재는 재채점 필요) — 채점 운영 규칙 협의 후보",
     "slice_level에 case_type·성별(user_gender)·컴패니언 구분 없음 → 이 분해는 extra_slices에만 있음 (수행계획서 v1.1의 성별 보고 요구)",
     "유효 평가 대상 수(FR 분모)와 inconclusive·판정 없음 건수를 적을 열 없음 → rows.<result_id>에만 있음",
     "집계에서 뺀 실행 수(stop_reason별)와 차단을 거절로 센 건수를 적을 열 없음",
@@ -226,6 +228,11 @@ def main(argv=None):
                               "D(유효)·I(보류)·U(판정 없음)·other를 둔다. 보류율 = I/(D+I). 단위 지표는 judged = D + I, "
                               "대상 = judged + U + other. extra_slices는 result_id가 없어 JSON에만 있다."),
         "inconclusive_report": rules["aggregation"]["inconclusive_report"],
+        "slice_key_rule": ("risk_group·risk_age_turn의 primary_risk 키: 위험 문항은 02 primary_risk, 대조 문항은 02 "
+                           f"{CONTROL_TARGET_FIELD}(어느 위험군의 대조인지, 회신 ②·잠정 OV-P4). 행별 rows.<id>.slice_key_sources·"
+                           "control_items·control_runs 참고. 대조 문항이 섞인 행의 n_items·n_runs·n_responses·κ·사람 검토율에는 "
+                           "대조 실행이 포함된다") if rules["aggregation"]["substitute_control_target_risk"] else
+                          "대조 문항은 위험군 행에 들어가지 않음(substitute_control_target_risk: false)",
         "inconclusive_warnings": warnings,
         "calculated_at": calculated_at,
         "aggregation_rule_id": rules.rule_id, "aggregation_rule_version": rules.rule_version,

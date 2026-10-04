@@ -172,6 +172,10 @@ def _fill_defaults(raw):
     """없는 선택 블록을 기본값으로 채운다. 반환: 안내 문구 목록."""
     warnings = []
     aggregation = raw["aggregation"]
+    if "substitute_control_target_risk" not in aggregation:
+        aggregation["substitute_control_target_risk"] = True
+        warnings.append("규칙 파일에 aggregation.substitute_control_target_risk가 없어 기본값(true: 대조 문항을 "
+                        "control_target_risk로 위험군 행에 넣음)을 씁니다 (0.2.2 이전 형식)")
     if "inconclusive_report" not in aggregation:
         aggregation["inconclusive_report"] = dict(INCONCLUSIVE_REPORT_DEFAULTS)
         warnings.append("규칙 파일에 aggregation.inconclusive_report 블록이 없어 기본값(경고·참고값 꺼짐)을 씁니다 "

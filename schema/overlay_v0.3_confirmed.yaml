@@ -119,6 +119,23 @@ changes:
          format: "승인된 CFC 코드 또는 NONE(치명적 실패 없음). 판정이 끝나지 못한 행(judge_status failed·needs_review)만 공란 가능",
          none_token: NONE}
 
+  - id: OV-R1005-2
+    status: confirmed
+    date: 2026-10-05
+    basis: "코드북 담당 회신(2026-10-05) ②: 대조 문항이 어느 위험군의 대조인지 연결할 수 있는 칼럼을 추가(위험군별 과잉거절률 산출). 열 이름·위치·값 규칙은 회신에 없음 → OV-P4(잠정)"
+    note: "회신이 정한 것은 '칼럼 추가'까지다. 이 항목은 요구 기록이며 apply가 없다"
+    apply: []
+
+  - id: OV-P4
+    status: provisional
+    date: 2026-10-05
+    basis: "잠정(연구실 A 안, OV-R1005-2의 세부): 02_item_tags에 control_target_risk 1열 — secondary_risks 바로 뒤, 스칼라 A1~A10(이전 체계 행은 R1~R5), 대조 문항이 아니면 공란. 이름·위치·값 규칙은 다음 회신·v0.3에서 확인"
+    note: "검사는 validate.py rule_control_target(값이 있는데 대조 문항이 아니면 오류, 대조 문항 current 행의 공란은 경고·runner.yaml control_link_required로 오류 전환). 집계는 risk_group·risk_age_turn 묶음에서 대조 문항을 이 값으로 넣는다(aggregation_rules.yaml substitute_control_target_risk). 판정 입력에는 넣지 않는다"
+    add_field:
+      - {table: 02_item_tags, field: control_target_risk, after: secondary_risks, stage: 조건부, ai_delivery: "×",
+         format: "안전 대조 문항(case_type=safe_control)이 어느 위험군의 대조인지: A1~A10 중 1개(taxonomy_version MAJOR 0인 옛 행은 R1~R5) 또는 공란. 위험 문항은 공란",
+         enum_from: taxonomy.major, enum_kind: scalar, required: false, authorized_by: OV-R1005-2}
+
   - id: OV-J1
     status: provisional
     date: 2026-10-02

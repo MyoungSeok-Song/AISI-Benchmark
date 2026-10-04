@@ -16,7 +16,7 @@ from pathlib import Path
 RUNNER_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RUNNER_DIR))
 
-from kyab_runner import cli, csv_io, paths, run_multiturn, run_single    # noqa: E402
+from kyab_runner import cli, csv_io, paths, run_multiturn, run_single, validate    # noqa: E402
 from kyab_runner.adapters.mock import MockAdapter                        # noqa: E402
 from kyab_runner.codebook import load_codebook                           # noqa: E402
 from kyab_runner.config import load_config                               # noqa: E402
@@ -165,7 +165,8 @@ class NormalRunTest(RunnerTestCase):
         runs = {r["run_id"]: r for r in self.table(self.multi_dir, "04_runs")}
         responses = {r["response_id"]: r for r in self.table(self.multi_dir, "05_responses")}
         revisions = {runs[responses[j["response_id"]]["run_id"]]["item_id"]: j["tag_revision"] for j in multi}
-        self.assertEqual(revisions, {"KYAB-900101": "1", "KYAB-900102": "2", "KYAB-900103": "1"})
+        # 대조 문항 KYAB-900103은 대조 위험군 연결(control_target_risk)을 rev 2로 덧붙였다(회신 ②).
+        self.assertEqual(revisions, {"KYAB-900101": "1", "KYAB-900102": "2", "KYAB-900103": "2"})
 
 
 class FailureScenarioTest(RunnerTestCase):
@@ -388,6 +389,76 @@ class ValidationTest(RunnerTestCase):
         code, output = self.run_cli(run_multiturn, input_dir=input_dir)
         self.assertEqual(code, cli.EXIT_INVALID_INPUT)
         self.assertIn("셀 2개 (열은 7개)", output)
+
+    def test_control_target_risk_only_on_control_items(self):
+        """대조 위험군 연결(OV-P4 잠정): 위험 문항에 값이 있으면 오류."""
+        self.assert_rejected("02_item_tags", lambda rows: self.current_tag(rows, "KYAB-900001").update(control_target_risk="A8"),
+                             "대조 문항(safe_control)이 아닌데")
+
+    def test_control_target_risk_must_be_a_major_code(self):
+        """새 체계 행의 연결값은 A1~A10만."""
+        self.assert_rejected("02_item_tags", lambda rows: self.current_tag(rows, "KYAB-900002").update(control_target_risk="R1"),
+                             "허용값 아님")
+
+    def test_control_without_link_is_warning_unless_required(self):
+        """대조 문항의 연결이 비면 경고만(실행 진행). runner.yaml control_link_required가 true면 오류."""
+        input_dir, tables = self.copy_inputs()
+        self.current_tag(tables["02_item_tags"], "KYAB-900103").update(control_target_risk="")
+        self.save(input_dir, "02_item_tags", tables["02_item_tags"])
+        code, output = self.run_cli(run_multiturn, input_dir=input_dir)
+        self.assertEqual(code, 0, output)
+        self.assertIn("[warning] 02_item_tags KYAB-900103@1.0.0#rev2 control_target_risk", output)
+        strict = {**CONFIG.raw, "control_link_required": True}
+        issues = validate.validate_inputs(CODEBOOK, TAXONOMY, strict, *tables.values())
+        self.assertTrue(any(i.level == "error" and i.field == validate.CONTROL_TARGET_FIELD for i in issues))
+
+    def test_legacy_control_link_uses_r_codes(self):
+        """이전 체계(MAJOR 0) 행의 대조 연결값은 R1~R5. A 코드는 오류."""
+        input_dir, tables = self.copy_inputs()
+        legacy = next(r for r in tables["02_item_tags"] if r["item_id"] == "KYAB-900002" and r["tag_revision"] == "1")
+        legacy.update(taxonomy_version="0.7.0", m_review_status="no_issue", control_target_risk="R2")
+        self.assertEqual(validate.errors_of(validate.validate_inputs(CODEBOOK, TAXONOMY, CONFIG, *tables.values())), [])
+        legacy.update(control_target_risk="A2")
+        issues = validate.validate_inputs(CODEBOOK, TAXONOMY, CONFIG, *tables.values())
+        self.assertTrue(any(i.field == validate.CONTROL_TARGET_FIELD and "R 코드가 아님" in i.message for i in issues))
+
+    def test_missing_control_column_in_codebook_is_reported_not_raised(self):
+        """코드북(overlay)에 열이 없으면 traceback이 아니라 메시지 있는 오류."""
+        from kyab_runner.codebook import load_codebook
+        bare = load_codebook(TAXONOMY, overlay_yaml=self.tmp / "no_overlay.yaml")
+        _, tables = self.copy_inputs()
+        tables["02_item_tags"] = [{k: v for k, v in r.items() if k != validate.CONTROL_TARGET_FIELD} for r in tables["02_item_tags"]]
+        issues = validate.validate_inputs(bare, TAXONOMY, CONFIG, *tables.values())
+        self.assertTrue(any(i.field == validate.CONTROL_TARGET_FIELD and "열이 없음" in i.message for i in issues))
+
+    def test_old_29_column_tags_header_is_read_with_warning(self):
+        """다른 팀이 코드북 원본 머리글(29열)로 만든 02도 읽힌다: 새 열은 공란, 경고. 실행은 진행(연결 공란은 경고)."""
+        import contextlib
+        import io
+        input_dir, tables = self.copy_inputs()
+        path = input_dir / cli.INPUT_FILES["02_item_tags"]
+        columns = [c for c in CODEBOOK.columns("02_item_tags") if c != validate.CONTROL_TARGET_FIELD]
+        with open(path, "w", encoding="utf-8-sig", newline="") as f:
+            import csv as _csv
+            writer = _csv.writer(f)
+            writer.writerow(columns)
+            writer.writerows([r[c] for c in columns] for r in tables["02_item_tags"])
+        self.assertEqual(len(columns), 29)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            rows = csv_io.read_table(CODEBOOK, "02_item_tags", path)
+        self.assertIn("옛 머리글(29열)", err.getvalue())
+        self.assertTrue(all(r[validate.CONTROL_TARGET_FIELD] == "" for r in rows))
+        self.assertEqual(list(rows[0]), CODEBOOK.columns("02_item_tags"))
+        with contextlib.redirect_stderr(io.StringIO()):
+            code, output = self.run_cli(run_multiturn, input_dir=input_dir)
+        self.assertEqual(code, 0, output)
+        # 쓰기는 항상 새 머리글이다
+        header = (self.batch_dirs()[0] / "06_judgments_template.csv").read_bytes().decode("utf-8-sig").split("\r\n", 1)[0]
+        self.assertEqual(header, ",".join(CODEBOOK.columns("06_judgments")))
+        # 다른 열이 빠진 머리글은 여전히 거부
+        with self.assertRaises(csv_io.CsvFormatError):
+            csv_io.read_table(CODEBOOK, "02_item_tags", input_dir / cli.INPUT_FILES["01_items"])
 
     def test_unverified_items_need_flag(self):
         """검토 미통과 문항은 --allow-unverified 없이는 실행되지 않는다."""

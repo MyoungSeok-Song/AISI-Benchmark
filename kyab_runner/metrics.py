@@ -35,7 +35,7 @@ from dataclasses import dataclass
 from statistics import NormalDist
 
 from . import csv_io, judge_io
-from .validate import IssueCollector, check_unique
+from .validate import CONTROL_TARGET_FIELD, IssueCollector, check_unique
 
 TABLE = "07_results"
 VALID_VERDICTS = ("pass", "fail")
@@ -154,6 +154,13 @@ class RunCase:
     def value(self, field):
         """01 또는 02 현재 태그의 필드 값 (슬라이스 키·대상 조건용)."""
         return self.item[field] if field in self.item else self.tag[field]
+
+    def slice_value(self, field, rules):
+        """슬라이스 키 값. 대조 문항의 primary_risk 자리에는 control_target_risk(어느 위험군의 대조인지)를 쓴다(회신 ②, 잠정)."""
+        if field == "primary_risk" and self.item["case_type"] == "safe_control" \
+                and rules["aggregation"]["substitute_control_target_risk"]:
+            return self.tag.get(CONTROL_TARGET_FIELD, "")
+        return self.value(field)
 
     def matches(self, conditions):
         """{필드: [허용값…]} 조건을 모두 만족하는가."""
@@ -527,14 +534,21 @@ def _natural(values):
     return [[int(part) if part.isdigit() else part for part in re.split(r"(\d+)", value)] for value in values]
 
 
-def _buckets(cases, keys):
+def _buckets(cases, keys, rules):
     """슬라이스 키 값별로 실행을 묶는다. 키 값이 빈 실행은 넣지 않는다. 반환: 키 값 순으로 (값 튜플, 실행 목록)."""
     buckets = defaultdict(list)
     for case in cases:
-        values = tuple(case.value(key) for key in keys)
+        values = tuple(case.slice_value(key, rules) for key in keys)
         if all(values):
             buckets[values].append(case)
     return [(values, buckets[values]) for values in sorted(buckets, key=_natural)]
+
+
+def slice_key_sources(keys, rules):
+    """슬라이스 키마다 값을 어느 필드에서 가져왔는지(문항 유형별). 혼합 행을 읽는 사람을 위한 기록."""
+    substitute = rules["aggregation"]["substitute_control_target_risk"]
+    return {key: ({"risk_case": "primary_risk", "safe_control": CONTROL_TARGET_FIELD} if key == "primary_risk" and substitute
+                  else key) for key in keys}
 
 
 def _formatted(metrics, places):
@@ -572,11 +586,14 @@ def aggregate(codebook, rules, cases, new_result_id, calculated_at):
                   "aggregation_rule_id": rules.rule_id, "aggregation_rule_version": rules.rule_version,
                   "calculated_at": calculated_at}
         for level, keys in agg["slices"].items():
-            for key_values, bucket in _buckets(group, keys):
+            for key_values, bucket in _buckets(group, keys, rules):
                 included = [c for c in bucket if c.included]
                 if not included:
                     continue
                 metrics, notes = slice_metrics(rules, level, bucket)
+                controls = [c for c in included if c.item["case_type"] == "safe_control"]
+                notes.update(slice_key_sources=slice_key_sources(keys, rules),
+                             control_items=sorted({c.run["item_id"] for c in controls}), control_runs=len(controls))
                 tags = {(c.tag["item_id"], c.tag["item_version"]): c.tag for c in included}
                 row = dict.fromkeys(columns, "")
                 row.update(common)
@@ -595,7 +612,7 @@ def aggregate(codebook, rules, cases, new_result_id, calculated_at):
 
         # 코드북 07 slice_level에 없는 분해는 보조 기록에만 둔다(열·허용값을 늘리지 않는다).
         for name, keys in agg["notes_slices"].items():
-            for key_values, bucket in _buckets(group, keys):
+            for key_values, bucket in _buckets(group, keys, rules):
                 if any(c.included for c in bucket):
                     metrics, notes = slice_metrics(rules, None, bucket)
                     extra_slices.append({"model_id": model_id, "model_version": model_version,
@@ -613,7 +630,7 @@ def aggregate(codebook, rules, cases, new_result_id, calculated_at):
             "runs_excluded": dict(Counter(f"{c.run['run_status']}/{c.run['stop_reason']}" for c in excluded)),
             "provider_block_runs_counted_as_refusal": sum(1 for c in included_group if c.counted_block),
             "provider_block_virtual_units": sum(1 for c in included_group if c.virtual_unit),
-            "runs_without_slice_key": {level: sum(1 for c in included_group if not all(c.value(k) for k in keys))
+            "runs_without_slice_key": {level: sum(1 for c in included_group if not all(c.slice_value(k, rules) for k in keys))
                                        for level, keys in agg["slices"].items() if keys},
             # 회신 ④: 모델 단위 판단 보류 — 주 판정 자리의 verdict 분포(범위별)와 보류율
             "verdict_distribution": distribution,
