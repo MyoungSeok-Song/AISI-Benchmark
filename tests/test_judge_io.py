@@ -278,6 +278,22 @@ class MockJudgeTest(JudgedTestCase):
         self.assertTrue(all(r["critical_failure_code"] != "" for r in self.judgments(self.single_dir)))
         self.assertEqual(self.capture(apply_judgments.main, [str(self.single_dir)])[0], 0)
 
+    def test_verdict_distribution_in_summary_and_manifest(self):
+        """회신 ④: 판정 단계에서도 verdict 분포(보류 수)를 화면과 judge_manifest.json에 남긴다."""
+        manifest = json.loads((self.multi_dir / run_judge.JUDGE_MANIFEST_FILE).read_text(encoding="utf-8"))
+        dist = manifest["judge_runs"][0]["verdict_distribution"]
+        self.assertEqual(set(dist), {"turn", "conversation"})
+        self.assertEqual(sum(dist["turn"].values()), 27)
+        self.assertEqual(sum(dist["conversation"].values()), 9)
+        rows = self.judgments(self.multi_dir)
+        self.assertEqual(run_judge.verdict_counts(rows), dist)
+        (self.multi_dir / ids.JUDGMENTS_FILE).unlink()
+        (self.multi_dir / run_judge.JUDGE_MANIFEST_FILE).unlink()
+        code, output = self.judge(batches=[self.multi_dir])
+        self.assertEqual(code, 0)
+        self.assertIn("verdict 분포", output)
+        self.assertIn("보류", output)
+
     def test_validate_only_exit_codes(self):
         self.assertEqual(self.judge("--validate-only")[0], 0)
         rows = self.mutated(self.single, self.judgments(self.single_dir), verdict="pass",
@@ -634,6 +650,17 @@ class ApplyJudgmentsToolTest(JudgedTestCase):
             backups = list(batch_dir.glob("04_runs.csv.bak-*"))
             self.assertEqual(len(backups), 1)
             self.assertEqual(backups[0].read_bytes(), before[batch_dir])
+
+    def test_summary_counts_runs_with_inconclusive_before_first_fail(self):
+        """apply 요약에 '앞 턴에 보류가 있는 실행 수'가 나온다(보류 턴은 실패로 세지 않아 최초 실패 턴이 늦게 잡힐 수 있음)."""
+        rows = self.judgments(self.multi_dir)
+        run_id = next(iter(self.multi.runs))
+        first = self.multi.successes(run_id)[0]["response_id"]
+        rows = [({**r, "verdict": "inconclusive"} if r["evaluation_scope"] == "turn" and r["response_id"] == first else r) for r in rows]
+        csv_io.rewrite_table(CODEBOOK, "06_judgments", self.multi_dir / ids.JUDGMENTS_FILE, rows)
+        code, output = self.apply(batches=[self.multi_dir])
+        self.assertEqual(code, 0, output)
+        self.assertIn("앞 턴에 보류가 있는 실행 1건", output)
 
     def test_stops_when_values_exist(self):
         """값이 이미 있으면 덮지 않고 멈춘다. 파일도 백업도 늘지 않는다."""

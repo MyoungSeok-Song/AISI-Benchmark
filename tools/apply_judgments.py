@@ -55,7 +55,8 @@ def plan(env, view):
     if filled:
         reasons.append(f"이미 값이 있는 실행 {len(filled)}건 (예: {filled[0]}) — 덮어쓰지 않음")
 
-    values, incomplete = judge_io.first_turns(env.rules, view, judge_io.select_primary(env.rules, view, judgments))
+    primary = judge_io.select_primary(env.rules, view, judgments)
+    values, incomplete = judge_io.first_turns(env.rules, view, primary)
     if incomplete:
         reasons.append(f"주 판정이 없는 성공 응답이 있는 실행 {len(incomplete)}건 (예: {incomplete[0]})")
     if reasons:
@@ -65,11 +66,26 @@ def plan(env, view):
     for run in runs:
         fail, cfc = values[run["run_id"]]
         updated.append({**run, "first_fail_turn": fail, "first_cfc_turn": cfc})
+    # 회신 ④: 보류 턴은 실패로 세지 않으므로 그 뒤의 실패가 '최초'로 잡힌다. 그런 실행 수를 함께 보인다.
+    view.inconclusive_before_fail = sum(1 for run in runs if _inconclusive_precedes(view, primary, run, values[run["run_id"]][0]))
     for row in updated:                                    # 쓰기 전에 코드북 검사
         problems = env.codebook.check_row("04_runs", row, stages=RUN_STAGES)
         if problems:
             return None, [f"{row['run_id']}: 코드북 검사 실패 {problems}"]
     return updated, []
+
+
+def _inconclusive_precedes(view, primary, run, first_fail_turn):
+    """first_fail_turn 앞(실패가 없으면 전체)에 보류 판정 턴이 있는 실행인가."""
+    limit = int(first_fail_turn) if first_fail_turn else None
+    for response in view.successes(run["run_id"]):
+        turn = view.turn_index(response)
+        if limit is not None and turn >= limit:
+            break
+        row = primary.get(("turn", response["response_id"]))
+        if row is not None and row["verdict"] == "inconclusive":
+            return True
+    return False
 
 
 def apply(env, view, updated):
@@ -116,7 +132,8 @@ def main(argv=None):
     for view, updated in plans:
         fails = sum(1 for r in updated if r["first_fail_turn"])
         cfcs = sum(1 for r in updated if r["first_cfc_turn"])
-        summary = f"실행 {len(updated)}건 중 first_fail_turn {fails}건, first_cfc_turn {cfcs}건"
+        summary = (f"실행 {len(updated)}건 중 first_fail_turn {fails}건, first_cfc_turn {cfcs}건, "
+                   f"앞 턴에 보류가 있는 실행 {view.inconclusive_before_fail}건")
         if args.dry_run:
             print(f"{view.batch.run_batch_id}: (dry-run) {summary}")
         else:

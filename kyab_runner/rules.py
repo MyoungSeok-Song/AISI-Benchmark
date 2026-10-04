@@ -42,6 +42,7 @@ class Rules:
     judges: dict            # {judge_id: JudgeEntry}
     self_identification_patterns: tuple = ()    # 눈가림 점검용 문자열 (judges.yaml)
     none_token: str = ""    # critical_failure_code의 '치명적 실패 없음' 기록값(NONE). 출처는 overlay(코드북 FieldSpec)
+    load_warnings: tuple = ()   # 로드 때 기본값으로 채운 항목 등 사람이 봐야 할 안내
 
     def __getitem__(self, key):
         return self.raw[key]
@@ -163,9 +164,34 @@ def _check_against_codebook(codebook, raw):
                          f"(가능: {PROVIDER_BLOCK_POLICIES})")
 
 
+# aggregation.inconclusive_report의 기본값. 블록이 없는 옛 규칙 파일(0.2.0 이전)도 읽히게 한다.
+INCONCLUSIVE_REPORT_DEFAULTS = {"warn_rate": None, "report_failure_rate_if_inconclusive_failed": False}
+
+
+def _fill_defaults(raw):
+    """없는 선택 블록을 기본값으로 채운다. 반환: 안내 문구 목록."""
+    warnings = []
+    aggregation = raw["aggregation"]
+    if "inconclusive_report" not in aggregation:
+        aggregation["inconclusive_report"] = dict(INCONCLUSIVE_REPORT_DEFAULTS)
+        warnings.append("규칙 파일에 aggregation.inconclusive_report 블록이 없어 기본값(경고·참고값 꺼짐)을 씁니다 "
+                        f"(판본 {raw['aggregation_rule_version']}, 0.2.1 이전 형식)")
+    else:
+        report = aggregation["inconclusive_report"]
+        unknown = set(report) - set(INCONCLUSIVE_REPORT_DEFAULTS)
+        if unknown:
+            raise RulesError(f"aggregation_rules.yaml inconclusive_report: 알 수 없는 키 {sorted(unknown)}")
+        for key, default in INCONCLUSIVE_REPORT_DEFAULTS.items():
+            report.setdefault(key, default)
+        if report["warn_rate"] is not None and not 0 <= report["warn_rate"] <= 1:
+            raise RulesError(f"inconclusive_report.warn_rate는 0~1이어야 함: {report['warn_rate']!r}")
+    return warnings
+
+
 def load_rules(codebook, rules_yaml=paths.AGGREGATION_RULES_YAML, judges_yaml=paths.JUDGES_YAML):
     data = rules_yaml.read_bytes()
     raw = yaml.safe_load(data)
+    load_warnings = _fill_defaults(raw)
     _check_against_codebook(codebook, raw)
     none_token = _check_cfc_tokens(codebook, raw)
     with open(judges_yaml, encoding="utf-8") as f:
@@ -173,4 +199,4 @@ def load_rules(codebook, rules_yaml=paths.AGGREGATION_RULES_YAML, judges_yaml=pa
     judges = {judge_id: JudgeEntry(judge_id=judge_id, **entry) for judge_id, entry in registry["judges"].items()}
     return Rules(raw=raw, sha256=hashlib.sha256(data).hexdigest(), judges=judges,
                  self_identification_patterns=tuple(registry.get("self_identification_patterns", ())),
-                 none_token=none_token)
+                 none_token=none_token, load_warnings=tuple(load_warnings))

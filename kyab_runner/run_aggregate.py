@@ -3,10 +3,13 @@
   1. 배치마다 06_judgments.csv를 검증한다. 오류가 있으면 집계하지 않는다.
   2. 본평가에 쓸 수 없는 판정기(모의)의 판정이 섞여 있으면 거부한다(--allow-mock-judge로만 허용).
   3. 모델 × 슬라이스마다 지표를 계산한다(metrics.py, 규칙은 config/aggregation_rules.yaml).
-  4. 결과를 검증한 뒤 <출력 루트>/RESULTS-YYYYMMDD-###/ 에 쓴다.
-       07_results.csv       코드북 35열
-       results_notes.json   07에 칸이 없는 보조 기록(분모, 제외·가상 판정 건수, 코드북에 없는 분해,
-                            코드북 협의 후보). 코드북 표가 아니다.
+  4. 결과를 검증한 뒤 <출력 루트>/RESULTS-YYYYMMDD-###/ 에 쓴다(임시 폴더에 다 쓴 뒤 이름을 바꾼다 — 셋 중
+     하나만 남는 일이 없다).
+       07_results.csv             코드북 35열
+       results_denominators.csv   회신 ④: 보류를 분모에서 뺀 지표마다 D(유효)·I(보류)·U(판정 없음)·other와
+                                  보류율 I/(D+I). result_id로 07과 1:1. 코드북 밖 보조 산출물(07_ 접두어 아님)
+       results_notes.json         07에 칸이 없는 보조 기록(분모·보류, 제외·가상 판정 건수, 모델별 verdict 분포,
+                                  코드북에 없는 분해, 코드북 협의 후보). 코드북 표가 아니다.
 
 집계할 때마다 새 폴더와 새 result_id가 생긴다. 이미 쓴 결과 행은 고치지 않는다.
 
@@ -18,7 +21,9 @@
 종료 코드: 0 정상, 1 집계할 실행이 없음, 2 입력·검증 오류 또는 거부.
 """
 import argparse
+import csv
 import json
+import shutil
 import sys
 from collections import Counter
 from datetime import datetime
@@ -30,6 +35,7 @@ from .context import RecordsError, load_environment, open_views
 from .run_judge import MOCK_WARNING, foreign_judgment_ids
 
 NOTES_FILE = "results_notes.json"
+DENOMINATORS_FILE = "results_denominators.csv"
 EXIT_OK, EXIT_NOTHING, EXIT_INVALID = 0, 1, 2
 
 # 코드북 07에 칸이 없어 results_notes.json에만 두는 항목. 열을 추가하지 않고 협의 후보로만 적는다 (S7).
@@ -42,6 +48,10 @@ CODEBOOK_CANDIDATES = [
     "CRRI 임계값을 적을 열 없음(aggregation_rule_id·version으로만 추적)",
     "06: judge_status가 failed·needs_review인 행의 verdict·점수 필수성 (현재 가정 J4로 빈값 허용)",
     "06: 사람 검토가 끝났을 때 llm 행의 human_review_status를 고칠지(append-only와 충돌) — 현재는 human 행의 존재로 판단",
+    "06 memo '값이 있으면 verdict=fail' → 'NONE이 아닌 값이면 verdict=fail'로 정정 제안 (회신 ③ NONE 도입에 따른 잠정 해석 OV-J1b)",
+    "04 first_fail_turn·first_cfc_turn의 공란은 '판정 전·apply 미실행'과 '실패 없음'을 구분하지 못함(형식이 '정수 또는 공란'이라 NONE 불가)",
+    "07 v0.3 제안: denominators_json 1열(지표별 D·I·U). 지금은 results_denominators.csv를 07과 함께 봐야 함(회신 ④)",
+    "제안(기본 꺼짐, 지표 명세 몫): 보류율 경고 임계값(inconclusive_report.warn_rate), '보류를 실패로 본 FR' 참고값",
 ]
 
 
@@ -91,6 +101,45 @@ def judges_in_primary(env, loaded):
     return counts
 
 
+def write_results(results_dir, codebook, rows, denominators, record):
+    """07·분모 CSV·보조 기록을 임시 폴더에 모두 쓴 뒤 결과 폴더 이름으로 바꾼다.
+
+    도중에 실패하면 임시 폴더를 지우고 예외를 다시 낸다. 결과 폴더가 생겼으면 세 파일이 모두 있다.
+    """
+    tmp = results_dir.with_name(results_dir.name + ".tmp")
+    tmp.mkdir(parents=True)
+    try:
+        csv_io.append_rows(codebook, metrics.TABLE, tmp / ids.RESULTS_FILE, rows)
+        write_denominators(tmp / DENOMINATORS_FILE, denominators)
+        (tmp / NOTES_FILE).write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+    except BaseException:
+        shutil.rmtree(tmp, ignore_errors=True)
+        raise
+    tmp.rename(results_dir)
+
+
+def write_denominators(path, rows):
+    """results_denominators.csv (코드북 밖 보조 산출물). 07과 같은 CSV 형식(UTF-8 BOM, RFC 4180)."""
+    with open(path, "w", encoding="utf-8-sig", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=metrics.DENOMINATOR_COLUMNS)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def inconclusive_warnings(rules, rows, notes):
+    """규칙 파일 inconclusive_report.warn_rate가 켜져 있으면 FR 보류율이 그 값을 넘는 행을 알린다."""
+    threshold = rules["aggregation"]["inconclusive_report"]["warn_rate"]
+    if threshold is None:
+        return []
+    out = []
+    for row in rows:
+        rate = notes["rows"][row["result_id"]]["inconclusive_rate"]
+        if rate is not None and rate > threshold:
+            out.append(f"{row['result_id']} {row['model_id']} {row['slice_level']} {row['slice_key_json']}: "
+                       f"FR 판단 보류율 {rate:.3f} > {threshold}")
+    return out
+
+
 def output_root(args):
     if args.out:
         return args.out
@@ -100,21 +149,32 @@ def output_root(args):
     return parents.pop()
 
 
-def print_summary(rows):
-    """화면 요약. 빈값은 '-'로 보인다. 전체 값은 07_results.csv에 있다."""
+def print_summary(rows, notes):
+    """화면 요약. FR 옆에 분모 D와 보류 I를 함께 보인다(회신 ④). 빈값은 '-'. 전체 값은 07과 분모 CSV에 있다."""
     shown = (("FR", "failure_rate"), ("CFR", "critical_failure_rate"), ("MRS", "mean_rubric_score"),
              ("ORR", "over_refusal_rate"), ("TRR", "referral_rate"), ("CRRI", "crri_mean"))
-    print(f"\n{'model_id':<22} {'slice':<14} {'key':<36} runs  " + " ".join(f"{name:<8}" for name, _ in shown))
+    print(f"\n{'model_id':<22} {'slice':<14} {'key':<36} runs  D/I   " + " ".join(f"{name:<8}" for name, _ in shown))
     for row in rows:
         key = ",".join(json.loads(row["slice_key_json"]).values()) or "-"
+        note = notes["rows"][row["result_id"]]
         print(f"{row['model_id']:<22} {row['slice_level']:<14} {key:<36} {row['n_runs']:>4}  "
+              f"{note['fr_valid_units']:>2}/{note['inconclusive_units']:<2} "
               + " ".join(f"{row[field] or '-':<8}" for _, field in shown))
+    for model in notes["models"]:
+        dist = model["verdict_distribution"]
+        parts = [f"{scope}: " + "/".join(f"{k} {v}" for k, v in bucket.items()) for scope, bucket in dist.items()]
+        rate = model["inconclusive_rate_all_slots"]
+        print(f"  {model['model_id']} 주 판정 분포 — " + "; ".join(parts)
+              + (f"; 보류율 {rate:.3f}" if rate is not None else "")
+              + (f"; 잘림(length) {model['truncated_responses']}건" if model["truncated_responses"] else ""))
 
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
     env = load_environment(args.rules)
     rules = env.rules
+    for warning in rules.load_warnings:
+        print(f"주의: {warning}")
     try:
         _, views, notices = open_views(env, args.input, args.batches)
         loaded, judgment_warnings = load_valid_judgments(env, views)
@@ -156,11 +216,17 @@ def main(argv=None):
         print("07 결과가 검증을 통과하지 못해 쓰지 않습니다.")
         return EXIT_INVALID
 
+    warnings = inconclusive_warnings(rules, rows, notes)
+    for warning in warnings:
+        print(f"주의: {warning}")
     results_dir = root / ids.new_results_dir_name(root, datetime.now(timezone).strftime("%Y%m%d"))
-    results_dir.mkdir(parents=True)
-    csv_io.append_rows(env.codebook, metrics.TABLE, results_dir / ids.RESULTS_FILE, rows)
     record = {
         "note": "07_results.csv의 보조 기록. 코드북 7 CSV에 속하지 않는다. 07에 열을 추가하지 않고 여기에 둔다.",
+        "denominators_note": ("회신 ④: 보류를 분모에서 뺀 지표마다 rows.<result_id>.denominators와 results_denominators.csv에 "
+                              "D(유효)·I(보류)·U(판정 없음)·other를 둔다. 보류율 = I/(D+I). 단위 지표는 judged = D + I, "
+                              "대상 = judged + U + other. extra_slices는 result_id가 없어 JSON에만 있다."),
+        "inconclusive_report": rules["aggregation"]["inconclusive_report"],
+        "inconclusive_warnings": warnings,
         "calculated_at": calculated_at,
         "aggregation_rule_id": rules.rule_id, "aggregation_rule_version": rules.rule_version,
         "rules_file": str(args.rules), "rules_sha256": rules.sha256,
@@ -175,10 +241,11 @@ def main(argv=None):
         **notes,
         "codebook_candidates": CODEBOOK_CANDIDATES,
     }
-    (results_dir / NOTES_FILE).write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_results(results_dir, env.codebook, rows, metrics.denominator_rows(notes), record)
 
-    print_summary(rows)
+    print_summary(rows, notes)
     print(f"\n07_results {len(rows)}행 → {results_dir / ids.RESULTS_FILE}")
+    print(f"분모·보류 → {results_dir / DENOMINATORS_FILE}")
     print(f"보조 기록 → {results_dir / NOTES_FILE}")
     return EXIT_OK
 

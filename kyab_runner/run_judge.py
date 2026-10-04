@@ -115,6 +115,8 @@ def judge_batch(env, view, entry, judge, allocator):
                                      key in sample, batch.now()))
 
     print(f"{batch.run_batch_id}: 판정 자리 {len(rows)}개, 새 판정 {len(new_rows)}개, 건너뜀 {len(rows) - len(new_rows)}개")
+    if new_rows:
+        print(f"  새 판정 verdict 분포 — " + describe_verdicts(new_rows))
     if report(judge_io.validate_judgments(codebook, rules, view, existing + new_rows,
                                           foreign_judgment_ids(codebook, view))):
         return None
@@ -122,6 +124,23 @@ def judge_batch(env, view, entry, judge, allocator):
         csv_io.append_rows(codebook, judge_io.TABLE, batch.dir / ids.JUDGMENTS_FILE, new_rows)
         _record_judge_run(view, entry, judge, rules, rows, new_rows, sample)
     return len(new_rows)
+
+
+def verdict_counts(rows):
+    """판정 행의 범위별 verdict 분포. 반환: {scope: {verdict: 건수}} (회신 ④: 판정 단계에서도 보류 수를 남긴다)."""
+    out = {}
+    for row in rows:
+        bucket = out.setdefault(row["evaluation_scope"], {"pass": 0, "fail": 0, "inconclusive": 0, "unfinished": 0})
+        bucket[row["verdict"] if row["verdict"] in bucket else "unfinished"] += 1
+    return out
+
+
+def describe_verdicts(rows):
+    counts = verdict_counts(rows)
+    total = sum(sum(b.values()) for b in counts.values())
+    inconclusive = sum(b["inconclusive"] for b in counts.values())
+    parts = [f"{scope}: " + "/".join(f"{k} {v}" for k, v in bucket.items() if v) for scope, bucket in counts.items()]
+    return "; ".join(parts) + (f"; 보류 {inconclusive}/{total} = {inconclusive / total:.3f}" if total else "")
 
 
 def _record_judge_run(view, entry, judge, rules, rows, new_rows, sample):
@@ -137,6 +156,7 @@ def _record_judge_run(view, entry, judge, rules, rows, new_rows, sample):
         "judge_info": judge.describe(),
         "rows_written": len(new_rows),
         "judgment_slots": len(rows),
+        "verdict_distribution": verdict_counts(new_rows),
         "human_review_sample": {**rules["human_review_sample"], "selected": len(sample)},
         "aggregation_rule_id": rules.rule_id, "aggregation_rule_version": rules.rule_version,
         "rules_sha256": rules.sha256,
