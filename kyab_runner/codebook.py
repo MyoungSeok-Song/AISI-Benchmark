@@ -5,6 +5,11 @@
   schema/overlay_v0.3_confirmed.yaml v0.3 xlsx가 오기 전까지의 확정·가정 변경
 
 필드 이름·순서·허용값·정규식을 코드에 적지 않는다. 코드북이 바뀌면 추출만 다시 한다.
+
+overlay 항목은 두 종류의 변경을 담을 수 있다.
+  apply      있는 필드의 허용값·필수성·형식 원문 등을 덮어쓴다
+  add_field  필드를 새로 넣는다. 코드북 담당 회신으로 확정된 항목(status confirmed)을
+             authorized_by로 가리켜야만 허용된다 — 회신 없이는 열을 늘릴 수 없다(프로젝트 규칙).
 """
 import json
 import re
@@ -38,6 +43,10 @@ def _infer_type(fmt):
     return "text"
 
 
+class OverlayError(Exception):
+    """overlay 항목이 규칙에 어긋날 때(허가 없는 열 추가, 없는 필드·위치 등)."""
+
+
 @dataclass(frozen=True)
 class FieldSpec:
     """코드북의 필드 1개."""
@@ -52,6 +61,8 @@ class FieldSpec:
     regex: str = ""       # 형식 정규식
     required: bool = False
     max_items: int = 0    # JSON 배열 최대 원소 수. 0이면 제한 없음
+    none_token: str = ""  # '해당 없음'을 뜻하는 기록값(예: critical_failure_code의 NONE). 없으면 빈 문자열
+    added_by: str = ""    # overlay add_field로 들어온 필드면 그 항목 ID. 코드북 원본 필드는 빈 문자열
 
     def check(self, value):
         """CSV에서 읽은 문자열 값 1개를 검사한다. 문제가 없으면 None, 있으면 설명."""
@@ -123,8 +134,12 @@ class Codebook:
         return self._tables[table]
 
     def columns(self, table):
-        """CSV 열 이름. 코드북 시트의 행 순서 그대로."""
+        """CSV 열 이름. 코드북 시트의 행 순서 그대로(overlay가 넣은 필드는 지정한 위치에)."""
         return [f.name for f in self._tables[table]]
+
+    def added_columns(self, table):
+        """overlay add_field로 들어온 열 이름. 옛 머리글(코드북 원본)로 쓰인 파일을 읽을 때 쓴다."""
+        return [f.name for f in self._tables[table] if f.added_by]
 
     def field(self, table, name):
         return next(f for f in self._tables[table] if f.name == name)
@@ -166,8 +181,8 @@ def _field_from_json(table, raw):
     )
 
 
-def _apply_change(spec, change, taxonomy):
-    """overlay의 apply 항목 1개를 FieldSpec에 반영한다."""
+def _enum_updates(spec, change, taxonomy):
+    """apply·add_field가 함께 쓰는 허용값 갱신."""
     updates = {}
     if "enum" in change:
         updates["enum"] = tuple(str(v) for v in change["enum"])
@@ -177,16 +192,51 @@ def _apply_change(spec, change, taxonomy):
     if "enum_from" in change:
         source = {"taxonomy.major": taxonomy.major_codes, "taxonomy.sub": taxonomy.sub_codes}
         updates["enum"] = tuple(source[change["enum_from"]])
-    for key in ("enum_kind", "required", "max_items"):
+    for key in ("enum_kind", "required", "max_items", "format", "none_token", "regex"):
         if key in change:
             updates[key] = change[key]
-    return replace(spec, **updates)
+    return updates
+
+
+def _apply_change(spec, change, taxonomy):
+    """overlay의 apply 항목 1개를 FieldSpec에 반영한다."""
+    return replace(spec, **_enum_updates(spec, change, taxonomy))
+
+
+def _find(specs, table, name):
+    index = next((i for i, s in enumerate(specs) if s.name == name), None)
+    if index is None:
+        raise OverlayError(f"overlay: {table}에 없는 필드 {name!r}")
+    return index
+
+
+def _add_field(tables, entry, change, confirmed_ids, taxonomy):
+    """overlay add_field 1개: 새 FieldSpec을 after 필드 바로 뒤에 넣는다.
+
+    가드: authorized_by가 가리키는 confirmed 항목(코드북 담당 회신)이 있어야 한다. 프로젝트 규칙
+    "열 추가·삭제 금지"의 유일한 예외가 코드북 담당 회신이므로, 회신 없이는 열을 늘릴 수 없다.
+    """
+    authorized_by = change.get("authorized_by")
+    if authorized_by not in confirmed_ids:
+        raise OverlayError(f"overlay {entry['id']}: add_field는 코드북 담당 회신으로 확정된(confirmed) 항목을 "
+                           f"authorized_by로 가리켜야 합니다 (현재 {authorized_by!r}). 회신 없이는 열을 늘릴 수 없습니다.")
+    specs = tables[change["table"]]
+    if any(s.name == change["field"] for s in specs):
+        raise OverlayError(f"overlay {entry['id']}: {change['table']}에 이미 있는 필드 {change['field']!r}")
+    fmt = change["format"]
+    spec = FieldSpec(table=change["table"], name=change["field"], stage=change["stage"],
+                     ai_delivery=change.get("ai_delivery", "×"), format=fmt, value_type=_infer_type(fmt),
+                     required=change.get("required", False), added_by=entry["id"])
+    spec = replace(spec, **_enum_updates(spec, change, taxonomy))
+    specs.insert(_find(specs, change["table"], change["after"]) + 1, spec)
 
 
 def load_codebook(taxonomy, codebook_json=paths.CODEBOOK_JSON, overlay_yaml=paths.OVERLAY_YAML):
     """코드북 추출본을 읽고 overlay를 덮어쓴 Codebook을 만든다.
 
     overlay 파일이 없으면(v0.3 추출 후 삭제한 상태) 추출본만 쓴다.
+    적용한 overlay 기록(applied_overlays)에는 id·status·basis와 note가 남아 매니페스트에서
+    '잠정' 표시를 읽을 수 있다.
     """
     with open(codebook_json, encoding="utf-8") as f:
         raw = json.load(f)
@@ -197,10 +247,14 @@ def load_codebook(taxonomy, codebook_json=paths.CODEBOOK_JSON, overlay_yaml=path
     if overlay_yaml.exists():
         with open(overlay_yaml, encoding="utf-8") as f:
             overlay = yaml.safe_load(f)
+        confirmed_ids = {e["id"] for e in overlay["changes"] if e["status"] == "confirmed"}
         for entry in overlay["changes"]:
-            for change in entry["apply"]:
+            for change in entry.get("apply") or []:
                 specs = tables[change["table"]]
-                index = next(i for i, s in enumerate(specs) if s.name == change["field"])
+                index = _find(specs, change["table"], change["field"])
                 specs[index] = _apply_change(specs[index], change, taxonomy)
-            applied.append({"id": entry["id"], "status": entry["status"], "basis": entry["basis"]})
+            for change in entry.get("add_field") or []:
+                _add_field(tables, entry, change, confirmed_ids, taxonomy)
+            applied.append({"id": entry["id"], "status": entry["status"], "basis": entry["basis"],
+                            "note": entry.get("note", "")})
     return Codebook(tables, applied)
