@@ -41,6 +41,7 @@ class Rules:
     sha256: str             # 규칙 파일의 해시. 집계 기록(results_notes.json)에 남긴다
     judges: dict            # {judge_id: JudgeEntry}
     self_identification_patterns: tuple = ()    # 눈가림 점검용 문자열 (judges.yaml)
+    none_token: str = ""    # critical_failure_code의 '치명적 실패 없음' 기록값(NONE). 출처는 overlay(코드북 FieldSpec)
 
     def __getitem__(self, key):
         return self.raw[key]
@@ -69,8 +70,18 @@ class Rules:
 
     @property
     def outcome_fields(self):
-        """판정 결과 필드(verdict, over_refusal, referral_present). 판정이 끝난 행에는 필수 (가정 J4)."""
+        """판정 결과 필드(verdict, over_refusal, referral_present, critical_failure_code).
+
+        판정이 끝난 행(completed·adjudicated)에는 필수다(가정 J4). CFC는 NONE 또는 승인 코드여야 한다.
+        """
         return self.raw["judgment"]["outcome_fields"]
+
+    def has_critical_failure(self, row):
+        """이 판정 행에 치명적 실패가 있는가. NONE(none_token)과 빈칸은 '없음'이다.
+
+        '치명적 실패가 있는가'를 판단하는 곳은 모두 이 함수를 거친다(판정 검증, first_cfc_turn, CFR, 모의 판정기).
+        """
+        return row["critical_failure_code"] not in ("", self.none_token)
 
     def is_unfinished(self, row):
         """가정 J4: 판정이 끝나지 못한 행인가 (judge_status가 failed·needs_review)."""
@@ -88,6 +99,26 @@ def _require_columns(codebook, table, names, where):
     unknown = [n for n in names if n not in codebook.columns(table)]
     if unknown:
         raise RulesError(f"aggregation_rules.yaml {where}: 코드북 {table}에 없는 필드 {unknown}")
+
+
+def _check_cfc_tokens(codebook, raw):
+    """CFC 기록값의 출처 일치: 규칙 파일의 NONE 값은 overlay(코드북)의 none_token과 같아야 한다.
+
+    코드북 CFC 필드에 허용값 목록이 생기면(v0.3) 등록 코드와 NONE이 모두 그 안에 있어야 한다.
+    """
+    spec = codebook.field("06_judgments", "critical_failure_code")
+    declared = raw["judgment"].get("no_critical_failure_code", "")
+    if not spec.none_token:
+        raise RulesError("코드북 06 critical_failure_code에 none_token이 없습니다 (overlay OV-R1005-3). "
+                         "치명적 실패 없음을 적을 값을 정할 수 없습니다")
+    if declared != spec.none_token:
+        raise RulesError(f"aggregation_rules.yaml no_critical_failure_code={declared!r}가 코드북(overlay) none_token="
+                         f"{spec.none_token!r}과 다릅니다. 값의 출처는 overlay 한 곳이어야 합니다")
+    if spec.enum:
+        missing = [v for v in [*raw["judgment"]["registered_cfc_codes"], spec.none_token] if v not in spec.enum]
+        if missing:
+            raise RulesError(f"코드북 06 critical_failure_code 허용값에 없는 값 {missing} (등록 CFC 코드·NONE은 허용값에 있어야 함)")
+    return spec.none_token
 
 
 def _check_against_codebook(codebook, raw):
@@ -136,8 +167,10 @@ def load_rules(codebook, rules_yaml=paths.AGGREGATION_RULES_YAML, judges_yaml=pa
     data = rules_yaml.read_bytes()
     raw = yaml.safe_load(data)
     _check_against_codebook(codebook, raw)
+    none_token = _check_cfc_tokens(codebook, raw)
     with open(judges_yaml, encoding="utf-8") as f:
         registry = yaml.safe_load(f)
     judges = {judge_id: JudgeEntry(judge_id=judge_id, **entry) for judge_id, entry in registry["judges"].items()}
     return Rules(raw=raw, sha256=hashlib.sha256(data).hexdigest(), judges=judges,
-                 self_identification_patterns=tuple(registry.get("self_identification_patterns", ())))
+                 self_identification_patterns=tuple(registry.get("self_identification_patterns", ())),
+                 none_token=none_token)

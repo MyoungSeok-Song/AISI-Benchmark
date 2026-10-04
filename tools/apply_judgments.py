@@ -46,13 +46,16 @@ def plan(env, view):
     errors = validate.errors_of(issues)
     if errors:
         reasons.append(f"06 검증 오류 {len(errors)}건 (예: {errors[0]})")
+        hint = judge_io.legacy_hint(issues)
+        if hint:
+            reasons.append(hint)
 
     runs = batch.recorded_runs()
     filled = [r["run_id"] for r in runs if any(r[f] for f in TARGET_FIELDS)]
     if filled:
         reasons.append(f"이미 값이 있는 실행 {len(filled)}건 (예: {filled[0]}) — 덮어쓰지 않음")
 
-    values, incomplete = judge_io.first_turns(view, judge_io.select_primary(env.rules, view, judgments))
+    values, incomplete = judge_io.first_turns(env.rules, view, judge_io.select_primary(env.rules, view, judgments))
     if incomplete:
         reasons.append(f"주 판정이 없는 성공 응답이 있는 실행 {len(incomplete)}건 (예: {incomplete[0]})")
     if reasons:

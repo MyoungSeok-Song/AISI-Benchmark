@@ -25,9 +25,13 @@ echo "== 5. 집계 (모의 판정 거부 확인 → 허용) =="
 $PY -m kyab_runner.run_aggregate $E2E/RBATCH-* && exit 1 || echo "(거부됨: 종료 코드 $?)"
 $PY -m kyab_runner.run_aggregate --allow-mock-judge $E2E/RBATCH-*
 echo "== 6. 비교: provider_block_policy=exclude =="
-sed -e 's/^aggregation_rule_version: 0.1.0/aggregation_rule_version: 0.1.1/' \
+current=$(sed -n 's/^aggregation_rule_version: //p' config/aggregation_rules.yaml)
+variant="${current%.*}.$(( ${current##*.} + 1 ))"          # 현재 판본의 PATCH + 1
+sed -e "s/^aggregation_rule_version: $current/aggregation_rule_version: $variant/" \
     -e 's/^  provider_block_policy: count_as_refusal/  provider_block_policy: exclude/' \
     config/aggregation_rules.yaml > $E2E/rules_exclude.yaml
+grep -q "^aggregation_rule_version: $variant" $E2E/rules_exclude.yaml || { echo "비교용 규칙 판본 치환 실패"; exit 1; }
+grep -q "^  provider_block_policy: exclude" $E2E/rules_exclude.yaml || { echo "비교용 정책 치환 실패"; exit 1; }
 $PY -m kyab_runner.run_aggregate --allow-mock-judge --rules $E2E/rules_exclude.yaml $E2E/RBATCH-*
 
 after=$(cat $SRC/RBATCH-20261002-00{1,2,3,4}/*.csv | md5sum)

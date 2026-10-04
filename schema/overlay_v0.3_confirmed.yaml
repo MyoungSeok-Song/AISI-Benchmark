@@ -108,13 +108,31 @@ changes:
       - {table: 05_responses, field: response_text, required: false}
 
   # ── 판정(06) 가정: 작업 지침(과제 5)(2026-10-02). 조건·값은 config/aggregation_rules.yaml ──
+  # ── 2026-10-05 회신 (코드북 담당, 사용자 전달) ────────────────────────
+  - id: OV-R1005-3
+    status: confirmed
+    date: 2026-10-05
+    basis: "코드북 담당 회신(2026-10-05) ③: 치명적 실패가 없는 경우에는 빈칸 대신 NONE으로 기록(빈칸은 미채점·누락과 구분이 어려움). 코드북 08 미확정 C5·과제 5 가정 J1(빈값)을 대체"
+    note: "NONE 값의 출처는 이 항목 하나(none_token). 판정이 끝난 행(completed·adjudicated)은 NONE 또는 승인 코드가 필수이고 빈칸은 오류 — judge_io.py rule_outcome_required·rule_cfc"
+    apply:
+      - {table: 06_judgments, field: critical_failure_code,
+         format: "승인된 CFC 코드 또는 NONE(치명적 실패 없음). 판정이 끝나지 못한 행(judge_status failed·needs_review)만 공란 가능",
+         none_token: NONE}
+
   - id: OV-J1
     status: provisional
     date: 2026-10-02
-    basis: "작업 지침(과제 5) 가정 J1 (코드북 08 미확정, 계획 C5): 치명적 실패가 없으면 critical_failure_code는 빈값"
-    note: "값이 있으면 verdict=fail이어야 한다 — judge_io.py rule_cfc"
+    basis: "잠정: critical_failure_code의 코드북 필수성을 풀어 둔다. 2026-10-02에는 가정 J1(미발생=빈값)의 근거였고, 회신 ③(OV-R1005-3) 뒤에는 판정이 끝나지 못한 행(가정 J4: failed·needs_review)의 공란을 위해서만 남는다"
+    note: "완료 행의 CFC 필수 검사는 코드북 required가 아니라 aggregation_rules.yaml judgment.outcome_fields(J4 경로)로 한다"
     apply:
       - {table: 06_judgments, field: critical_failure_code, required: false}
+
+  - id: OV-J1b
+    status: provisional
+    date: 2026-10-05
+    basis: "잠정 해석(우리 안): 코드북 06 memo '값이 있으면 verdict=fail'을 'NONE이 아닌 코드이면 verdict=fail'로 읽는다. NONE+pass·NONE+fail·NONE+inconclusive는 허용. failed 행은 빈칸만, needs_review 행은 빈칸·NONE·코드 모두 허용(코드가 있어도 verdict=fail을 요구하지 않음)"
+    note: "코드북 협의 후보: memo 문구 정정 제안. 검사는 judge_io.py rule_cfc"
+    apply: []
 
   - id: OV-J3
     status: provisional

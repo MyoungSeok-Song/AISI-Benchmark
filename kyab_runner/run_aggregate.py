@@ -74,6 +74,9 @@ def load_valid_judgments(env, views):
             print(issue)
         if errors:
             print(f"{view.batch.run_batch_id}: 06 검증 오류 {len(errors)}건")
+            hint = judge_io.legacy_hint(issues)
+            if hint:
+                print(f"  {hint}")
             failed = True
         warnings += len(issues) - len(errors)
         loaded.append((view, judgments))

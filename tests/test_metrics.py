@@ -14,7 +14,7 @@ import copy
 import itertools
 import json
 
-from test_judge_io import ENV, RULES, JudgedTestCase
+from test_judge_io import ENV, NONE, RULES, JudgedTestCase, bumped
 from test_runner import CODEBOOK, FAILURE_PLAN, RunnerTestCase
 
 from kyab_runner import csv_io, ids, judge_io, metrics, run_aggregate, run_multiturn, run_single, validate   # noqa: E402
@@ -25,8 +25,8 @@ DIMS = list(RULES.dimensions.values())          # d1..d6의 06 열 이름
 AXES = list(RULES.crri_axes)
 
 
-def J(verdict="pass", dims=None, d6=None, crri=None, cfc="", over=False, ref=False):
-    """판정 사양 1건. dims는 D1~D5 다섯 점수, crri는 4축 점수. None이면 빈값."""
+def J(verdict="pass", dims=None, d6=None, crri=None, cfc=NONE, over=False, ref=False):
+    """판정 사양 1건. dims는 D1~D5 다섯 점수, crri는 4축 점수. None이면 빈값. cfc 기본값은 NONE(치명적 실패 없음)."""
     return dict(verdict=verdict, dims=dims, d6=d6, crri=crri, cfc=cfc, over=over, ref=ref)
 
 
@@ -123,7 +123,7 @@ class Scenario:
         auto = next(r for r in self.judgments if judge_io.judgment_key(r) == key and r["judge_type"] == "llm")
         self.judgments.append({
             **auto, "judgment_id": f"JDG-{self._next():08d}", "verdict": verdict,
-            "critical_failure_code": auto["critical_failure_code"] if verdict == "fail" else "",
+            "critical_failure_code": auto["critical_failure_code"] if verdict == "fail" else NONE,
             "judge_type": "human", "judge_id": "HR-01", "human_review_status": "completed",
             "judge_status": judge_status, "evaluated_at": "2026-10-03T12:00:00+09:00"})
 
@@ -428,7 +428,7 @@ class HandComputedTest(MetricsTestCase):
                          ["overall"] + ["risk_group"] * 2 + ["age_band"] * 2 + ["turn_type"] * 2 + ["risk_age_turn"] * 4)
         overall = rows[0]
         expected = {"model_id": "m1", "model_version": "m1-v1", "dataset_version": "0.0.1", "rubric_id": "RB-6D-v1",
-                    "rubric_version": "1.0.0", "aggregation_rule_id": "AGG-RB6D-1", "aggregation_rule_version": "0.1.0",
+                    "rubric_version": "1.0.0", "aggregation_rule_id": RULES.rule_id, "aggregation_rule_version": RULES.rule_version,
                     "slice_key_json": "{}", "n_items": "6", "n_runs": "18", "n_responses": "36",
                     "failure_count": "5", "failure_rate": "0.454545", "critical_failure_count": "2",
                     "critical_failure_rate": "0.181818", "mean_rubric_score": "1.136612",
@@ -566,7 +566,7 @@ class ProviderBlockTest(MetricsTestCase):
         s.metrics()
         self.assertEqual(s.judgments, before)
         view = s.view()
-        values, incomplete = judge_io.first_turns(view, judge_io.select_primary(RULES, view, s.judgments))
+        values, incomplete = judge_io.first_turns(RULES, view, judge_io.select_primary(RULES, view, s.judgments))
         self.assertEqual(incomplete, [])
         by_run = {(r["item_id"], r["rollout_no"]): values[r["run_id"]] for r in s.runs}
         self.assertEqual(by_run[("S1", "1")], ("", ""))         # 단일 차단
@@ -773,11 +773,12 @@ class PipelineTest(JudgedTestCase):
         """--rules로 다른 규칙 파일을 주면 그 파일의 등록값이 07에 적힌다."""
         import yaml
         raw = copy.deepcopy(RULES.raw)
-        raw["aggregation_rule_version"] = "0.1.1"
+        variant = bumped(RULES.rule_version)                 # 기본 판본보다 크고 다른 판본
+        raw["aggregation_rule_version"] = variant
         raw["aggregation"]["provider_block_policy"] = "exclude"
         path = self.tmp / "rules_exclude.yaml"
         path.write_text(yaml.safe_dump(raw, allow_unicode=True, sort_keys=False), encoding="utf-8")
         self.assertEqual(self.aggregate("--allow-mock-judge", "--rules", str(path))[0], 0)
         rows = csv_io.read_table(CODEBOOK, "07_results", self.results_dirs()[0] / ids.RESULTS_FILE)
-        self.assertEqual({r["aggregation_rule_version"] for r in rows}, {"0.1.1"})
-        self.assertEqual(ENV.rules.rule_version, "0.1.0")
+        self.assertEqual({r["aggregation_rule_version"] for r in rows}, {variant})
+        self.assertNotEqual(variant, ENV.rules.rule_version)

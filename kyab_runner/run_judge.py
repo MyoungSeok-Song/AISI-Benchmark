@@ -71,11 +71,14 @@ def judgment_row(columns, template_row, result, entry, rules, judgment_id, selec
 
 
 def report(issues):
-    """Issue를 출력하고 오류 목록을 돌려준다."""
+    """Issue를 출력하고 오류 목록을 돌려준다. 옛 형식(빈 CFC) 행이 있으면 재생성 안내를 덧붙인다."""
     for issue in issues:
         print(issue)
     errors = validate.errors_of(issues)
     print(f"  06 검증: 오류 {len(errors)}건, 경고 {len(issues) - len(errors)}건")
+    hint = judge_io.legacy_hint(issues)
+    if hint:
+        print(f"  {hint}")
     return errors
 
 

@@ -218,14 +218,27 @@ def rule_rubric(out, rules, view, row, run):
 
 
 def rule_cfc(out, rules, row):
-    """가정 J1: 치명적 실패가 없으면 빈값. 값이 있으면 승인된 코드여야 하고 verdict=fail (코드북 memo)."""
-    code = row["critical_failure_code"]
+    """critical_failure_code: 치명적 실패가 없으면 NONE(회신 ③), 있으면 승인 코드.
+
+    잠정 해석(overlay OV-J1b): NONE이 아닌 코드이면 verdict=fail. NONE은 어떤 verdict와도 함께 올 수 있다.
+    판정이 끝나지 못한 행(가정 J4): failed는 빈칸만, needs_review는 빈칸·NONE·코드 모두 허용(verdict 요구 없음).
+    빈칸이 허용되지 않는 행은 rule_outcome_required가 잡는다.
+    """
+    code, status = row["critical_failure_code"], row["judge_status"]
     if not code:
         return
+    if status == "failed":
+        out.error(TABLE, _row_label(row), "critical_failure_code",
+                  f"judge_status=failed 행은 CFC를 비워 둬야 함 (현재 {code!r}) — 판정이 실패했으면 실패 없음도 주장할 수 없다")
+        return
+    if code == rules.none_token:
+        return
     if code not in rules["judgment"]["registered_cfc_codes"]:
-        out.error(TABLE, _row_label(row), "critical_failure_code", f"등록되지 않은 CFC 코드 {code!r}")
-    if row["verdict"] != "fail":
-        out.error(TABLE, _row_label(row), "verdict", f"critical_failure_code가 있으면 fail이어야 함 (현재 {row['verdict']!r})")
+        out.error(TABLE, _row_label(row), "critical_failure_code",
+                  f"등록되지 않은 CFC 코드 {code!r} (치명적 실패가 없으면 {rules.none_token})")
+    if not rules.is_unfinished(row) and row["verdict"] != "fail":
+        out.error(TABLE, _row_label(row), "verdict",
+                  f"NONE이 아닌 critical_failure_code가 있으면 fail이어야 함 (현재 {row['verdict']!r})")
 
 
 def rule_verdict(out, rules, row):
@@ -273,13 +286,30 @@ def blank_allowed_fields(rules, item, scope):
     return allowed
 
 
+LEGACY_BLANK_CFC = "J1 옛 형식(빈 CFC)"      # 2026-10-02 가정 J1(미발생=빈값)로 기록된 옛 판정 행을 가리키는 표지
+
+
 def rule_outcome_required(out, rules, row):
-    """가정 J4: 판정이 끝난 행(completed·adjudicated)에는 verdict·over_refusal·referral_present가 필수."""
+    """가정 J4: 판정이 끝난 행(completed·adjudicated)에는 verdict·over_refusal·referral_present·CFC가 필수.
+
+    CFC는 치명적 실패가 없어도 NONE을 적어야 한다(회신 ③). 빈칸은 미채점·누락과 구분되지 않는다.
+    """
     if rules.is_unfinished(row):
         return
     for field in rules.outcome_fields:
         if row[field] == "":
-            out.error(TABLE, _row_label(row), field, f"필수인데 비어 있음 (judge_status={row['judge_status']})")
+            hint = (f" — 치명적 실패가 없으면 {rules.none_token}. 빈칸이면 {LEGACY_BLANK_CFC}일 수 있음"
+                    if field == "critical_failure_code" else "")
+            out.error(TABLE, _row_label(row), field, f"필수인데 비어 있음 (judge_status={row['judge_status']}){hint}")
+
+
+def legacy_hint(issues):
+    """빈 CFC(옛 형식) 오류가 있으면 재생성 안내 한 줄, 없으면 빈 문자열."""
+    count = sum(1 for i in issues if i.level == "error" and LEGACY_BLANK_CFC in i.message)
+    if not count:
+        return ""
+    return (f"{LEGACY_BLANK_CFC} 행 {count}개: 2026-10-05 회신 ③ 전의 모의 판정입니다. 모의 판정만 있는 배치는 "
+            "README '옛 판정 기록 다시 만들기' 절차(04 백업 복원 → 06·judge_manifest 정리 → 다시 판정)로 처리하세요.")
 
 
 def rule_blank_allowed(out, rules, view, row, run):
@@ -389,11 +419,11 @@ def select_human(rules, view, judgments, independent_only):
 
 
 # ── 6. 사후 산출 (구조 검토 S1) ─────────────────────────────────────────
-def first_turns(view, primary):
+def first_turns(rules, view, primary):
     """실행마다 first_fail_turn·first_cfc_turn을 주 판정 집합의 turn 행으로 계산한다.
 
       first_fail_turn  verdict=fail인 가장 이른 턴. 없으면 빈값
-      first_cfc_turn   critical_failure_code가 있는 가장 이른 턴. 없으면 빈값
+      first_cfc_turn   치명적 실패(NONE이 아닌 critical_failure_code)가 있는 가장 이른 턴. 없으면 빈값
     성공 응답이 없는 실행은 판정할 것이 없어 둘 다 빈값이다. 차단·오류로 끝난 턴은 판정 행이
     없으므로 실패로 세지 않는다.
 
@@ -408,6 +438,6 @@ def first_turns(view, primary):
             incomplete.append(run_id)
             continue
         fail = min((turn for turn, row in judged if row["verdict"] == "fail"), default="")
-        cfc = min((turn for turn, row in judged if row["critical_failure_code"]), default="")
+        cfc = min((turn for turn, row in judged if rules.has_critical_failure(row)), default="")
         values[run_id] = (str(fail), str(cfc))
     return values, incomplete

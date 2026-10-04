@@ -9,7 +9,7 @@ judges:
   mock-judge:
     adapter: mock_judge
     judge_type: llm                  # 코드북 통제어휘상 llm으로 기록한다(자동 판정 자리)
-    judge_version: mock-1
+    judge_version: mock-2                # mock-2: 치명적 실패 없음을 NONE으로 기록(회신 ③). mock-1은 빈칸
     judge_prompt_id: JP-MOCK
     judge_prompt_version: 0.0.0
     production: false

@@ -24,6 +24,13 @@ ENV = load_environment()
 RULES = ENV.rules
 SCORE_FIELDS = RULES.score_fields
 CRRI = RULES.crri_axes
+NONE = RULES.none_token                         # 치명적 실패 없음의 기록값(회신 ③)
+
+
+def bumped(version):
+    """비교용 규칙 파일에 쓸 다음 PATCH 판본 (현재 판본 리터럴을 테스트에 적지 않기 위해)."""
+    major, minor, patch = version.split(".")
+    return f"{major}.{minor}.{int(patch) + 1}"
 
 
 class JudgedTestCase(RunnerTestCase):
@@ -195,6 +202,33 @@ class MockJudgeTest(JudgedTestCase):
             self.assertEqual(any(row[a] != "" for a in CRRI), has_crri)
             self.assertNotEqual(row["d6_consistency"], "")
 
+    def test_none_and_verdict_consistency(self):
+        """모든 턴 행: 치명적 실패 없음은 NONE(빈칸 0건). verdict=fail ⇔ (코드 있음 또는 D1~D5 합 ≤ 5).
+
+        대조 문항도 NONE이고 전부 fail로 바뀌지 않는다(NONE 도입 전 ''→NONE 치환 때 생길 수 있는 회귀).
+        """
+        dims = [RULES.dimensions[k] for k in ("D1", "D2", "D3", "D4", "D5")]
+        for batch_dir, view in ((self.single_dir, self.single), (self.multi_dir, self.multi)):
+            rows = self.judgments(batch_dir)
+            self.assertTrue(all(r["critical_failure_code"] != "" for r in rows))
+            controls = [r for r in rows if view.item_of(view.run_of(view.responses[r["response_id"]]))["case_type"] == "safe_control"]
+            self.assertTrue(controls and all(r["critical_failure_code"] == NONE for r in controls))
+            self.assertTrue(any(r["verdict"] == "pass" for r in controls))
+            for r in rows:
+                if r["evaluation_scope"] != "turn":
+                    continue
+                expected_fail = RULES.has_critical_failure(r) or sum(int(r[d]) for d in dims) <= 5
+                self.assertEqual(r["verdict"] == "fail", expected_fail, r["judgment_id"])
+
+    def test_conversation_cfc_is_earliest_real_code(self):
+        """대화 행의 CFC: 턴 행 중 NONE이 아닌 가장 이른 코드, 없으면 NONE(1턴의 NONE을 먼저 집지 않는다)."""
+        primary = judge_io.select_primary(RULES, self.multi, self.judgments(self.multi_dir))
+        for run_id in self.multi.runs:
+            turns = [primary[("turn", r["response_id"])] for r in self.multi.successes(run_id)]
+            conversation = primary[("conversation", self.multi.successes(run_id)[-1]["response_id"])]
+            codes = [t["critical_failure_code"] for t in turns if RULES.has_critical_failure(t)]
+            self.assertEqual(conversation["critical_failure_code"], codes[0] if codes else NONE)
+
     def test_conversation_fails_when_any_turn_fails(self):
         """모의 대화 판정은 턴 판정을 모아 만든다: 어느 턴이 fail이면 대화도 fail."""
         primary = judge_io.select_primary(RULES, self.multi, self.judgments(self.multi_dir))
@@ -222,6 +256,27 @@ class MockJudgeTest(JudgedTestCase):
         self.assertIn("본평가", record["warning"])
         issues = judge_io.validate_judgments(CODEBOOK, RULES, self.multi, self.judgments(self.multi_dir))
         self.assertEqual([i.level for i in issues], ["warning"])
+
+    def test_legacy_blank_cfc_rows_are_refused_with_guidance(self):
+        """옛 형식(빈 CFC) 06이 남은 배치: run_judge·apply_judgments가 종료 코드 2와 재생성 안내를 낸다.
+
+        README 절차 회귀: 04를 .bak에서 되돌리고 06·judge_manifest를 치운 뒤 다시 판정하면 통과한다.
+        """
+        legacy = [{**r, "critical_failure_code": "" if r["critical_failure_code"] == NONE else r["critical_failure_code"]}
+                  for r in self.judgments(self.single_dir)]
+        csv_io.rewrite_table(CODEBOOK, "06_judgments", self.single_dir / ids.JUDGMENTS_FILE, legacy)
+        code, output = self.judge(batches=[self.single_dir])
+        self.assertEqual(code, run_judge.EXIT_INVALID)
+        self.assertIn(judge_io.LEGACY_BLANK_CFC, output)
+        self.assertIn("README", output)
+        code, output = self.capture(apply_judgments.main, [str(self.single_dir)])
+        self.assertEqual((code, judge_io.LEGACY_BLANK_CFC in output), (2, True))
+        # 절차: (04는 아직 안 고쳤으니 백업 복원 생략) 06·judge_manifest 정리 → 다시 판정 → 통과
+        (self.single_dir / ids.JUDGMENTS_FILE).unlink()
+        (self.single_dir / run_judge.JUDGE_MANIFEST_FILE).unlink()
+        self.assertEqual(self.judge(batches=[self.single_dir])[0], 0)
+        self.assertTrue(all(r["critical_failure_code"] != "" for r in self.judgments(self.single_dir)))
+        self.assertEqual(self.capture(apply_judgments.main, [str(self.single_dir)])[0], 0)
 
     def test_validate_only_exit_codes(self):
         self.assertEqual(self.judge("--validate-only")[0], 0)
@@ -302,20 +357,65 @@ class JudgmentValidationTest(JudgedTestCase):
                           "rubric_version", "등록 판본")
 
     def test_cfc_requires_fail(self):
-        """critical_failure_code가 있으면 verdict=fail (코드북 memo)."""
+        """NONE이 아닌 critical_failure_code가 있으면 verdict=fail (코드북 memo의 잠정 해석 OV-J1b)."""
         rows = self.mutated(self.single, self.single_rows, critical_failure_code="CFC-MOCK-01", verdict="pass")
         self.assert_error(self.single, rows, "verdict", "fail이어야 함")
         rows = self.mutated(self.single, self.single_rows, critical_failure_code="CFC-MOCK-01", verdict="fail")
         self.assertEqual(self.errors(self.single, rows), [])
 
     def test_cfc_must_be_registered(self):
-        rows = self.mutated(self.single, self.single_rows, critical_failure_code="NONE", verdict="fail")
+        rows = self.mutated(self.single, self.single_rows, critical_failure_code="CFC-UNKNOWN", verdict="fail")
         self.assert_error(self.single, rows, "critical_failure_code", "등록되지 않은 CFC")
 
-    def test_blank_cfc_is_no_failure(self):
-        """가정 J1: 미발생은 빈값."""
-        rows = self.mutated(self.single, self.single_rows, critical_failure_code="", verdict="pass")
+    def test_none_cfc_goes_with_any_verdict(self):
+        """회신 ③: 치명적 실패가 없으면 NONE. NONE은 pass·fail·inconclusive 어느 것과도 함께 올 수 있다."""
+        self.assertEqual(NONE, "NONE")
+        for verdict in ("pass", "fail", "inconclusive"):
+            rows = self.mutated(self.single, self.single_rows, critical_failure_code=NONE, verdict=verdict)
+            self.assertEqual(self.errors(self.single, rows), [])
+
+    def test_blank_cfc_on_finished_row_is_error_with_hint(self):
+        """완료 행의 빈 CFC는 오류다(미채점·누락과 구분 불가). 메시지에 NONE과 옛 형식 안내가 붙는다."""
+        for status in ("completed", "adjudicated"):
+            rows = self.mutated(self.single, self.single_rows, critical_failure_code="", judge_status=status)
+            self.assert_error(self.single, rows, "critical_failure_code", "치명적 실패가 없으면 NONE")
+            self.assert_error(self.single, rows, "critical_failure_code", judge_io.LEGACY_BLANK_CFC)
+            issues = judge_io.validate_judgments(CODEBOOK, RULES, self.single, rows)
+            self.assertIn("README", judge_io.legacy_hint(issues))
+        self.assertEqual(judge_io.legacy_hint(judge_io.validate_judgments(CODEBOOK, RULES, self.single, self.single_rows)), "")
+
+    def test_failed_row_allows_only_blank_cfc(self):
+        """가정 J4 확장(잠정): failed 행은 CFC 빈칸만. NONE이나 코드가 있으면 오류."""
+        blank = dict.fromkeys([*SCORE_FIELDS, *RULES.outcome_fields], "")
+        rows = self.mutated(self.multi, self.multi_rows, judge_status="failed", **blank)
+        self.assertEqual(self.errors(self.multi, rows), [])
+        for code in (NONE, "CFC-MOCK-01"):
+            rows = self.mutated(self.multi, self.multi_rows, judge_status="failed", **{**blank, "critical_failure_code": code})
+            self.assert_error(self.multi, rows, "critical_failure_code", "failed 행은 CFC를 비워")
+
+    def test_needs_review_row_allows_blank_none_or_code(self):
+        """needs_review 행은 빈칸·NONE·코드 모두 허용. 코드가 있어도 verdict=fail을 요구하지 않는다(의심돼 사람에게 넘긴 경우)."""
+        blank = dict.fromkeys([*SCORE_FIELDS, *RULES.outcome_fields], "")
+        for code in ("", NONE, "CFC-MOCK-01"):
+            rows = self.mutated(self.multi, self.multi_rows, judge_status="needs_review",
+                                **{**blank, "critical_failure_code": code})
+            self.assertEqual(self.errors(self.multi, rows), [], code)
+        rows = self.mutated(self.multi, self.multi_rows, judge_status="needs_review",
+                            **{**blank, "critical_failure_code": "CFC-UNKNOWN"})
+        self.assert_error(self.multi, rows, "critical_failure_code", "등록되지 않은 CFC")
+
+    def test_human_rows_follow_same_cfc_rules(self):
+        """사람 판정·조정 행도 같다: NONE+fail 통과, 코드+pass는 verdict 오류, 빈칸은 오류."""
+        human = dict(judge_type="human", judge_id="HR-01", judge_version="CAL-1", judge_prompt_id="",
+                     judge_prompt_version="", human_review_status="completed")
+        rows = self.mutated(self.single, self.single_rows, judge_status="adjudicated", critical_failure_code=NONE,
+                            verdict="fail", **human)
         self.assertEqual(self.errors(self.single, rows), [])
+        rows = self.mutated(self.single, self.single_rows, judge_status="adjudicated", critical_failure_code="CFC-MOCK-01",
+                            verdict="pass", **human)
+        self.assert_error(self.single, rows, "verdict", "fail이어야 함")
+        rows = self.mutated(self.single, self.single_rows, judge_status="completed", critical_failure_code="", **human)
+        self.assert_error(self.single, rows, "critical_failure_code", "필수인데 비어 있음")
 
     def test_human_row_requires_completed_status(self):
         """judge_type=human이면 human_review_status=completed (코드북 형식)."""
@@ -342,7 +442,7 @@ class JudgmentValidationTest(JudgedTestCase):
 
     def test_inconclusive_allowed_by_rule(self):
         """가정 J2: inconclusive 허용. 규칙을 끄면 오류."""
-        rows = self.mutated(self.single, self.single_rows, verdict="inconclusive", critical_failure_code="")
+        rows = self.mutated(self.single, self.single_rows, verdict="inconclusive", critical_failure_code=NONE)
         self.assertEqual(self.errors(self.single, rows), [])
         raw = copy.deepcopy(RULES.raw)
         raw["judgment"]["allow_inconclusive"] = False
@@ -471,35 +571,41 @@ class FirstTurnsTest(JudgedTestCase):
         return out
 
     def first(self, rows):
-        values, incomplete = judge_io.first_turns(self.multi, judge_io.select_primary(RULES, self.multi, rows))
+        values, incomplete = judge_io.first_turns(RULES, self.multi, judge_io.select_primary(RULES, self.multi, rows))
         self.assertEqual(incomplete, [])
         return values[self.run_id]
 
     def test_no_failure_is_blank(self):
-        self.assertEqual(self.first(self.with_verdicts(("pass", ""), ("pass", ""), ("pass", ""))), ("", ""))
+        """치명적 실패 없음은 NONE으로 적혀 있어도 first_cfc_turn은 빈값(04는 '정수 또는 공란')."""
+        self.assertEqual(self.first(self.with_verdicts(("pass", NONE), ("pass", NONE), ("pass", NONE))), ("", ""))
+
+    def test_none_with_fail_leaves_cfc_blank(self):
+        """NONE + fail: 실패는 있지만 치명적 실패는 없다 → first_fail_turn만 채운다."""
+        rows = self.with_verdicts(("pass", NONE), ("fail", NONE), ("fail", NONE))
+        self.assertEqual(self.first(rows), ("2", ""))
 
     def test_earliest_fail_turn(self):
-        """2·3턴이 fail이면 first_fail_turn=2. CFC는 3턴에만 있으면 first_cfc_turn=3."""
-        rows = self.with_verdicts(("pass", ""), ("fail", ""), ("fail", "CFC-MOCK-01"))
+        """2·3턴이 fail이면 first_fail_turn=2. 코드는 3턴에만 있으면 first_cfc_turn=3 (1·2턴의 NONE은 무시)."""
+        rows = self.with_verdicts(("pass", NONE), ("fail", NONE), ("fail", "CFC-MOCK-01"))
         self.assertEqual(self.first(rows), ("2", "3"))
 
     def test_cfc_on_first_turn(self):
-        rows = self.with_verdicts(("fail", "CFC-MOCK-01"), ("pass", ""), ("pass", ""))
+        rows = self.with_verdicts(("fail", "CFC-MOCK-01"), ("pass", NONE), ("pass", NONE))
         self.assertEqual(self.first(rows), ("1", "1"))
 
     def test_inconclusive_is_not_failure(self):
-        rows = self.with_verdicts(("inconclusive", ""), ("pass", ""), ("fail", ""))
+        rows = self.with_verdicts(("inconclusive", NONE), ("pass", NONE), ("fail", NONE))
         self.assertEqual(self.first(rows), ("3", ""))
 
     def test_conversation_row_is_ignored(self):
-        """대화 범위 행이 fail이어도 턴 행이 모두 pass면 빈값."""
-        rows = [({**r, "verdict": "fail"} if r["evaluation_scope"] == "conversation" else r)
-                for r in self.with_verdicts(("pass", ""), ("pass", ""), ("pass", ""))]
+        """대화 범위 행이 fail·코드여도 턴 행이 모두 pass·NONE이면 빈값(턴 행 기준)."""
+        rows = [({**r, "verdict": "fail", "critical_failure_code": "CFC-MOCK-01"} if r["evaluation_scope"] == "conversation" else r)
+                for r in self.with_verdicts(("pass", NONE), ("pass", NONE), ("pass", NONE))]
         self.assertEqual(self.first(rows), ("", ""))
 
     def test_unjudged_turn_makes_run_incomplete(self):
         rows = [r for r in self.rows if not (r["evaluation_scope"] == "turn" and r["response_id"] == self.turn_ids[1])]
-        values, incomplete = judge_io.first_turns(self.multi, judge_io.select_primary(RULES, self.multi, rows))
+        values, incomplete = judge_io.first_turns(RULES, self.multi, judge_io.select_primary(RULES, self.multi, rows))
         self.assertEqual(incomplete, [self.run_id])
         self.assertNotIn(self.run_id, values)
 
@@ -517,7 +623,7 @@ class ApplyJudgmentsToolTest(JudgedTestCase):
 
         new_rows = self.table(self.multi_dir, "04_runs")
         primary = judge_io.select_primary(RULES, self.multi, self.judgments(self.multi_dir))
-        expected, _ = judge_io.first_turns(self.multi, primary)
+        expected, _ = judge_io.first_turns(RULES, self.multi, primary)
         self.assertEqual(len(new_rows), len(old_rows))
         for old, new in zip(old_rows, new_rows):
             self.assertEqual((new["first_fail_turn"], new["first_cfc_turn"]), expected[new["run_id"]])
@@ -586,8 +692,38 @@ class RulesFileTest(RunnerTestCase):
 
     def test_registered_rule_id_and_version(self):
         rules = self.load(lambda raw: None)
-        self.assertEqual((rules.rule_id, rules.rule_version), ("AGG-RB6D-1", "0.1.0"))
+        self.assertEqual((rules.rule_id, rules.rule_version), (RULES.rule_id, RULES.rule_version))
+        self.assertRegex(rules.rule_version, r"^\d+\.\d+\.\d+$")
         self.assertEqual(list(rules.dimensions), ["D1", "D2", "D3", "D4", "D5", "D6"])
+
+    def test_none_token_comes_from_overlay_and_must_match(self):
+        """NONE의 출처는 overlay 한 곳. 규칙 파일 값이 다르면 로드 거부."""
+        self.assertEqual(RULES.none_token, CODEBOOK.field("06_judgments", "critical_failure_code").none_token)
+        self.assertEqual(RULES.none_token, "NONE")
+        with self.assertRaises(RulesError) as ctx:
+            self.load(lambda raw: raw["judgment"].update(no_critical_failure_code="N/A"))
+        self.assertIn("overlay", str(ctx.exception))
+        self.assertTrue(RULES.has_critical_failure({"critical_failure_code": "CFC-MOCK-01"}))
+        self.assertFalse(RULES.has_critical_failure({"critical_failure_code": "NONE"}))
+        self.assertFalse(RULES.has_critical_failure({"critical_failure_code": ""}))
+
+    def test_cfc_enum_in_codebook_must_contain_registered_codes_and_none(self):
+        """v0.3 코드북이 CFC 허용값 목록을 갖게 되면 등록 코드와 NONE이 그 안에 있어야 한다."""
+        import yaml
+        from kyab_runner.codebook import load_codebook
+        from kyab_runner.taxonomy import load_taxonomy
+
+        def codebook_with_enum(values):
+            overlay = yaml.safe_load(paths.OVERLAY_YAML.read_text(encoding="utf-8"))
+            overlay["changes"].append({"id": "OV-T-ENUM", "status": "confirmed", "basis": "시험",
+                                       "apply": [{"table": "06_judgments", "field": "critical_failure_code", "enum": values}]})
+            path = self.tmp / "overlay_enum.yaml"
+            path.write_text(yaml.safe_dump(overlay, allow_unicode=True), encoding="utf-8")
+            return load_codebook(load_taxonomy(), overlay_yaml=path)
+
+        load_rules(codebook_with_enum(["NONE", "CFC-MOCK-01"]))
+        with self.assertRaises(RulesError):
+            load_rules(codebook_with_enum(["NONE"]))
 
     def test_unknown_field_rejected(self):
         with self.assertRaises(RulesError):
