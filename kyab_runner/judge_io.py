@@ -308,8 +308,9 @@ def legacy_hint(issues):
     count = sum(1 for i in issues if i.level == "error" and LEGACY_BLANK_CFC in i.message)
     if not count:
         return ""
-    return (f"{LEGACY_BLANK_CFC} 행 {count}개: 2026-10-05 회신 ③ 전의 모의 판정입니다. 모의 판정만 있는 배치는 "
-            "README '옛 판정 기록 다시 만들기' 절차(04 백업 복원 → 06·judge_manifest 정리 → 다시 판정)로 처리하세요.")
+    return (f"{LEGACY_BLANK_CFC} 행 {count}개: 2026-10-05 회신 ③ 전의 모의 판정일 수 있습니다(모의 판정만 있는 배치는 README "
+            "'옛 판정 기록 다시 만들기' 절차 — 04 백업 복원 → 06·judge_manifest 정리 → 다시 판정). 실제 판정기의 행이면 "
+            "판정기가 CFC를 빠뜨린 것이므로 판정기 쪽을 고쳐 다시 판정하세요.")
 
 
 def rule_blank_allowed(out, rules, view, row, run):

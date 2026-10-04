@@ -265,6 +265,12 @@ class PreflightTest(RunnerTestCase):
         self.assertIn("실행 전 점검 실패", output)
         self.assertFalse(self.out.exists())
 
+    def test_missing_run_params_block_is_a_problem_not_a_traceback(self):
+        from dataclasses import replace
+        for raw in ({k: v for k, v in CONFIG.raw.items() if k != "run_params"}, {**CONFIG.raw, "run_params": None}):
+            problems = cli.check_run_params(CODEBOOK, replace(CONFIG, raw=raw))
+            self.assertTrue(problems and "run_params 블록" in problems[0], problems)
+
     def test_run_params_must_be_complete_numeric_and_exact(self):
         """키가 빠지거나 모르는 키가 있거나 문자열이면 문제. 고정값은 04에 적힐 문자열과 정확히 대조(temperature: 0 ≠ '0.0')."""
         from dataclasses import replace
@@ -573,9 +579,12 @@ class ValidationTest(RunnerTestCase):
         with contextlib.redirect_stderr(io.StringIO()):
             code, output = self.run_cli(run_multiturn, input_dir=input_dir)
         self.assertEqual(code, 0, output)
-        # 쓰기는 항상 새 머리글이다
-        header = (self.batch_dirs()[0] / "06_judgments_template.csv").read_bytes().decode("utf-8-sig").split("\r\n", 1)[0]
-        self.assertEqual(header, ",".join(CODEBOOK.columns("06_judgments")))
+        # 쓰기는 항상 새 머리글이다: 옛 머리글로 읽은 02를 다시 쓰면 30열(control_target_risk 포함)
+        rewritten = input_dir / "02_rewritten.csv"
+        csv_io.rewrite_table(CODEBOOK, "02_item_tags", rewritten, rows)
+        header = rewritten.read_bytes().decode("utf-8-sig").split("\r\n", 1)[0]
+        self.assertEqual(header, ",".join(CODEBOOK.columns("02_item_tags")))
+        self.assertEqual(len(header.split(",")), 30)
         # 다른 열이 빠진 머리글은 여전히 거부
         with self.assertRaises(csv_io.CsvFormatError):
             csv_io.read_table(CODEBOOK, "02_item_tags", input_dir / cli.INPUT_FILES["01_items"])

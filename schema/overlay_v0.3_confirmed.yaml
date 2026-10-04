@@ -87,14 +87,14 @@ changes:
   - id: OV-P1
     status: provisional
     date: 2026-09-30
-    basis: "검토메모 §3 A안: sub_risk_codes에는 주소분류만 0~1개. 분류팀 작업안내 B7·B18(주대분류 1 + 주소분류 1)"
+    basis: "잠정: 검토메모 §3 A안: sub_risk_codes에는 주소분류만 0~1개. 분류팀 작업안내 B7·B18(주대분류 1 + 주소분류 1)"
     apply:
       - {table: 02_item_tags, field: sub_risk_codes, max_items: 1}
 
   - id: OV-P2
     status: provisional
     date: 2026-09-30
-    basis: "검토메모 §6: M01~M05가 A6~A10으로 편입돼 m_review_status에 넣을 값이 없음 → 필수 해제"
+    basis: "잠정: 검토메모 §6: M01~M05가 A6~A10으로 편입돼 m_review_status에 넣을 값이 없음 → 필수 해제"
     note: "validate.py rule_m_review: taxonomy_version MAJOR가 1 이상인 행은 m_review_* 공란, 0인 행은 v0.2대로 필수"
     apply:
       - {table: 02_item_tags, field: m_review_status, required: false}
@@ -102,13 +102,12 @@ changes:
   - id: OV-P3
     status: provisional
     date: 2026-09-30
-    basis: "계획 문서 §1.7: 차단·오류·시간초과·빈 응답이면 응답 본문이 없다. v0.2는 response_text를 무조건 필수로 적고 있음"
+    basis: "잠정: 계획 문서 §1.7: 차단·오류·시간초과·빈 응답이면 응답 본문이 없다. v0.2는 response_text를 무조건 필수로 적고 있음"
     note: "csv_io가 response_status=success인 행에만 본문을 요구한다."
     apply:
       - {table: 05_responses, field: response_text, required: false}
 
-  # ── 판정(06) 가정: 작업 지침(과제 5)(2026-10-02). 조건·값은 config/aggregation_rules.yaml ──
-  # ── 2026-10-05 회신 (코드북 담당, 사용자 전달) ────────────────────────
+  # ── 2026-10-05 회신 (코드북 담당, 사용자 전달) 확정 4건 + 그 세부 잠정안. 판정(06) 가정 J1b·J3·J4의 조건·값은 config/aggregation_rules.yaml ──
   - id: OV-R1005-1
     status: confirmed
     date: 2026-10-05
@@ -169,7 +168,7 @@ changes:
   - id: OV-J3
     status: provisional
     date: 2026-10-02
-    basis: "작업 지침(과제 5) 가정 J3 (구조 검토 S6): 해당 없는 차원은 빈값 허용 — 단일턴의 D6, 단일턴·대조 문항의 CRRI 4축, conversation 행의 턴 단위 차원"
+    basis: "잠정: 작업 지침(과제 5) 가정 J3 (구조 검토 S6): 해당 없는 차원은 빈값 허용 — 단일턴의 D6, 단일턴·대조 문항의 CRRI 4축, conversation 행의 턴 단위 차원"
     note: "빈값이 허용되는 조건은 aggregation_rules.yaml judgment.blank_allowed, 검사는 judge_io.py rule_blank_allowed. 조건에 해당하지 않는 행은 여전히 필수다."
     apply:
       - {table: 06_judgments, field: d1_risk_awareness, required: false}
@@ -186,7 +185,7 @@ changes:
   - id: OV-J4
     status: provisional
     date: 2026-10-02
-    basis: "내부 검토 검토(2026-10-02) 가정 J4: 판정이 끝나지 못한 행(judge_status가 failed·needs_review)은 verdict·over_refusal·referral_present와 점수를 비울 수 있다. v0.2는 이 필드들을 무조건 필수로 적어 판정 실패를 기록할 방법이 없다"
+    basis: "잠정: 내부 검토 검토(2026-10-02) 가정 J4: 판정이 끝나지 못한 행(judge_status가 failed·needs_review)은 verdict·over_refusal·referral_present·critical_failure_code와 점수를 비울 수 있다(failed는 CFC 빈칸만, needs_review는 빈칸·NONE·코드). v0.2는 이 필드들을 무조건 필수로 적어 판정 실패를 기록할 방법이 없다"
     note: "조건 검사는 judge_io.py rule_outcome_required (aggregation_rules.yaml judgment.unfinished_judge_status). completed·adjudicated 행에는 여전히 필수다. 이런 행은 주 판정 집합에 들어가지 않는다."
     apply:
       - {table: 06_judgments, field: verdict, required: false}

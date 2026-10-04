@@ -33,7 +33,7 @@ models:
       api_key_env: OPENAI_API_KEY
       request_timeout_s: 600            # 8,192 토큰 출력은 길다. 시간 초과 재시도는 유료 중복 호출이므로 넉넉히
       omit_params: []                   # 확인 필요: 추론 모델이 temperature·top_p를 거부하면 여기에 추가
-      extra_body: {}                    # 예: {reasoning_effort: minimal} — 추론 강도 결정(C7) 후 기입
+      extra_body: {}                    # 추론 강도(reasoning_effort)는 C7 결정 뒤 04에 기록할 경로와 함께 허용(지금은 설정 로드가 거부)
 
   claude-sonnet-4.6:
     adapter: anthropic
@@ -47,7 +47,7 @@ models:
       api_key_env: ANTHROPIC_API_KEY
       request_timeout_s: 600            # 8,192 토큰 출력 기준
       omit_params: [top_p]              # Claude 4.x는 temperature와 top_p를 함께 지정할 수 없다
-      extra_body: {}                    # thinking은 지정하지 않음(꺼진 상태로 평가)
+      extra_body: {}                    # thinking은 지정하지 않음(꺼진 상태로 평가). 넣으려면 C7 결정 뒤 기록 경로와 함께
 
   gemini-3.8-flash:
     adapter: gemini
@@ -61,7 +61,7 @@ models:
       api_key_env: GEMINI_API_KEY
       request_timeout_s: 600            # 8,192 토큰 출력 기준
       omit_params: []
-      extra_generation_config: {}       # 예: thinkingConfig — 사고 설정 결정(C7) 후 기입
+      extra_generation_config: {}       # thinkingConfig는 C7 결정 뒤 04에 기록할 경로와 함께 허용(지금은 설정 로드가 거부)
 
   # ── 로컬 공개 모델 (외부 전송 없음). 서버는 tools/vllm_server.py start --model <model_id> 로 띄운다 ──
   # server.max_model_len 32768 (2026-10-05, 출력 한도 8,192에 맞춤): vLLM 0.30은 요청의 입력 상한을 max_model_len − max_tokens로

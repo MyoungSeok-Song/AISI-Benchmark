@@ -260,9 +260,6 @@ class KeyAndRegistrationTest(unittest.TestCase):
             self.assertFalse(CONFIG.models[model_id].enabled, model_id)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class OptionGuardTest(unittest.TestCase):
     """models.yaml 추가 설정(extra_body·extra_generation_config)은 호출 파라미터를 덮어쓸 수 없다(회신 ① 한도 변경 뒤 어긋남 방지)."""
@@ -273,7 +270,12 @@ class OptionGuardTest(unittest.TestCase):
                            ("extra_body", "top_k"), ("extra_body", "seed"), ("extra_body", "stop"), ("extra_body", "min_tokens"),
                            ("extra_body", "presence_penalty"), ("extra_generation_config", "candidateCount"),
                            # Gemini: generationConfig 블록을 통째로 넣어 러너의 블록을 덮어쓰는 우회
-                           ("extra_body", "generationConfig"), ("extra_body", "generation_config")):
+                           ("extra_body", "generationConfig"), ("extra_body", "generation_config"),
+                           ("extra_body", "sampling_params"), ("extra_body", "logit_bias"), ("extra_body", "max_new_tokens"),
+                           ("extra_body", "stop_token_ids"), ("extra_generation_config", "stopSequences"),
+                           ("extra_generation_config", "presencePenalty"),
+                           # 추론·사고 설정은 C7(기록 경로) 전까지 금지 — 04에 적히지 않는 실행 조건을 만들지 않기 위해
+                           ("extra_body", "reasoning_effort"), ("extra_body", "thinking"), ("extra_generation_config", "thinkingConfig")):
             with self.assertRaises(ConfigError) as ctx:
                 _check_options("some-model", {block: {key: 1}})
             self.assertIn(key, str(ctx.exception))
@@ -285,8 +287,7 @@ class OptionGuardTest(unittest.TestCase):
         _check_options("m", {"omit_params": ["top_p"]})
 
     def test_other_keys_allowed(self):
-        _check_options("m", {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}, "reasoning_effort": "minimal"},
-                             "extra_generation_config": {"thinkingConfig": {"thinkingBudget": 0}}})
+        _check_options("m", {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}, "extra_generation_config": {}})
         _check_options("m", {})
 
     def test_shipped_config_passes_and_uses_long_timeout(self):
@@ -294,3 +295,5 @@ class OptionGuardTest(unittest.TestCase):
         for model_id in ("gpt-5.6-terra", "claude-sonnet-4.6", "gemini-3.8-flash"):
             self.assertEqual(config.models[model_id].options["request_timeout_s"], 600)
 
+if __name__ == "__main__":
+    unittest.main()

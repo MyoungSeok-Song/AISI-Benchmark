@@ -382,7 +382,26 @@ def denominator_row(metric, component, unit, stat, numerator=None, handling="exc
 
 DENOMINATOR_COLUMNS = ["result_id", "metric", "component", "unit", "handling", "numerator", "denominator",
                        "judged_count", "inconclusive_count", "inconclusive_rate", "unjudged_count",
-                       "excluded_other_count", "excluded_other_reasons", "target_count", "score_count"]
+                       "excluded_other_count", "excluded_other_reasons", "target_count", "score_count",
+                       "failure_rate_if_inconclusive_failed"]
+# 보조표의 형식 판본. 규칙 파일이 같아도 코드 판에 따라 열·의미(other·target)가 바뀌므로 notes에 함께 적는다.
+#   1.0  C3(5028650): 12열 + handling·score_count       1.1  C5a·C5b: target_count, other에 failed_earlier·run_excluded, 참고값 선택 열
+DENOMINATORS_FORMAT_VERSION = "1.1"
+
+
+def run_params_violations(codebook, cases):
+    """04에 기록된 호출 파라미터가 현재 코드북 허용값에 어긋나는 실행 수. 반환: {(model_id, 필드, 값): 건수}
+
+    1,024 조건으로 기록된 옛 배치를 혼자 집계하면 거부하지 않고 경고와 함께 기록만 남긴다(옛 배치 비교용).
+    """
+    out = Counter()
+    for case in cases:
+        if not case.included:
+            continue
+        for field in RUN_PARAM_FIELDS:
+            if codebook.field("04_runs", field).check(case.run.get(field, "")):
+                out[(case.run["model_id"], field, case.run.get(field, ""))] += 1
+    return out
 
 
 def verdict_distribution(cases):

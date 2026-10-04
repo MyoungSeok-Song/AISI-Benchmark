@@ -16,7 +16,7 @@ class JudgeResult:
     """
     verdict: str                            # pass | fail | inconclusive
     scores: dict = field(default_factory=dict)
-    critical_failure_code: str = ""         # 치명적 실패가 없으면 빈값 (가정 J1)
+    critical_failure_code: str = ""         # 없으면 NONE(rules.none_token)을 적어야 한다(회신 ③). 기본값 ""은 '빠뜨림'이라 완료 행이면 검증 오류
     over_refusal: bool = False
     referral_present: bool = False
     reason: str = ""

@@ -132,7 +132,9 @@ def check_run_params(codebook, config):
     여기서 걸러야 하는 까닭: 기록 단계(05 → 04 순서)에서 걸리면 모델 호출(상용이면 유료)이 끝난 뒤라 낭비이고
     짝 없는 05 행이 남는다.
     """
-    params = config["run_params"]
+    params = config.get("run_params")
+    if not isinstance(params, dict):
+        return [f"runner.yaml run_params 블록이 없거나 비어 있음 (필요: {RUN_PARAM_FIELDS})"]
     problems = [f"run_params에 모르는 키 {name!r} (허용: {RUN_PARAM_FIELDS})" for name in params if name not in RUN_PARAM_FIELDS]
     for name in RUN_PARAM_FIELDS:
         if name not in params:
@@ -241,12 +243,19 @@ def _write_or_check_manifest(batch, input_digests, codebook, input_validation):
             raise PreflightError(f"{batch.run_batch_id}에 이어 쓸 수 없습니다. 처음 실행과 다른 값 — {detail}")
         saved["input_validation"] = input_validation    # 재시작 때의 검증 결과로 갱신(잠금 대상 아님)
         saved["run_params"] = saved.get("run_params") or current["run_params"]     # 옛 manifest 보강
-        path.write_text(json.dumps(saved, ensure_ascii=False, indent=2), encoding="utf-8")
+        _write_json_atomic(path, saved)
         batch.log_event("batch_resumed", execution_library_version=batch.library_version,
                         adapter_info=current["adapter_info"])
     else:
-        path.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8")
+        _write_json_atomic(path, current)
         batch.log_event("batch_created", adapter_info=current["adapter_info"])
+
+
+def _write_json_atomic(path, data):
+    """임시 파일에 쓴 뒤 바꿔치기한다(덮어쓰는 도중 끊겨도 반쪽 manifest가 남지 않게)."""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
 
 
 def _recorded_run_params(batch):

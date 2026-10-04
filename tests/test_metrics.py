@@ -766,6 +766,14 @@ class ProviderBlockTest(MetricsTestCase):
         orr_like = next(r for r in notes["denominators"] if r["metric"] == "failure_rate")
         self.assertEqual((orr_like["denominator"], orr_like["inconclusive_count"]), (0, 1))     # 대화 판정이 보류 → I
 
+    def test_virtual_refusal_records_none_cfc(self):
+        """가상 판정의 CFC는 NONE(빈칸이 아님): CFR 분자에 들지 않고, 치명적 실패 없음을 적은 것으로 센다."""
+        virtual = metrics._virtual_refusal(RULES)
+        self.assertEqual(virtual["critical_failure_code"], NONE)
+        self.assertFalse(RULES.has_critical_failure(virtual))
+        case = {(c.run["item_id"], c.run["rollout_no"]): c for c in self.scenario.cases()}[("S1", "1")]
+        self.assertEqual(case.unit["critical_failure_code"], NONE)
+
     def test_block_does_not_create_judgment_rows_or_first_fail(self):
         """가상 판정은 집계 안에서만 쓴다. 06 행은 그대로이고 first_fail_turn에도 영향이 없다."""
         s = self.scenario
@@ -958,6 +966,8 @@ class PipelineTest(JudgedTestCase):
         self.assertEqual(notes["rows"][overall["result_id"]]["inconclusive_units"], inconclusive)
         self.assertIn("verdict_distribution", notes["models"][0])
         self.assertIn("denominators_note", notes)
+        self.assertEqual(notes["denominators_format_version"], metrics.DENOMINATORS_FORMAT_VERSION)
+        self.assertEqual(notes["run_params_violations"], [])
         # 모의 판정기 해시에 따른 보류 자리: 현재 입력에서는 1건(KYAB-900003 반복 2). 해시가 바뀌면 이 단언만 갱신한다.
         turn_dist = notes["models"][0]["verdict_distribution"]["turn"]
         self.assertEqual(turn_dist["inconclusive"], 1)
@@ -976,12 +986,15 @@ class PipelineTest(JudgedTestCase):
         self.assertEqual(rows[0]["result_id"], "RESULT-00000001")
 
     def test_leftover_tmp_folder_does_not_block_next_aggregation(self):
-        """강제 종료로 남은 RESULTS-….tmp-* 폴더가 있어도 다음 집계는 막히지 않는다(임시 이름이 고유)."""
+        """강제 종료로 남은 RESULTS-….tmp-* 폴더가 있어도 다음 집계는 막히지 않고(임시 이름이 고유) 경고만 낸다."""
         import datetime
         today = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9))).strftime("%Y%m%d")
         (self.out / f"RESULTS-{today}-001.tmp-leftover").mkdir()
         (self.out / f"RESULTS-{today}-001.tmp").mkdir()
-        self.assertEqual(self.aggregate("--allow-mock-judge")[0], 0)
+        code, output = self.aggregate("--allow-mock-judge")
+        self.assertEqual(code, 0)
+        self.assertIn("임시 폴더 1개", output)
+        self.assertTrue((self.out / f"RESULTS-{today}-001.tmp-leftover").exists())      # 자동 삭제하지 않음
         self.assertEqual([d.name for d in self.results_dirs()], [f"RESULTS-{today}-001"])
 
     def test_old_rules_file_without_inconclusive_block_loads_with_warning(self):
@@ -1014,6 +1027,10 @@ class PipelineTest(JudgedTestCase):
         overall_id = next(rid for rid, n in notes["rows"].items() if n["runs_in_slice"] == 18)
         fr = next(r for r in notes["rows"][overall_id]["denominators"] if r["metric"] == "failure_rate")
         self.assertIn("failure_rate_if_inconclusive_failed", fr)
+        import csv as _csv
+        with open(self.results_dirs()[0] / run_aggregate.DENOMINATORS_FILE, encoding="utf-8-sig", newline="") as f:
+            csv_fr = next(r for r in _csv.DictReader(f) if r["result_id"] == overall_id and r["metric"] == "failure_rate")
+        self.assertEqual(csv_fr["failure_rate_if_inconclusive_failed"], "0.583333")     # (6+1)/(11+1), mock 배치
         # 기본 규칙에서는 둘 다 없다
         self.assertEqual(self.aggregate("--allow-mock-judge")[0], 0)
         notes = json.loads((self.results_dirs()[1] / run_aggregate.NOTES_FILE).read_text(encoding="utf-8"))
@@ -1059,6 +1076,12 @@ class PipelineTest(JudgedTestCase):
         self.assertEqual(self.aggregate("--allow-mock-judge", batches=[self.multi_dir])[0], 0)
         notes = json.loads((self.results_dirs()[0] / run_aggregate.NOTES_FILE).read_text(encoding="utf-8"))
         self.assertEqual(notes["models"][0]["run_params"], [{"temperature": "0.0", "top_p": "1.0", "max_output_tokens": "8192"}])
+        # 옛 조건(1,024) 배치만 집계하면 거부하지 않고 경고 + notes 기록
+        code, output = self.aggregate("--allow-mock-judge", batches=[self.single_dir])
+        self.assertEqual(code, 0, output)
+        self.assertIn("옛 조건 배치", output)
+        notes = json.loads((self.results_dirs()[1] / run_aggregate.NOTES_FILE).read_text(encoding="utf-8"))
+        self.assertEqual(notes["run_params_violations"], [{"model_id": "mock-echo", "field": "max_output_tokens", "value": "1024", "runs": 9}])
 
     def test_result_ids_continue_across_aggregations(self):
         """집계할 때마다 새 폴더·새 result_id. 앞선 결과 파일은 그대로다."""

@@ -87,7 +87,8 @@ def start(args):
     try:
         config = load_config()
     except ConfigError as exc:
-        sys.exit(f"설정을 읽을 수 없습니다: {exc}")        # 종료 코드 1(시스템 예외 대신 한 줄 메시지)
+        print(f"설정을 읽을 수 없습니다: {exc}")
+        sys.exit(2)                                          # 러너 진입점과 같은 종료 코드(입력·설정 오류 = 2)
     model = config.models.get(args.model)
     if model is None or model.adapter != "local_vllm":
         sys.exit(f"'{args.model}'은 local_vllm 모델이 아닙니다 (config/models.yaml)")

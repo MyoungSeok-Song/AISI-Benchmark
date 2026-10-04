@@ -6,6 +6,8 @@ run_judge, run_aggregate, tools/apply_judgments.py는 모두 같은 것을 읽�
 from dataclasses import dataclass
 from pathlib import Path
 
+import yaml
+
 from . import paths, validate
 from .codebook import Codebook, OverlayError, load_codebook
 from .config import ConfigError, RunnerConfig, load_config
@@ -19,7 +21,7 @@ class RecordsError(Exception):
 
 
 # 명세·설정 파일이 잘못됐을 때 나는 예외. 진입점은 이것을 잡아 한 줄 메시지와 종료 코드 2로 끝낸다(traceback 없이).
-SETUP_ERRORS = (OverlayError, RulesError, ConfigError, FileNotFoundError, KeyError)
+SETUP_ERRORS = (OverlayError, RulesError, ConfigError, FileNotFoundError, KeyError, yaml.YAMLError)
 
 
 @dataclass(frozen=True)

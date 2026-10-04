@@ -18,10 +18,15 @@ class ConfigError(Exception):
 # 모델 옵션(extra_body·extra_generation_config)에 둘 수 없는 키: 러너가 run_params에서 보내는 호출 파라미터와
 # 그 밖의 샘플링·길이 설정(코드북 04에 칸이 없어 기록되지 않는 조건을 만들지 않기 위해),
 # 그리고 Gemini 요청의 generationConfig 블록 자체(통째로 넣으면 러너가 만든 블록을 덮어쓴다 — 추가 설정은 extra_generation_config로만)
-PARAM_KEYS_FORBIDDEN_IN_OPTIONS = ("max_tokens", "max_completion_tokens", "max_output_tokens", "maxOutputTokens",
+# 추론·사고 설정(reasoning_effort·thinking·thinkingConfig)도 금지한다: 04에 기록되지 않는 실행 조건이 생기기 때문이다.
+# C7(추론 설정의 결정과 기록 경로)이 정해진 뒤 기록 경로와 함께 허용한다.
+PARAM_KEYS_FORBIDDEN_IN_OPTIONS = ("max_tokens", "max_completion_tokens", "max_output_tokens", "maxOutputTokens", "max_new_tokens",
                                    "temperature", "top_p", "topP", "top_k", "topK", "min_p", "repetition_penalty",
-                                   "presence_penalty", "frequency_penalty", "seed", "min_tokens", "candidateCount", "stop",
-                                   "generationConfig", "generation_config")
+                                   "presence_penalty", "presencePenalty", "frequency_penalty", "frequencyPenalty", "seed",
+                                   "min_tokens", "candidateCount", "stop", "stopSequences", "stop_sequences", "ignore_eos",
+                                   "stop_token_ids", "logit_bias", "sampling_params",
+                                   "generationConfig", "generation_config",
+                                   "reasoning_effort", "thinking", "thinkingConfig")
 _OPTION_BLOCKS = ("extra_body", "extra_generation_config")
 
 

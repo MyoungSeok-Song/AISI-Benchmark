@@ -6,8 +6,9 @@
   4. 결과를 검증한 뒤 <출력 루트>/RESULTS-YYYYMMDD-###/ 에 쓴다(임시 폴더에 다 쓴 뒤 이름을 바꾼다 — 셋 중
      하나만 남는 일이 없다).
        07_results.csv             코드북 35열
-       results_denominators.csv   회신 ④: 보류를 분모에서 뺀 지표마다 D(유효)·I(보류)·U(판정 없음)·other와
-                                  보류율 I/(D+I). result_id로 07과 1:1. 코드북 밖 보조 산출물(07_ 접두어 아님)
+       results_denominators.csv   회신 ④(확정): 보류를 분모에서 뺐으면 건수·비율·분모를 함께 제시.
+                                  형식(지표마다 D 유효·I 보류·U 판정 없음·other·target, 보류율 I/(D+I))은 잠정(지표 명세 전).
+                                  result_id로 07과 1:1. 코드북 밖 보조 산출물(07_ 접두어 아님)
        results_notes.json         07에 칸이 없는 보조 기록(분모·보류, 제외·가상 판정 건수, 모델별 verdict 분포,
                                   코드북에 없는 분해, 코드북 협의 후보). 코드북 표가 아니다.
 
@@ -45,8 +46,8 @@ CODEBOOK_CANDIDATES = [
     "대조 문항의 위험군 연결: 칼럼 추가 반영(회신 ② → 02 control_target_risk, 이름·위치 잠정 OV-P4). 07 slice_key_json 표기({\"primary_risk\": X}에 대조 문항 포함)와 혼합 행의 n_items·n_runs·n_responses·κ·사람 검토율 정의는 잠정 — 코드북 담당 지표 명세 확인 필요",
     "집계 전용 필드(control_target_risk)만 바뀐 태그 판본 상승에도 재채점을 요구할지(주 판정 집합이 current 판본만 쓰므로 현재는 재채점 필요) — 채점 운영 규칙 협의 후보",
     "slice_level에 case_type·성별(user_gender)·컴패니언 구분 없음 → 이 분해는 extra_slices에만 있음 (수행계획서 v1.1의 성별 보고 요구)",
-    "유효 평가 대상 수(FR 분모)와 inconclusive·판정 없음 건수를 적을 열 없음 → rows.<result_id>에만 있음",
-    "집계에서 뺀 실행 수(stop_reason별)와 차단을 거절로 센 건수를 적을 열 없음",
+    "유효 평가 대상 수(FR 분모)와 inconclusive·판정 없음 건수를 적을 07 열 없음 → results_denominators.csv와 rows.<result_id>에 있음",
+    "집계에서 뺀 실행 수(stop_reason별)와 차단을 거절로 센 건수를 적을 07 열 없음 → 분모 행 other(run_excluded)와 notes에 있음",
     "판정기 식별(judge_id)이 07에 없어 모의 판정·실제 판정으로 만든 결과를 07만으로는 구분할 수 없음",
     "CRRI 임계값을 적을 열 없음(aggregation_rule_id·version으로만 추적)",
     "06: judge_status가 failed·needs_review인 행의 verdict·점수 필수성 (현재 가정 J4로 빈값 허용)",
@@ -213,6 +214,11 @@ def main(argv=None):
     if not any(case.included for case in cases):
         print("집계할 실행이 없습니다.")
         return EXIT_NOTHING
+    # 옛 조건(예: 1,024)으로 기록된 배치를 혼자 집계하는 경우: 거부하지 않고 경고 + notes 기록
+    violations = [{"model_id": m, "field": f, "value": v, "runs": n}
+                  for (m, f, v), n in sorted(metrics.run_params_violations(env.codebook, cases).items())]
+    for v in violations:
+        print(f"주의: {v['model_id']}의 실행 {v['runs']}건은 04 {v['field']}={v['value']!r}로 기록돼 현재 코드북 허용값과 다릅니다(옛 조건 배치)")
     # 회신 ①: 같은 모델 묶음 안에서 호출 파라미터(temperature, top_p, max_output_tokens)가 섞이면 한 행에 합칠 수 없다.
     # 07에는 실행 조건 칸이 없어 같은 (모델, 슬라이스) 행이 둘 생기고 배치 ID로 04를 봐야만 구분되기 때문이다.
     mixed = {model: dict(combos) for model, combos in metrics.run_param_combos(cases).items() if len(combos) > 1}
@@ -226,6 +232,9 @@ def main(argv=None):
     timezone = ZoneInfo(env.config["timezone"])
     calculated_at = datetime.now(timezone).isoformat(timespec="milliseconds")
     root = output_root(args)
+    leftovers = sorted(p.name for p in root.glob("RESULTS-*.tmp-*")) if root.exists() else []
+    if leftovers:                               # 강제 종료가 남긴 임시 폴더: 자동으로 지우지 않고 알린다
+        print(f"주의: 끝나지 않은 집계의 임시 폴더 {len(leftovers)}개가 있습니다(확인 후 직접 지우세요): {leftovers}")
     allocator = ids.result_id_allocator(env.codebook, root)
     rows, notes = metrics.aggregate(env.codebook, rules, cases, allocator.new, calculated_at)
 
@@ -251,6 +260,8 @@ def main(argv=None):
                               "지표×성분마다 D(유효)·I(보류)·U(판정 없음)·other·target. 보류율 = I/(D+I). handling=excluded 행은 "
                               "judged = D + I, target = judged + U + other. extra_slices는 result_id가 없어 JSON에만 있다."),
         "inconclusive_report": rules["aggregation"]["inconclusive_report"],
+        "denominators_format_version": metrics.DENOMINATORS_FORMAT_VERSION,
+        "run_params_violations": violations,
         "slice_key_rule": ("risk_group·risk_age_turn의 primary_risk 키: 위험 문항은 02 primary_risk, 대조 문항은 02 "
                            f"{CONTROL_TARGET_FIELD}(어느 위험군의 대조인지, 회신 ②·잠정 OV-P4). 행별 rows.<id>.slice_key_sources·"
                            "control_items·control_runs 참고. 대조 문항이 섞인 행의 n_items·n_runs·n_responses·κ·사람 검토율에는 "

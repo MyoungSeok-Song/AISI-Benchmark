@@ -16,6 +16,7 @@ sys.path.insert(0, str(RUNNER_DIR))
 
 from kyab_runner import csv_io                       # noqa: E402
 from kyab_runner.codebook import load_codebook       # noqa: E402
+from kyab_runner.context import SETUP_ERRORS         # noqa: E402
 from kyab_runner.taxonomy import load_taxonomy       # noqa: E402
 
 
@@ -38,7 +39,11 @@ def compare(codebook, batch_dir):
 
 
 def main():
-    codebook = load_codebook(load_taxonomy())
+    try:
+        codebook = load_codebook(load_taxonomy())
+    except SETUP_ERRORS as exc:
+        print(f"명세·설정을 읽을 수 없습니다: {type(exc).__name__}: {exc}")
+        return 2
     failed = False
     for arg in sys.argv[1:]:
         batch_dir = Path(arg)
