@@ -76,7 +76,9 @@ def plan(env, view):
 
 
 def _inconclusive_precedes(view, primary, run, first_fail_turn):
-    """first_fail_turn 앞(실패가 없으면 전체)에 보류 판정 턴이 있는 실행인가."""
+    """first_fail_turn 앞(실패가 없으면 전체)에 보류 판정 턴이 있는 다중턴 실행인가. 단일턴은 '앞 턴'이 없어 세지 않는다."""
+    if view.item_of(run)["conversation_mode"] != "multi":
+        return False
     limit = int(first_fail_turn) if first_fail_turn else None
     for response in view.successes(run["run_id"]):
         turn = view.turn_index(response)

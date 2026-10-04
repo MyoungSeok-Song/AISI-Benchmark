@@ -24,6 +24,8 @@ from .records import EVENTS_FILE, RESPONSES_FILE, RUNS_FILE
 
 # 러너가 채우는 필드의 '생성 단계'. 이 단계의 필수 필드가 비면 기록을 거부한다.
 RUNNER_STAGES = ("실행 자동기록 필수",)
+# 러너가 모델에 보내고 04_runs에 그대로 적는 호출 파라미터(runner.yaml run_params의 키). 사전 점검·집계 섞임 검사가 쓴다.
+RUN_PARAM_FIELDS = ("temperature", "top_p", "max_output_tokens")
 
 # 응답 상태 -> 실행 중단 사유 (04 stop_reason). 차단만 provider_block, 나머지 실패는 error.
 _STOP_REASON = {"blocked": "provider_block", "error": "error", "timeout": "error", "empty": "error"}
@@ -162,7 +164,7 @@ class RunSession:
             "model_snapshot_date": batch.model.model_snapshot_date,
             "system_prompt_text": batch.config.system_prompt_text,
             "system_prompt_hash": batch.config.system_prompt_hash,
-            # 고정 파라미터는 설정값을 그대로 적는다(0.0, 1.0, 1024).
+            # 호출 파라미터는 설정값(runner.yaml run_params)을 그대로 적는다. 허용값은 실행 전에 점검했다(cli.check_run_params).
             **batch.call_params(),
             "safety_profile": batch.config["safety_profile"],
             "tool_profile": batch.config["tool_profile"],

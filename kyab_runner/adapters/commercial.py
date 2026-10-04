@@ -9,7 +9,7 @@ API 키
   키 값은 파일·로그·manifest·예외 메시지 어디에도 쓰지 않는다. describe()에는 변수 이름만 남긴다.
 
 호출 파라미터 정책
-  러너는 코드북 고정값(temperature 0.0, top_p 1.0, max_output_tokens 1024)을 요청한다.
+  러너는 runner.yaml run_params(temperature 0.0, top_p 1.0, max_output_tokens — 코드북 04 허용값)를 요청한다.
   공급자·모델에 따라 일부를 받지 않거나 함께 지정할 수 없다. 그런 파라미터는
   models.yaml options.omit_params에 적어 보내지 않는다.
   04_runs에는 코드북 고정값을 그대로 적고, 실제로 보낸 값은 describe()를 통해

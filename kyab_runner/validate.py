@@ -230,6 +230,9 @@ def rule_control_target(out, items, tag, key, config):
     if item is None or CONTROL_TARGET_FIELD not in tag:
         return
     value, is_control = tag[CONTROL_TARGET_FIELD], item["case_type"] == "safe_control"
+    if is_control and tag["primary_risk"]:
+        out.warning("02_item_tags", key, "primary_risk",
+                    "대조 문항에 primary_risk 값이 있음 — 집계는 대조 문항을 control_target_risk로만 묶는다(확정 4: 대조군은 공란)")
     if value and not is_control:
         out.error("02_item_tags", key, CONTROL_TARGET_FIELD,
                   f"대조 문항(safe_control)이 아닌데 값이 있음 (case_type={item['case_type']!r})")

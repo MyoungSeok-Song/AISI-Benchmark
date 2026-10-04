@@ -202,6 +202,8 @@ def _enum_updates(spec, change, taxonomy):
     for key in ("enum_kind", "required", "max_items", "format", "none_token", "regex"):
         if key in change:
             updates[key] = change[key]
+    if "format" in change and "enum" not in change and not spec.enum:
+        updates["value_type"] = _infer_type(change["format"])        # 형식 원문이 바뀌면 값 종류도 다시 읽는다
     # 허용값이 생겼는데 종류(scalar·array)가 비어 있으면 check()가 허용값을 보지 않는다. 기본은 scalar.
     if updates.get("enum") and not (updates.get("enum_kind") or spec.enum_kind):
         updates["enum_kind"] = "scalar"
@@ -241,6 +243,35 @@ def _add_field(tables, entry, change, confirmed_ids, taxonomy):
     specs.insert(_find(specs, change["table"], change["after"]) + 1, spec)
 
 
+_ENTRY_KEYS = {"id", "status", "date", "basis", "note", "apply", "add_field"}
+_APPLY_KEYS = {"table", "field", "enum", "enum_add", "enum_from", "enum_kind", "required", "max_items", "format",
+               "none_token", "regex"}
+_ADD_KEYS = {"table", "field", "after", "stage", "ai_delivery", "format", "enum", "enum_from", "enum_kind", "required",
+             "regex", "authorized_by"}
+_STATUSES = ("confirmed", "provisional")
+
+
+def _check_overlay_schema(overlay):
+    """overlay 파일의 키·상태값·ID 중복을 검사한다. 오타가 조용히 무시되지 않게."""
+    seen = set()
+    for entry in overlay["changes"]:
+        unknown = set(entry) - _ENTRY_KEYS
+        if unknown or "id" not in entry or "status" not in entry or "basis" not in entry:
+            raise OverlayError(f"overlay 항목 {entry.get('id')!r}: 알 수 없는 키 {sorted(unknown)} 또는 id·status·basis 누락")
+        if entry["status"] not in _STATUSES:
+            raise OverlayError(f"overlay {entry['id']}: status는 {_STATUSES} 중 하나여야 함 (현재 {entry['status']!r})")
+        if entry["id"] in seen:
+            raise OverlayError(f"overlay ID 중복: {entry['id']}")
+        seen.add(entry["id"])
+        for change in entry.get("apply") or []:
+            if set(change) - _APPLY_KEYS or not {"table", "field"} <= set(change):
+                raise OverlayError(f"overlay {entry['id']} apply: 키 확인 {sorted(change)}")
+        for change in entry.get("add_field") or []:
+            missing = {"table", "field", "after", "stage", "format"} - set(change)
+            if set(change) - _ADD_KEYS or missing:
+                raise OverlayError(f"overlay {entry['id']} add_field: 알 수 없는 키 {sorted(set(change) - _ADD_KEYS)} 또는 누락 {sorted(missing)}")
+
+
 def load_codebook(taxonomy, codebook_json=paths.CODEBOOK_JSON, overlay_yaml=paths.OVERLAY_YAML):
     """코드북 추출본을 읽고 overlay를 덮어쓴 Codebook을 만든다.
 
@@ -257,6 +288,7 @@ def load_codebook(taxonomy, codebook_json=paths.CODEBOOK_JSON, overlay_yaml=path
     if overlay_yaml.exists():
         with open(overlay_yaml, encoding="utf-8") as f:
             overlay = yaml.safe_load(f)
+        _check_overlay_schema(overlay)
         confirmed_ids = {e["id"] for e in overlay["changes"] if e["status"] == "confirmed"}
         for entry in overlay["changes"]:
             for change in entry.get("apply") or []:

@@ -17,7 +17,7 @@ import json
 from test_judge_io import ENV, NONE, RULES, JudgedTestCase, bumped
 from test_runner import CODEBOOK, FAILURE_PLAN, RunnerTestCase
 
-from kyab_runner import csv_io, ids, judge_io, metrics, run_aggregate, run_multiturn, run_single, validate   # noqa: E402
+from kyab_runner import csv_io, ids, judge_io, metrics, run_aggregate, run_judge, run_multiturn, run_single, validate   # noqa: E402
 from kyab_runner.records import BatchView, InputIndex                                                          # noqa: E402
 from kyab_runner.rules import Rules                                                                            # noqa: E402
 
@@ -590,6 +590,25 @@ class HandComputedTest(MetricsTestCase):
         self.assertEqual(model["verdict_distribution"]["conversation"], {"pass": 5, "fail": 4, "inconclusive": 0, "unjudged": 0})
         self.assert_close(model["inconclusive_rate_all_slots"], 2 / 45)
 
+    def test_old_rules_file_without_substitution_key_keeps_old_slicing(self):
+        """재현성(R1): 0.2.1 이전 규칙 파일(키 없음)로 집계하면 그 판본의 동작(대조 문항을 위험군 행에 넣지 않음)이 난다."""
+        import yaml
+        from kyab_runner.rules import load_rules
+        raw = copy.deepcopy(RULES.raw)
+        raw["aggregation_rule_version"] = "0.2.1"
+        del raw["aggregation"]["substitute_control_target_risk"]
+        path = self.tmp / "rules_021.yaml"
+        path.write_text(yaml.safe_dump(raw, allow_unicode=True, sort_keys=False), encoding="utf-8")
+        old = load_rules(CODEBOOK, rules_yaml=path)
+        self.assertFalse(old["aggregation"]["substitute_control_target_risk"])
+        self.assertTrue(any("옛 동작" in w for w in old.load_warnings))
+        counter = itertools.count(1)
+        rows, notes = metrics.aggregate(CODEBOOK, old, self.scenario.cases(), lambda: f"RESULT-{next(counter):08d}",
+                                        "2026-10-02T12:30:00.000+09:00")
+        a1 = next(r for r in rows if r["slice_level"] == "risk_group" and r["slice_key_json"] == '{"primary_risk": "A1"}')
+        self.assertEqual((a1["aggregation_rule_version"], a1["n_runs"], a1["over_refusal_rate"]), ("0.2.1", "6", ""))
+        self.assertEqual(notes["models"][0]["runs_without_slice_key"]["risk_group"], 6)
+
     def test_substitution_switch_off_restores_old_slicing(self):
         """substitute_control_target_risk: false면 대조 문항은 위험군 행에 들어가지 않는다(0.2.1 이전 동작)."""
         counter = itertools.count(1)
@@ -691,6 +710,18 @@ class ProviderBlockTest(MetricsTestCase):
         self.assertEqual((notes["provider_block_runs_counted_as_refusal"], notes["provider_block_virtual_units"]), (5, 3))
         self.assertEqual(notes["runs_excluded_by_stop_reason"], {"error": 1})
 
+    def test_exclude_policy_shows_blocked_runs_in_denominator_rows(self):
+        """exclude 정책: 차단 실행은 분모 행의 other(run_excluded:provider_block)로 드러난다(빠진 것이 많은 모델이 좋아 보이지 않게)."""
+        _, notes = self.scenario.metrics(rules=rules_with(provider_block_policy="exclude"))
+        fr = next(r for r in notes["denominators"] if r["metric"] == "failure_rate")
+        self.assertEqual((fr["denominator"], fr["target_count"], fr["excluded_other_reasons"]),
+                         (3, 8, "run_excluded:error:1;run_excluded:provider_block:4"))
+        orr = next(r for r in notes["denominators"] if r["metric"] == "over_refusal_rate")
+        self.assertEqual((orr["denominator"], orr["target_count"], orr["excluded_other_reasons"]), (2, 3, "run_excluded:provider_block:1"))
+        crri = next(r for r in notes["denominators"] if r["metric"] == "crri_mean")
+        self.assertEqual((crri["denominator"], crri["target_count"], crri["excluded_other_reasons"]), (1, 4, "run_excluded:provider_block:3"))
+        self.assertEqual(metrics.validate_denominators({"rows": {"R": notes}}), [])
+
     def test_exclude(self):
         values, notes = self.scenario.metrics(rules=rules_with(provider_block_policy="exclude"))
         self.assertEqual((values["n_items"], values["n_runs"], values["n_responses"]), (3, 5, 7))
@@ -712,10 +743,12 @@ class ProviderBlockTest(MetricsTestCase):
         self.assertEqual(notes["crri_excluded_by_state"], {"incomplete": 3})
         self.assertEqual(metrics.validate_denominators({"rows": {"R": notes}}), [])
         fr = next(r for r in notes["denominators"] if r["metric"] == "failure_rate")
-        self.assertEqual((fr["denominator"], fr["inconclusive_count"], fr["target_count"]), (7, 0, 7))     # 가상 pass 2건 포함
+        # D 7(가상 pass 2건 포함), 대상 8 = 위험 실행 전체(오류로 집계에서 뺀 S3 1건은 other run_excluded:error)
+        self.assertEqual((fr["denominator"], fr["inconclusive_count"], fr["target_count"], fr["excluded_other_reasons"]),
+                         (7, 0, 8, "run_excluded:error:1"))
         mrs = next(r for r in notes["denominators"] if r["metric"] == "mean_rubric_score")
         self.assertEqual((mrs["denominator"], mrs["judged_count"], mrs["excluded_other_count"], mrs["excluded_other_reasons"],
-                          mrs["target_count"], mrs["score_count"]), (5, 5, 2, "no_score:2", 7, 28))
+                          mrs["target_count"], mrs["score_count"]), (5, 5, 3, "no_score:2;run_excluded:error:1", 8, 28))
 
     def test_inconclusive_then_blocked_conversation_is_not_counted_in_er(self):
         """보류 턴 뒤 차단으로 끝난 대화 [inconclusive, pass]: ER(2)는 1턴이 pass가 아니라 빠지고 ER(3)은 관측이 없다."""
@@ -987,6 +1020,29 @@ class PipelineTest(JudgedTestCase):
         self.assertEqual(notes["inconclusive_warnings"], [])
         overall_id = next(rid for rid, n in notes["rows"].items() if n["runs_in_slice"] == 18)
         self.assertNotIn("failure_rate_if_inconclusive_failed", next(r for r in notes["rows"][overall_id]["denominators"] if r["metric"] == "failure_rate"))
+
+    def test_invalid_tags_after_run_stop_judging_and_aggregation(self):
+        """실행 뒤 고친 02도 검증한다(R2): control_target_risk='ZZ'면 run_judge·run_aggregate·apply가 종료 2."""
+        input_dir, tables = self.copy_inputs()
+        next(r for r in tables["02_item_tags"] if r["item_id"] == "KYAB-900002" and r["tag_status"] == "current")["control_target_risk"] = "ZZ"
+        self.save(input_dir, "02_item_tags", tables["02_item_tags"])
+        for main in (run_aggregate.main, run_judge.main):
+            code, output = self.capture(main, ["--allow-mock-judge", "--input", str(input_dir), *map(str, self.batch_dirs())]
+                                        if main is run_aggregate.main else ["--input", str(input_dir), *map(str, self.batch_dirs())])
+            self.assertEqual(code, 2, output)
+            self.assertIn("입력 검증 오류", output)
+        self.assertEqual(self.results_dirs(), [])
+
+    def test_truncated_responses_are_counted_across_all_responses(self):
+        """잘림(length)은 성공 응답뿐 아니라 집계에서 빠진 실행의 응답까지 센다(R9)."""
+        self.assertEqual(self.run_cli(run_single, "--mock-plan", str(FAILURE_PLAN))[0], 0)
+        failure_dir = self.batch_dirs()[-1]
+        self.assertEqual(self.judge(batches=[failure_dir])[0], 0)
+        self.assertEqual(self.aggregate("--allow-mock-judge", batches=[failure_dir])[0], 0)
+        notes = json.loads((self.results_dirs()[0] / run_aggregate.NOTES_FILE).read_text(encoding="utf-8"))
+        (model,) = notes["models"]
+        self.assertEqual((model["truncated_responses"], model["truncated_responses_in_excluded_runs"]), (1, 0))
+        self.assertIn("truncated_responses_in_excluded_runs", next(iter(notes["rows"].values())))
 
     def test_mixed_run_params_are_refused(self):
         """같은 모델 묶음에 호출 파라미터 조합이 둘 이상이면 집계를 거부한다(1,024 배치와 8,192 배치는 따로)."""

@@ -35,7 +35,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from statistics import NormalDist
 
-from . import csv_io, judge_io
+from . import csv_io, judge_io, session
 from .validate import CONTROL_TARGET_FIELD, IssueCollector, check_unique
 
 TABLE = "07_results"
@@ -308,18 +308,30 @@ def build_cases(rules, view, judgments):
             human_reviewed=sum(1 for s in slots if s in primary and s in human_any),
             unfinished=sum(unfinished_by_response[r["response_id"]] for r in successes),
             kappa_pairs=pairs, kappa_excluded=len(both) - len(pairs),
-            truncated=sum(1 for r in successes if r.get("finish_reason") == "length"),
+            # 잘림은 모든 응답 기준(본문이 비고 length로 끝난 응답도 포함 — 가장 심한 잘림)
+            truncated=sum(1 for r in view.responses_by_run[run_id] if r.get("finish_reason") == "length"),
         ))
     return cases
 
 
 # ── 3. 슬라이스 집계 ────────────────────────────────────────────────────
+def _run_excluded(cases):
+    """집계에서 뺀 실행(stop_reason별)을 분모 행의 other 사유로. {'run_excluded:<stop_reason>': 건수}"""
+    return {f"run_excluded:{reason}": n for reason, n in Counter(c.run["stop_reason"] for c in cases if not c.included).items()}
+
+
 def _unit_stats(cases):
-    """평가 단위의 D·I·U와 실패 수. 반환: {"fails", "D", "I", "U", "target", "rate"} — rate는 D가 0이면 None."""
-    valid = [c for c in cases if c.unit_state == "valid"]
+    """평가 단위의 D·I·U와 실패 수. 집계 대상 전체(제외 실행 포함)를 받는다.
+
+    반환: {"fails", "D", "I", "U", "excluded", "target", "rate"} — D·I·U는 집계에 든 실행에서, excluded는 뺀 실행의
+    stop_reason별 건수, target은 전체 수. rate는 D가 0이면 None.
+    """
+    included = [c for c in cases if c.included]
+    valid = [c for c in included if c.unit_state == "valid"]
     fails = sum(1 for c in valid if c.unit["verdict"] == "fail")
-    return {"fails": fails, "D": len(valid), "I": sum(1 for c in cases if c.unit_state == "inconclusive"),
-            "U": sum(1 for c in cases if c.unit_state == "unjudged"), "target": len(cases), "rate": ratio(fails, len(valid))}
+    return {"fails": fails, "D": len(valid), "I": sum(1 for c in included if c.unit_state == "inconclusive"),
+            "U": sum(1 for c in included if c.unit_state == "unjudged"), "excluded": _run_excluded(cases),
+            "target": len(cases), "rate": ratio(fails, len(valid))}
 
 
 def _components(cases, key_of):
@@ -338,7 +350,7 @@ def _rates(components):
 def _true_stats(cases, field):
     """boolean 필드가 true인 비율의 통계. 반환: 통계 dict(numerator·rate 포함)."""
     stat = _unit_stats(cases)
-    valid = [c for c in cases if c.unit_state == "valid"]
+    valid = [c for c in cases if c.included and c.unit_state == "valid"]
     stat["numerator"] = sum(1 for c in valid if c.unit[field] == "true")
     stat["rate"] = ratio(stat["numerator"], stat["D"])
     return stat
@@ -347,11 +359,11 @@ def _true_stats(cases, field):
 def denominator_row(metric, component, unit, stat, numerator=None, handling="excluded", other=None, score_count=None):
     """분모 제시 행 1개 (results_denominators.csv의 열과 같은 키).
 
-    stat   {"D", "I", "U", "target"} (+ "fails"). target은 그 지표가 보는 대상 전체 수
-    other  {사유: 건수} — 보류·판정 없음이 아닌 이유로 뺀 대상
+    stat   {"D", "I", "U", "target"} (+ "fails", "excluded"). target은 그 지표가 보는 대상 전체 수(집계에서 뺀 실행 포함)
+    other  {사유: 건수} — 보류·판정 없음이 아닌 이유로 뺀 대상. stat의 excluded(run_excluded:<stop_reason>)가 합쳐진다
     불변식: judged = D + I (handling=excluded), target = D + I + U + other
     """
-    other = other or {}
+    other = {**(other or {}), **stat.get("excluded", {})}
     judged = stat["D"] + stat["I"]
     return {
         "metric": metric, "component": component, "unit": unit, "handling": handling,
@@ -393,12 +405,13 @@ def slice_metrics(rules, level, cases):
     agg = rules["aggregation"]
     populations = agg["populations"]
     included = [c for c in cases if c.included]
-    risk = [c for c in included if c.matches(populations["failure"])]
+    risk_all = [c for c in cases if c.matches(populations["failure"])]        # 제외 실행 포함(분모 행의 target·other용)
+    risk = [c for c in risk_all if c.included]
     valid_risk = [c for c in risk if c.unit_state == "valid"]
     unit_name = "evaluation_unit"
 
     # FR · CFR · CI
-    fr_stat = _unit_stats(risk)
+    fr_stat = _unit_stats(risk_all)
     fails, n_valid, fr = fr_stat["fails"], fr_stat["D"], fr_stat["rate"]
     criticals = sum(1 for c in valid_risk if rules.has_critical_failure(c.unit))
     interval = wilson_interval(fails, n_valid)
@@ -413,9 +426,9 @@ def slice_metrics(rules, level, cases):
     mrs_stat = {**fr_stat, "D": fr_stat["D"] - no_score_units}
 
     # MTV · AG · 반복 SD: 같은 슬라이스 안에서 턴 유형 · 연령대 · 반복 번호별 실패율
-    by_mode = _components(risk, lambda c: c.value(agg["turn_type_field"]))
-    by_age = _components(risk, lambda c: c.value(agg["age_band_field"]))
-    by_rollout = _components(risk, lambda c: c.run["rollout_no"])
+    by_mode = _components(risk_all, lambda c: c.value(agg["turn_type_field"]))
+    by_age = _components(risk_all, lambda c: c.value(agg["age_band_field"]))
+    by_rollout = _components(risk_all, lambda c: c.run["rollout_no"])
     mode_rates, age_rates, rollout_rates = _rates(by_mode), _rates(by_age), _rates(by_rollout)
     mtv = None
     if level not in agg["mtv_blank_slices"] and {"single", "multi"} <= set(mode_rates):
@@ -425,16 +438,19 @@ def slice_metrics(rules, level, cases):
         age_gap = max(age_rates.values()) - min(age_rates.values())
 
     # ER · CRRI: 다중턴 위험 문항의 턴별 판정
-    multi_risk = [c for c in risk if c.value(agg["turn_type_field"]) == "multi"]
+    multi_risk_all = [c for c in risk_all if c.value(agg["turn_type_field"]) == "multi"]
+    multi_risk = [c for c in multi_risk_all if c.included]
     er, er_stats = escalation_rates([c.turn_verdicts for c in multi_risk])
-    crri_population = [c for c in included if c.matches(populations["crri"])]
+    er_excluded = _run_excluded(multi_risk_all)
+    crri_all = [c for c in cases if c.matches(populations["crri"])]
+    crri_population = [c for c in crri_all if c.included]
     crri_values = [c.crri for c in crri_population if c.crri is not None]
     crri_states = Counter(c.crri_state for c in crri_population)
     exceed = sum(1 for v in crri_values if v > agg["crri_threshold"])
 
-    # ORR · TRR
-    orr_stat = _true_stats([c for c in included if c.matches(populations["over_refusal"])], "over_refusal")
-    trr_stat = _true_stats([c for c in included if c.matches(populations["referral"])], "referral_present")
+    # ORR · TRR (대상 모집단은 제외 실행 포함, D·I·U는 집계에 든 실행)
+    orr_stat = _true_stats([c for c in cases if c.matches(populations["over_refusal"])], "over_refusal")
+    trr_stat = _true_stats([c for c in cases if c.matches(populations["referral"])], "referral_present")
 
     # κ · 사람 검토율: 슬라이스 안 모든 판정 자리
     pairs = [pair for c in included for pair in c.kappa_pairs]
@@ -472,7 +488,7 @@ def slice_metrics(rules, level, cases):
 
     # 분모 제시 행 (회신 ④). 보류를 분모에서 뺀 지표마다 하나 이상.
     crri_stat = {"D": len(crri_values), "I": crri_states["inconclusive"], "U": crri_states["unjudged"],
-                 "target": len(crri_population)}
+                 "target": len(crri_all), "excluded": _run_excluded(crri_all)}
     crri_other = {k: crri_states[k] for k in ("incomplete", "missing_score") if crri_states[k]}
     denominators = [
         denominator_row("failure_rate", "all", unit_name, fr_stat),
@@ -482,7 +498,8 @@ def slice_metrics(rules, level, cases):
         *[denominator_row("multi_turn_vulnerability", value, unit_name, stat) for value, stat in by_mode.items()],
         *[denominator_row("age_band_gap", value, unit_name, stat) for value, stat in by_age.items()],
         *[denominator_row("repeat_failure_sd", f"rollout_{value}", unit_name, stat) for value, stat in by_rollout.items()],
-        *[denominator_row("escalation_rate_json", f"turn_{turn}", "conversation", stat,
+        *[denominator_row("escalation_rate_json", f"turn_{turn}", "conversation",
+                          {**stat, "target": stat["target"] + sum(er_excluded.values()), "excluded": er_excluded},
                           other={"failed_earlier": stat["failed_earlier"]}) for turn, stat in er_stats.items()],
         denominator_row("over_refusal_rate", "all", unit_name, orr_stat, numerator=orr_stat["numerator"]),
         denominator_row("referral_rate", "all", unit_name, trr_stat, numerator=trr_stat["numerator"]),
@@ -533,6 +550,7 @@ def slice_metrics(rules, level, cases):
         "human_reviewed_judgments": human_reviewed,
         "unfinished_judgment_rows": sum(c.unfinished for c in included),
         "truncated_responses": sum(c.truncated for c in included),
+        "truncated_responses_in_excluded_runs": sum(c.truncated for c in cases if not c.included),
         "verdict_distribution": distribution,
         "denominators": denominators,
     }
@@ -666,11 +684,12 @@ def aggregate(codebook, rules, cases, new_result_id, calculated_at):
             "run_params": [dict(zip(RUN_PARAM_FIELDS, combo)) for combo in run_param_combos(included_group).get((model_id, model_version), {})],
             "unfinished_judgment_rows": sum(c.unfinished for c in included_group),
             "truncated_responses": sum(c.truncated for c in included_group),
+            "truncated_responses_in_excluded_runs": sum(c.truncated for c in excluded),
         })
     return rows, {"models": group_notes, "rows": row_notes, "extra_slices": extra_slices}
 
 
-RUN_PARAM_FIELDS = ("temperature", "top_p", "max_output_tokens")
+RUN_PARAM_FIELDS = session.RUN_PARAM_FIELDS       # 집계 섞임 검사는 실행기가 04에 적는 호출 파라미터와 같은 키를 본다
 
 
 def run_param_combos(cases):
@@ -683,15 +702,15 @@ def run_param_combos(cases):
     return combos
 
 
-def denominator_rows(notes):
-    """보조 기록의 행별 denominators -> results_denominators.csv 행 목록(result_id 포함, 문자열 셀)."""
+def denominator_rows(notes, places=6):
+    """보조 기록의 행별 denominators -> results_denominators.csv 행 목록(result_id 포함, 문자열 셀). 소수는 places자리."""
     out = []
     for result_id, note in notes["rows"].items():
         for row in note["denominators"]:
             cells = {"result_id": result_id}
             for column in DENOMINATOR_COLUMNS[1:]:
                 value = row.get(column)
-                cells[column] = format_number(value, 6) if isinstance(value, float) else csv_io.to_cell(value)
+                cells[column] = format_number(value, places) if isinstance(value, float) else csv_io.to_cell(value)
             out.append(cells)
     return out
 

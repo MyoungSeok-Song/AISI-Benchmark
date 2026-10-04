@@ -55,6 +55,10 @@ CODEBOOK_CANDIDATES = [
     "04 first_fail_turn·first_cfc_turn의 공란은 '판정 전·apply 미실행'과 '실패 없음'을 구분하지 못함(형식이 '정수 또는 공란'이라 NONE 불가)",
     "07 v0.3 제안: denominators_json 1열(지표별 D·I·U). 지금은 results_denominators.csv를 07과 함께 봐야 함(회신 ④)",
     "제안(기본 꺼짐, 지표 명세 몫): 보류율 경고 임계값(inconclusive_report.warn_rate), '보류를 실패로 본 FR' 참고값",
+    "집계 섞임 거부는 호출 파라미터(temperature·top_p·max_output_tokens)만 본다. system_prompt_hash·safety_profile·tool_profile 등 "
+    "다른 실행 조건이 한 모델 묶음에 섞이는 경우의 처리(거부·분리)는 미정 — 협의 후보",
+    "제안(채점 운영 규칙 담당 영역): finish_reason=length(출력 한도에서 잘림)를 판정 입력에 넣어 판정자가 잘림을 알게 할지 — "
+    "지금은 실행 요약·results_notes.json에만 건수가 남는다",
 ]
 
 
@@ -267,7 +271,7 @@ def main(argv=None):
         **notes,
         "codebook_candidates": CODEBOOK_CANDIDATES,
     }
-    write_results(results_dir, env.codebook, rows, metrics.denominator_rows(notes), record)
+    write_results(results_dir, env.codebook, rows, metrics.denominator_rows(notes, rules["aggregation"]["decimal_places"]), record)
 
     print_summary(rows, notes)
     print(f"\n07_results {len(rows)}행 → {results_dir / ids.RESULTS_FILE}")

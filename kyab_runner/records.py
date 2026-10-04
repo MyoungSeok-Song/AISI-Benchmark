@@ -56,7 +56,9 @@ class InputIndex:
     @classmethod
     def load(cls, codebook, input_dir):
         tables, digests = load_inputs(codebook, input_dir)
-        return cls(tables["01_items"], tables["02_item_tags"], tables["03_prompts"], digests)
+        index = cls(tables["01_items"], tables["02_item_tags"], tables["03_prompts"], digests)
+        index.tables = tables                           # 검증기에 넘길 원본 행 목록
+        return index
 
 
 class BatchRecords:

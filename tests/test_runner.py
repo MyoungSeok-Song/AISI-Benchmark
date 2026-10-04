@@ -261,9 +261,29 @@ class PreflightTest(RunnerTestCase):
         from unittest import mock
         with mock.patch.object(cli, "load_config", return_value=self.config_with(max_output_tokens=1024)):
             code, output = self.run_cli(run_single)
-        self.assertEqual(code, 99)
+        self.assertEqual(code, cli.EXIT_INVALID_INPUT)
         self.assertIn("실행 전 점검 실패", output)
         self.assertFalse(self.out.exists())
+
+    def test_run_params_must_be_complete_numeric_and_exact(self):
+        """키가 빠지거나 모르는 키가 있거나 문자열이면 문제. 고정값은 04에 적힐 문자열과 정확히 대조(temperature: 0 ≠ '0.0')."""
+        from dataclasses import replace
+        def with_params(params):
+            return replace(CONFIG, raw={**CONFIG.raw, "run_params": params})
+        base = dict(CONFIG["run_params"])
+        self.assertTrue(any("top_p이 없음" in p for p in cli.check_run_params(CODEBOOK, with_params({k: v for k, v in base.items() if k != "top_p"}))))
+        self.assertTrue(any("모르는 키 'max_tokens'" in p for p in cli.check_run_params(CODEBOOK, with_params({**base, "max_tokens": 1}))))
+        self.assertTrue(any("수가 아님" in p for p in cli.check_run_params(CODEBOOK, with_params({**base, "max_output_tokens": "8192"}))))
+        self.assertTrue(any("temperature" in p and "0.0" in p for p in cli.check_run_params(CODEBOOK, with_params({**base, "temperature": 0}))))
+        self.assertEqual(cli.check_run_params(CODEBOOK, with_params(base)), [])
+        # 명령행에서는 모델 호출 없이 종료 2
+        from unittest import mock
+        with mock.patch.object(cli, "load_config", return_value=with_params({k: v for k, v in base.items() if k != "top_p"})):
+            code, output = self.run_cli(run_single)
+        self.assertEqual((code, "top_p이 없음" in output, self.out.exists()), (cli.EXIT_INVALID_INPUT, True, False))
+        with mock.patch.object(cli, "load_config", return_value=with_params({**base, "temperature": 0})):
+            code, output = self.run_cli(run_single, "--validate-only")
+        self.assertEqual(code, cli.EXIT_INVALID_INPUT)                  # --validate-only도 점검
 
     def test_fixed_value_check_survives_without_overlay(self):
         """overlay를 지우면 enum이 없다. 그래도 형식 원문('1024로 고정')과 설정(8192)이 다르면 걸러낸다."""
@@ -278,7 +298,7 @@ class PreflightTest(RunnerTestCase):
     def test_context_budget_refuses_short_server_even_for_single_turn(self):
         """vLLM 규칙: 입력 상한 = max_model_len − max_tokens. 서버 8192 + 한도 8192는 1턴도 입력 상한 0으로 거부."""
         code, output = self.run_cli(run_single, "--mock-plan", str(self.plan(max_model_len=8192)))
-        self.assertEqual(code, 99)
+        self.assertEqual(code, cli.EXIT_INVALID_INPUT)
         self.assertIn("입력 상한 0 토큰", output)
         self.assertIn("ST1-1.0.0", output)
         self.assertFalse(self.out.exists())
@@ -293,7 +313,7 @@ class PreflightTest(RunnerTestCase):
         self.assertEqual(exact, 25600)
         self.assertEqual(self.run_cli(run_multiturn, "--mock-plan", str(self.plan(max_model_len=exact)))[0], 0)
         code, output = self.run_cli(run_multiturn, "--mock-plan", str(self.plan(max_model_len=exact - 1)))
-        self.assertEqual(code, 99)
+        self.assertEqual(code, cli.EXIT_INVALID_INPUT)
         self.assertIn(f"{exact - 1}", output)
         self.assertIn("MT3-1.0.0", output)
         self.assertEqual(len(self.batch_dirs()), 1)
@@ -314,7 +334,7 @@ class PreflightTest(RunnerTestCase):
         manifest["run_params"] = {"temperature": "0.0", "top_p": "1.0", "max_output_tokens": "1024"}
         (batch_dir / cli.MANIFEST_FILE).write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
         code, output = self.run_cli(run_single, "--batch-id", batch_dir.name)
-        self.assertEqual(code, 99)
+        self.assertEqual(code, cli.EXIT_INVALID_INPUT)
         self.assertIn("run_params", output)
 
     def test_summary_reports_truncated_responses(self):
@@ -387,7 +407,7 @@ class ResumeTest(RunnerTestCase):
         tables["03_prompts"][0]["message_text"] += " (수정)"
         self.save(input_dir, "03_prompts", tables["03_prompts"])
         code, output = self.run_cli(run_single, "--batch-id", batch_dir.name, input_dir=input_dir)
-        self.assertEqual(code, 99)
+        self.assertEqual(code, cli.EXIT_INVALID_INPUT)
         self.assertIn("input_sha256", output)
 
 
@@ -574,7 +594,7 @@ class ValidationTest(RunnerTestCase):
 
     def test_disabled_model_refused(self):
         code, output = self.run_cli(run_single, "--model", "gpt-5.6-terra")
-        self.assertEqual(code, 99)
+        self.assertEqual(code, cli.EXIT_INVALID_INPUT)
         self.assertIn("enabled: false", output)
 
 

@@ -269,11 +269,20 @@ class OptionGuardTest(unittest.TestCase):
 
     def test_forbidden_keys_rejected_for_every_adapter_option_block(self):
         for block, key in (("extra_body", "max_tokens"), ("extra_body", "max_completion_tokens"), ("extra_body", "temperature"),
-                           ("extra_body", "top_p"), ("extra_generation_config", "maxOutputTokens"), ("extra_generation_config", "topP")):
+                           ("extra_body", "top_p"), ("extra_generation_config", "maxOutputTokens"), ("extra_generation_config", "topP"),
+                           ("extra_body", "top_k"), ("extra_body", "seed"), ("extra_body", "stop"), ("extra_body", "min_tokens"),
+                           ("extra_body", "presence_penalty"), ("extra_generation_config", "candidateCount"),
+                           # Gemini: generationConfig 블록을 통째로 넣어 러너의 블록을 덮어쓰는 우회
+                           ("extra_body", "generationConfig"), ("extra_body", "generation_config")):
             with self.assertRaises(ConfigError) as ctx:
                 _check_options("some-model", {block: {key: 1}})
             self.assertIn(key, str(ctx.exception))
             self.assertIn("run_params", str(ctx.exception))
+
+    def test_omit_params_cannot_drop_output_limit(self):
+        with self.assertRaises(ConfigError):
+            _check_options("m", {"omit_params": ["max_output_tokens"]})
+        _check_options("m", {"omit_params": ["top_p"]})
 
     def test_other_keys_allowed(self):
         _check_options("m", {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}, "reasoning_effort": "minimal"},

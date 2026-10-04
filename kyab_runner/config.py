@@ -15,19 +15,26 @@ class ConfigError(Exception):
     """설정 파일이 러너 규칙에 어긋날 때."""
 
 
-# 모델 옵션(extra_body·extra_generation_config)에 둘 수 없는 키: 러너가 run_params에서 보내는 호출 파라미터
+# 모델 옵션(extra_body·extra_generation_config)에 둘 수 없는 키: 러너가 run_params에서 보내는 호출 파라미터와
+# 그 밖의 샘플링·길이 설정(코드북 04에 칸이 없어 기록되지 않는 조건을 만들지 않기 위해),
+# 그리고 Gemini 요청의 generationConfig 블록 자체(통째로 넣으면 러너가 만든 블록을 덮어쓴다 — 추가 설정은 extra_generation_config로만)
 PARAM_KEYS_FORBIDDEN_IN_OPTIONS = ("max_tokens", "max_completion_tokens", "max_output_tokens", "maxOutputTokens",
-                                   "temperature", "top_p", "topP")
+                                   "temperature", "top_p", "topP", "top_k", "topK", "min_p", "repetition_penalty",
+                                   "presence_penalty", "frequency_penalty", "seed", "min_tokens", "candidateCount", "stop",
+                                   "generationConfig", "generation_config")
 _OPTION_BLOCKS = ("extra_body", "extra_generation_config")
 
 
 def _check_options(model_id, options):
-    """어댑터 추가 설정이 호출 파라미터를 덮어쓰지 않는지."""
+    """어댑터 추가 설정이 호출 파라미터를 덮어쓰지 않는지. omit_params로 출력 한도를 빼는 것도 막는다."""
     for block in _OPTION_BLOCKS:
         forbidden = sorted(set(options.get(block) or {}) & set(PARAM_KEYS_FORBIDDEN_IN_OPTIONS))
         if forbidden:
             raise ConfigError(f"models.yaml {model_id}.options.{block}에 호출 파라미터 키 {forbidden}가 있습니다. "
                               "temperature·top_p·출력 한도는 runner.yaml run_params에서만 정합니다(04_runs 기록과 일치해야 함)")
+    if "max_output_tokens" in (options.get("omit_params") or []):
+        raise ConfigError(f"models.yaml {model_id}.options.omit_params에 max_output_tokens를 넣을 수 없습니다. "
+                          "출력 한도는 항상 보냅니다(빼면 한도 없이 전송되거나 요청이 깨짐)")
 
 
 @dataclass(frozen=True)
@@ -74,6 +81,8 @@ def load_config(config_dir=paths.CONFIG_DIR):
               for model_id, entry in models_raw.items()}
     for model_id, entry in models.items():
         _check_options(model_id, entry.options)
+    if not isinstance(raw.get("control_link_required", False), bool):
+        raise ConfigError("runner.yaml control_link_required는 true/false여야 합니다")
     return RunnerConfig(
         raw=raw,
         system_prompt_text=prompt,

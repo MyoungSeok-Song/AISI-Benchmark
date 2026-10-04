@@ -117,8 +117,15 @@ def _check_cfc_tokens(codebook, raw):
     if declared != spec.none_token:
         raise RulesError(f"aggregation_rules.yaml no_critical_failure_code={declared!r}가 코드북(overlay) none_token="
                          f"{spec.none_token!r}과 다릅니다. 값의 출처는 overlay 한 곳이어야 합니다")
+    registered = raw["judgment"]["registered_cfc_codes"]
+    if not registered:
+        raise RulesError("registered_cfc_codes가 비어 있습니다. 승인 코드 목록(또는 자리표시 1개)이 있어야 합니다")
+    if spec.none_token in registered or "" in registered:
+        raise RulesError(f"registered_cfc_codes에 {spec.none_token!r}나 빈 값이 들어 있습니다. NONE은 코드가 아니라 '없음' 표기입니다")
+    if "critical_failure_code" not in raw["judgment"]["outcome_fields"]:
+        raise RulesError("none_token이 있으면 outcome_fields에 critical_failure_code가 있어야 합니다(완료 행의 빈칸을 오류로 잡기 위해)")
     if spec.enum:
-        missing = [v for v in [*raw["judgment"]["registered_cfc_codes"], spec.none_token] if v not in spec.enum]
+        missing = [v for v in [*registered, spec.none_token] if v not in spec.enum]
         if missing:
             raise RulesError(f"코드북 06 critical_failure_code 허용값에 없는 값 {missing} (등록 CFC 코드·NONE은 허용값에 있어야 함)")
     return spec.none_token
@@ -175,9 +182,12 @@ def _fill_defaults(raw):
     warnings = []
     aggregation = raw["aggregation"]
     if "substitute_control_target_risk" not in aggregation:
-        aggregation["substitute_control_target_risk"] = True
-        warnings.append("규칙 파일에 aggregation.substitute_control_target_risk가 없어 기본값(true: 대조 문항을 "
-                        "control_target_risk로 위험군 행에 넣음)을 씁니다 (0.2.2 이전 형식)")
+        # 재현성: 옛 판본(0.2.1 이전) 규칙 파일로 집계하면 그 판본의 동작(대조 문항을 위험군 행에 넣지 않음)이 나와야 한다
+        aggregation["substitute_control_target_risk"] = False
+        warnings.append("규칙 파일에 aggregation.substitute_control_target_risk가 없어 옛 동작(false: 대조 문항을 "
+                        "위험군 행에 넣지 않음)으로 집계합니다 (0.2.2 이전 형식)")
+    if not isinstance(aggregation["substitute_control_target_risk"], bool):
+        raise RulesError("aggregation.substitute_control_target_risk는 true/false여야 함")
     if "inconclusive_report" not in aggregation:
         aggregation["inconclusive_report"] = dict(INCONCLUSIVE_REPORT_DEFAULTS)
         warnings.append("규칙 파일에 aggregation.inconclusive_report 블록이 없어 기본값(경고·참고값 꺼짐)을 씁니다 "
@@ -187,10 +197,15 @@ def _fill_defaults(raw):
         unknown = set(report) - set(INCONCLUSIVE_REPORT_DEFAULTS)
         if unknown:
             raise RulesError(f"aggregation_rules.yaml inconclusive_report: 알 수 없는 키 {sorted(unknown)}")
+        if report is None:
+            report = aggregation["inconclusive_report"] = dict(INCONCLUSIVE_REPORT_DEFAULTS)
         for key, default in INCONCLUSIVE_REPORT_DEFAULTS.items():
             report.setdefault(key, default)
-        if report["warn_rate"] is not None and not 0 <= report["warn_rate"] <= 1:
-            raise RulesError(f"inconclusive_report.warn_rate는 0~1이어야 함: {report['warn_rate']!r}")
+        rate = report["warn_rate"]
+        if rate is not None and (isinstance(rate, (bool, str)) or not 0 <= rate <= 1):
+            raise RulesError(f"inconclusive_report.warn_rate는 0~1 사이 수 또는 null이어야 함: {rate!r}")
+        if not isinstance(report["report_failure_rate_if_inconclusive_failed"], bool):
+            raise RulesError("inconclusive_report.report_failure_rate_if_inconclusive_failed는 true/false여야 함")
     return warnings
 
 
