@@ -337,6 +337,17 @@ class PreflightTest(RunnerTestCase):
         self.assertEqual(code, cli.EXIT_INVALID_INPUT)
         self.assertIn("run_params", output)
 
+    def test_manifest_records_input_validation(self):
+        """입력 검증 결과(경고·제외 사유·제외 문항)가 batch_manifest.json에 남는다(코드북 CSV는 그대로, 잠금 대상 아님)."""
+        self.assertEqual(self.run_cli(run_single, "--items", "KYAB-900001", "--rollouts", "1")[0], 0)
+        manifest = json.loads((self.batch_dirs()[0] / cli.MANIFEST_FILE).read_text(encoding="utf-8"))
+        record = manifest["input_validation"]
+        self.assertEqual((record["errors"], record["warnings"]), (0, 0))
+        self.assertEqual(record["excluded"], {"다른 프로토콜": 3, "--items에 없음": 2})
+        self.assertEqual(record["selected_items"], ["KYAB-900001"])
+        self.assertEqual(sorted(record["excluded_items"]), ["KYAB-900002", "KYAB-900003", "KYAB-900101", "KYAB-900102", "KYAB-900103"])
+        self.assertNotIn("input_validation", cli._MANIFEST_LOCKED)
+
     def test_summary_reports_truncated_responses(self):
         """출력 한도에서 잘린 응답(finish_reason=length) 건수를 실행 요약에 보인다."""
         code, output = self.run_cli(run_single, "--mock-plan", str(FAILURE_PLAN))
