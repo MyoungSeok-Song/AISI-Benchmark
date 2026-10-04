@@ -26,7 +26,7 @@ RUNNER_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RUNNER_DIR))
 
 from kyab_runner import csv_io, judge_io, paths, validate          # noqa: E402
-from kyab_runner.context import RecordsError, load_environment, open_views   # noqa: E402
+from kyab_runner.context import SETUP_ERRORS, RecordsError, load_environment, open_views   # noqa: E402
 from kyab_runner.records import RUNS_FILE                           # noqa: E402
 from kyab_runner.run_judge import foreign_judgment_ids             # noqa: E402
 
@@ -108,7 +108,11 @@ def main(argv=None):
     parser.add_argument("--dry-run", action="store_true", help="계산·검사만 하고 쓰지 않는다")
     args = parser.parse_args(argv)
 
-    env = load_environment()
+    try:
+        env = load_environment()
+    except SETUP_ERRORS as exc:
+        print(f"명세·설정을 읽을 수 없습니다: {type(exc).__name__}: {exc}")
+        return 2
     try:
         _, views, notices = open_views(env, args.input, args.batches)
     except (csv_io.CsvFormatError, FileNotFoundError, RecordsError) as exc:

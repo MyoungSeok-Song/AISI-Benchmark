@@ -26,7 +26,7 @@ import sys
 from pathlib import Path
 
 from . import csv_io, ids, judge_io, paths, validate
-from .context import RecordsError, load_environment, open_views
+from .context import SETUP_ERRORS, RecordsError, load_environment, open_views
 from .judges import create_judge
 
 JUDGE_MANIFEST_FILE = "judge_manifest.json"
@@ -174,7 +174,11 @@ def _record_judge_run(view, entry, judge, rules, rows, new_rows, sample):
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
-    env = load_environment()
+    try:
+        env = load_environment()
+    except SETUP_ERRORS as exc:
+        print(f"명세·설정을 읽을 수 없습니다: {type(exc).__name__}: {exc}")
+        return EXIT_INVALID
     try:
         _, views, notices = open_views(env, args.input, args.batches)
     except (csv_io.CsvFormatError, FileNotFoundError, RecordsError) as exc:

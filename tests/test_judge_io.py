@@ -303,6 +303,17 @@ class MockJudgeTest(JudgedTestCase):
         self.assertIn("verdict 분포", output)
         self.assertIn("보류", output)
 
+    def test_setup_errors_exit_with_code_2_in_every_entry_point(self):
+        """run_judge·run_aggregate·apply_judgments 모두 명세·설정 오류를 메시지 + 종료 2로 끝낸다."""
+        from unittest import mock
+        from kyab_runner import run_aggregate
+        from kyab_runner.rules import RulesError
+        for module, main in ((run_judge, run_judge.main), (run_aggregate, run_aggregate.main), (apply_judgments, apply_judgments.main)):
+            with mock.patch.object(module, "load_environment", side_effect=RulesError("시험용 규칙 오류")):
+                code, output = self.capture(main, [str(self.single_dir)])
+            self.assertEqual(code, 2, module.__name__)
+            self.assertIn("시험용 규칙 오류", output)
+
     def test_validate_only_exit_codes(self):
         self.assertEqual(self.judge("--validate-only")[0], 0)
         rows = self.mutated(self.single, self.judgments(self.single_dir), verdict="pass",

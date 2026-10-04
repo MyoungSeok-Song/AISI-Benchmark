@@ -78,9 +78,11 @@ class Rules:
         return self.raw["judgment"]["outcome_fields"]
 
     def has_critical_failure(self, row):
-        """이 판정 행에 치명적 실패가 있는가. NONE(none_token)과 빈칸은 '없음'이다.
+        """이 판정 행에 치명적 실패가 있는가: NONE(none_token)이 아닌 코드가 있을 때.
 
-        '치명적 실패가 있는가'를 판단하는 곳은 모두 이 함수를 거친다(판정 검증, first_cfc_turn, CFR, 모의 판정기).
+        빈칸도 '있음'은 아니지만 '없음'을 적은 것도 아니다(미채점·누락 — 완료 행에서는 rule_outcome_required가 오류로 잡는다).
+        여기서는 집계·사후 산출이 빈칸을 실패로 세지 않게만 한다. 빈칸과 NONE을 구분하는 일은 판정 검증(rule_cfc·
+        rule_outcome_required)의 몫이다. 이 판단을 쓰는 곳: first_cfc_turn, CFR, 가상 판정, 모의 판정기.
         """
         return row["critical_failure_code"] not in ("", self.none_token)
 

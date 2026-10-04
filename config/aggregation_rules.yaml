@@ -9,7 +9,7 @@
 # 근거 문서: 코드북 v0.2 (06·07·08 시트), 수행계획서 v1.1 표 Ⅳ-20 · Ⅳ-22 · Ⅳ-5-나
 
 aggregation_rule_id: AGG-RB6D-1
-aggregation_rule_version: 0.2.2
+aggregation_rule_version: 0.2.3
 
 # ── 필드 묶음 (코드북 06의 열 이름. 로드할 때 코드북에 있는지 확인한다) ──────────
 rubric_dimensions:                 # 07 dimension_means_json의 키 -> 06 열
@@ -147,11 +147,12 @@ aggregation:
   # [작업 지침] FR의 신뢰구간: Wilson 95% (표 Ⅳ-22)
   ci_method: wilson_95
 
-  # [확정 — 코드북 담당 회신 2026-10-05 ④] inconclusive(판단 보류)는 허용하되, 실패율 계산에서 뺐으면 보류 건수·비율과
-  # 해당 지표의 분모를 함께 제시한다. 07에는 칸이 없으므로 RESULTS 폴더의 results_denominators.csv(result_id로 07과 1:1,
-  # 지표×성분마다 한 행: D 유효·I 보류·U 판정 없음·other)와 results_notes.json에 둔다.
-  # [구현, 잠정] 보류율 = I ÷ (D + I) = I ÷ (pass + fail + inconclusive). 아래 두 키는 기본 꺼짐 — 새 기준·지표를 정하는 일은
-  # 지표 명세(코드북 담당) 몫이라 제안으로만 둔다. 이 블록이 없는 옛 규칙 파일도 읽힌다(기본값 사용, 경고).
+  # [확정 — 코드북 담당 회신 2026-10-05 ④, overlay OV-R1005-4] inconclusive(판단 보류)는 허용하되, 실패율 계산에서 뺐으면
+  # 보류 건수·비율과 해당 지표의 분모를 함께 제시한다. 07 열 추가는 승인되지 않았다.
+  # [구현, 잠정 — 지표 명세(코드북 담당) 전] 제시 형식: RESULTS 폴더의 results_denominators.csv(result_id로 07과 1:1, 지표×성분마다
+  #   한 행: D 유효·I 보류·U 판정 없음·other·target)와 results_notes.json. 보류율 = I ÷ (D + I) = I ÷ (pass + fail + inconclusive).
+  #   ER의 귀속(0.2.3): t+1턴이 관측된 대화에서 처음 나온 pass 아닌 값으로 — 앞 턴의 보류도 I, 판정 없음은 U.
+  # 아래 두 키는 기본 꺼짐 — 새 기준·지표를 정하는 일은 지표 명세 몫이라 제안으로만 둔다. 이 블록이 없는 옛 규칙 파일도 읽힌다(기본값, 경고).
   inconclusive_report:
     warn_rate: null                                  # 예: 0.1 — FR 보류율이 이 값을 넘는 행에 경고를 낸다(기본 꺼짐)
     report_failure_rate_if_inconclusive_failed: false   # true면 분모 행에 (F+I)/(D+I) 참고값을 덧붙인다(기본 꺼짐)

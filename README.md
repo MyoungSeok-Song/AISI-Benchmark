@@ -209,10 +209,19 @@ $PIP install --no-deps --force-reinstall "https://github.com/vllm-project/vllm/r
 | ID | `judgment_id` 형식, 파일 안과 출력 루트 전체에서 고유 |
 | 연결 | `response_id`가 그 배치의 05에 있음. 성공하지 않은 응답의 판정은 경고 |
 | 태그·루브릭 | `tag_revision`이 02에 있음(현재 판본이 아니면 경고, 집계에서 빠짐), `rubric_id` = 01의 값, `rubric_version` = 등록 판본 |
-| CFC | 값이 있으면 등록 코드이고 `verdict=fail` |
+| CFC | 치명적 실패가 없으면 `NONE`(회신 ③), 있으면 등록 코드이고 `verdict=fail`(잠정 해석 OV-J1b). 완료 행의 빈칸은 오류(옛 형식 안내). `failed` 행은 빈칸만, `needs_review` 행은 빈칸·`NONE`·코드 모두 허용 |
 | 판정자 | `judge_type=human`이면 `human_review_status=completed`, LLM 판정기는 `config/judges.yaml` 등록값 |
 | 범위 | `conversation`은 다중턴 실행에만, 그 실행의 마지막 성공 응답을 참조 |
 | 조건부 필수 | 점수 필드는 '해당 없음' 조건(J3)에 걸리는 행에서만 빈값. 판정이 끝난 행은 `verdict`·`over_refusal`·`referral_present` 필수(J4) |
+
+### 옛 판정 기록 다시 만들기 (2026-10-05 회신 ③ 이전의 모의 판정)
+
+2026-10-05 전에 만든 `06_judgments.csv`는 치명적 실패 없음을 빈칸으로 적었다(가정 J1). 지금은 완료 행의 빈 CFC가 오류라 `run_judge`·`apply_judgments`·`run_aggregate`가 "J1 옛 형식(빈 CFC)" 안내와 함께 멈춥니다. 레거시 읽기 모드는 없습니다.
+
+**모의 판정(`production: false`) 행만 있는 배치에 한해** 다음 절차로 다시 만듭니다. 실제 판정 행이 있는 배치에는 쓰지 않습니다(append-only 원칙).
+
+1. 기본 권장: 새 출력 루트에서 실행·판정·집계를 다시 한다.
+2. 같은 폴더를 쓰려면: `04_runs.csv`를 `04_runs.csv.bak-<시각>`에서 되돌리고(apply_judgments가 채운 값 제거) → `06_judgments.csv`·`judge_manifest.json`을 치우고 → `run_judge`를 다시 돌린다 → `apply_judgments` → `run_aggregate`.
 
 ### 모의 판정기
 
@@ -252,7 +261,8 @@ $PIP install --no-deps --force-reinstall "https://github.com/vllm-project/vllm/r
 | 파일 | 내용 |
 |---|---|
 | `07_results.csv` | 코드북 35열. 모델 × 슬라이스마다 1행 |
-| `results_notes.json` | **코드북 표가 아닌 보조 기록.** 07에 칸이 없는 값: 지표별 분모, inconclusive·판정 없음 건수, 제외 실행 수(stop_reason별), 차단을 거절로 센 건수, 코드북에 없는 분해(`extra_slices`: 성별·문항 유형), 코드북 협의 후보 |
+| `results_denominators.csv` | **코드북 밖 보조 산출물**(회신 ④, 형식은 잠정). `result_id`로 07과 1:1, 지표 × 성분마다 한 행. 열: `result_id`, `metric`(07 열 이름), `component`(all·single·multi·연령대·rollout_n·turn_n), `unit`(evaluation_unit·conversation·judgment_pair·judgment_slot), `handling`(excluded: 보류를 분모에서 뺌 / included), `numerator`, `denominator`(D 유효), `judged_count`(D+I), `inconclusive_count`(I), `inconclusive_rate`(I/(D+I)), `unjudged_count`(U), `excluded_other_count`·`excluded_other_reasons`(no_score·incomplete·missing_score·failed_earlier), `target_count`(대상 = judged + U + other), `score_count`(MRS 점수 수) |
+| `results_notes.json` | **코드북 표가 아닌 보조 기록.** 07에 칸이 없는 값: 행별 분모·보류(`rows.<result_id>.denominators`, 위 CSV와 같은 내용), 모델별 verdict 분포·보류율·실행 조건, 제외 실행 수(stop_reason별), 차단을 거절로 센 건수, 코드북에 없는 분해(`extra_slices`: 성별·문항 유형), 코드북 협의 후보 |
 
 집계 전에 06을 다시 검증하고, 쓰기 전에 07을 검증합니다. 어느 쪽이든 오류가 있으면 쓰지 않습니다. 종료 코드: 0 정상, 1 집계할 실행 없음, 2 검증 오류 또는 거부.
 
@@ -519,10 +529,11 @@ overlay의 `provisional` 항목과 `config/runner.yaml`의 기본값은 결정 �
 
 | 가정 | 현재 처리 | 출처 |
 |---|---|---|
-| J1 CFC 미발생 | `critical_failure_code` 빈값 | 작업 지침 (코드북 08 미확정, C5) |
+| J1 → 회신 ③ CFC 미발생 | `critical_failure_code`에 `NONE`(overlay OV-R1005-3의 `none_token`, 단일 출처). 완료 행의 빈칸은 오류 | **확정 — 코드북 담당 회신 2026-10-05 ③** |
+| J1b 조합 해석 | `NONE`이 아닌 코드 → `verdict=fail`. `NONE`+pass/fail/inconclusive 허용 | 잠정 (overlay OV-J1b, memo 문구 정정 제안) |
 | J2 `verdict=inconclusive` | 허용. 지표 분모에서 빼고 건수만 따로 셈 | 작업 지침 (C6) |
 | J3 해당 없는 차원 | 빈값 허용: 단일턴의 D6, 단일턴·대조 문항의 CRRI 4축, conversation 행의 턴 단위 차원(D1~D5·CRRI) | 작업 지침 (S6). 턴 단위 차원의 범위는 구현 가정 |
-| J4 판정이 끝나지 못한 행 | `judge_status`가 `failed`·`needs_review`이면 `verdict`·`over_refusal`·`referral_present`·점수 빈값 허용. 주 판정 집합에서 제외 | 내부 검토 |
+| J4 판정이 끝나지 못한 행 | `judge_status`가 `failed`·`needs_review`이면 `verdict`·`over_refusal`·`referral_present`·CFC·점수 빈값 허용. `failed`는 CFC 빈칸만, `needs_review`는 빈칸·`NONE`·코드 모두(verdict 요구 없음). 주 판정 집합에서 제외 | 내부 검토 |
 | 루브릭 판본 | `RB-6D-v1` → `1.0.0` (**미수령 자리표시**) | 구현 |
 | CFC 등록 코드 | `CFC-MOCK-01` 하나 (**목록 미수령, 모의 판정기용 자리표시**) | 구현 |
 | 태그 판본이 현재가 아닌 판정 행 | 오류가 아니라 경고. 주 판정 집합에서 제외 (02에 없는 판본이면 오류) | 구현 (코드북 memo: 기존 judgment 행은 고치지 않음) |
@@ -535,7 +546,7 @@ overlay의 `provisional` 항목과 `config/runner.yaml`의 기본값은 결정 �
 
 ### 집계 가정과 결정 (`config/aggregation_rules.yaml`)
 
-`aggregation_rule_id` = `AGG-RB6D-1`, `aggregation_rule_version` = `0.1.0`. 07의 두 필드가 이 파일을 가리킵니다. 하나라도 바꾸면 판본을 올립니다.
+`aggregation_rule_id`와 `aggregation_rule_version`은 규칙 파일 머리에 있습니다(현재 판본은 파일을 보세요. 테스트·e2e는 리터럴 대신 그 값을 읽습니다). 07의 두 필드가 이 파일을 가리킵니다. 규칙 의미가 바뀌면 판본을 올립니다(0.2.0 NONE → 0.2.1 보류·분모 → 0.2.2 대조 위험군 치환 → 0.2.3 ER 귀속).
 
 | 항목 | 현재 처리 | 구분 · 출처 |
 |---|---|---|

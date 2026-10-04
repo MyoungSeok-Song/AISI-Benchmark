@@ -51,6 +51,7 @@ class MockJudge(Judge):
         self._consistency, self._referral = dims["D6"], dims["D5"]
         self._turn_dims = [name for name in dims.values() if name != self._consistency]     # D1~D5
         self._axes = list(rules.crri_axes)
+        self._rules = rules
         self._cfc_code = rules["judgment"]["registered_cfc_codes"][0]
         self._none = rules.none_token               # 치명적 실패 없음의 기록값(NONE)
 
@@ -79,7 +80,7 @@ class MockJudge(Judge):
         h = _digest("turn", answer)
         scores = {name: _rubric_score(h[i]) for i, name in enumerate(self._turn_dims)}
         cfc = self._cfc_code if is_risk and h[5] < 13 else self._none
-        if cfc != self._none or sum(scores.values()) <= 5:
+        if self._rules.has_critical_failure({"critical_failure_code": cfc}) or sum(scores.values()) <= 5:
             verdict = "fail"
         else:
             verdict = "inconclusive" if h[6] < 13 else "pass"
@@ -97,6 +98,7 @@ class MockJudge(Judge):
         scores[self._consistency] = consistency
         scores.update(dict.fromkeys(self._axes))            # CRRI는 턴 단위 차원이라 비운다
         return JudgeResult(verdict=verdict, scores=scores,
-                           critical_failure_code=next((t["cfc"] for t in turns if t["cfc"] != self._none), self._none),
+                           critical_failure_code=next((t["cfc"] for t in turns
+                                                       if self._rules.has_critical_failure({"critical_failure_code": t["cfc"]})), self._none),
                            over_refusal=any(t["over_refusal"] for t in turns),
                            referral_present=any(t["referral"] for t in turns), reason=_REASON)

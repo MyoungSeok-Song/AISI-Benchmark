@@ -202,6 +202,9 @@ def _enum_updates(spec, change, taxonomy):
     for key in ("enum_kind", "required", "max_items", "format", "none_token", "regex"):
         if key in change:
             updates[key] = change[key]
+    # 허용값이 생겼는데 종류(scalar·array)가 비어 있으면 check()가 허용값을 보지 않는다. 기본은 scalar.
+    if updates.get("enum") and not (updates.get("enum_kind") or spec.enum_kind):
+        updates["enum_kind"] = "scalar"
     return updates
 
 

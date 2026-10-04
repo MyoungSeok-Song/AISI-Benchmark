@@ -557,6 +557,21 @@ class ValidationTest(RunnerTestCase):
         self.assertEqual(code, cli.EXIT_NOTHING_TO_RUN)
         self.assertFalse(self.out.exists())
 
+    def test_broken_overlay_ends_with_message_and_exit_code_2(self):
+        """overlay·설정 오류는 traceback이 아니라 한 줄 메시지 + 종료 코드 2(EXIT_NOTHING_TO_RUN=1과 구분)."""
+        from unittest import mock
+        from kyab_runner.codebook import OverlayError
+        with mock.patch.object(cli, "load_codebook", side_effect=OverlayError("시험용 overlay 오류")):
+            code, output = self.run_cli(run_single)
+        self.assertEqual(code, cli.EXIT_INVALID_INPUT)
+        self.assertIn("명세·설정을 읽을 수 없습니다", output)
+        self.assertIn("시험용 overlay 오류", output)
+        from kyab_runner.config import ConfigError
+        with mock.patch.object(cli, "load_config", side_effect=ConfigError("시험용 설정 오류")):
+            code, output = self.run_cli(run_single)
+        self.assertEqual(code, cli.EXIT_INVALID_INPUT)
+        self.assertFalse(self.out.exists())
+
     def test_disabled_model_refused(self):
         code, output = self.run_cli(run_single, "--model", "gpt-5.6-terra")
         self.assertEqual(code, 99)

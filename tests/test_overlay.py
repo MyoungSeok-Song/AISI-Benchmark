@@ -54,6 +54,35 @@ class OverlayTest(unittest.TestCase):
         self.assertIsNotNone(spec.check("R1"))
         self.assertEqual(codebook.added_columns("02_item_tags"), ["test_added_field"])
 
+    def test_enum_without_kind_still_checks_values(self):
+        """enum_from·enum_add·enum에 enum_kind를 적지 않아도 허용값 검사가 꺼지지 않는다(기본 scalar)."""
+        no_kind = {k: v for k, v in ADD.items() if k != "enum_kind"}
+        codebook = self.load(CONFIRMED, {"id": "OV-T-P", "status": "provisional", "basis": "x", "add_field": [no_kind]})
+        spec = codebook.field("02_item_tags", "test_added_field")
+        self.assertEqual(spec.enum_kind, "scalar")
+        self.assertIsNotNone(spec.check("garbage"))
+        self.assertIsNone(spec.check("A1"))
+        plain = {**no_kind, "enum": ["X", "Y"]}
+        plain.pop("enum_from")
+        spec = self.load(CONFIRMED, {"id": "OV-T-P", "status": "provisional", "basis": "x", "add_field": [plain]}).field(
+            "02_item_tags", "test_added_field")
+        self.assertIsNotNone(spec.check("Z"))
+        # apply로 허용값을 더해도 같다 (sub_risk_codes는 array 종류를 유지)
+        codebook = self.load({**CONFIRMED, "apply": [{"table": "01_items", "field": "scenario_type", "enum": ["s1"]}]})
+        self.assertEqual(codebook.field("01_items", "scenario_type").enum_kind, "scalar")
+        self.assertIsNotNone(codebook.field("01_items", "scenario_type").check("other"))
+
+    def test_project_overlay_records_all_four_replies(self):
+        """2026-10-05 회신 ①~④가 confirmed로 기록돼 매니페스트에 남는다. ④는 apply가 없다."""
+        codebook = load_codebook(TAXONOMY, overlay_yaml=paths.OVERLAY_YAML)
+        by_id = {e["id"]: e for e in codebook.applied_overlays}
+        for n in (1, 2, 3, 4):
+            self.assertEqual(by_id[f"OV-R1005-{n}"]["status"], "confirmed")
+            self.assertIn("코드북 담당 회신(2026-10-05)", by_id[f"OV-R1005-{n}"]["basis"])
+        self.assertIn("잠정", by_id["OV-R1005-4"]["note"])
+        self.assertIn("잠정", by_id["OV-P4"]["basis"])
+        self.assertEqual(codebook.field("06_judgments", "critical_failure_code").format, "승인된 CFC 코드 또는 NONE(치명적 실패 없음)")
+
     def test_add_field_requires_confirmed_authorization(self):
         """회신으로 확정된 항목 없이는 열을 늘릴 수 없다."""
         unauthorized = {**ADD, "authorized_by": None}

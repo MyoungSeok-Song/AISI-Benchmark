@@ -7,15 +7,19 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import paths
-from .codebook import Codebook, load_codebook
-from .config import RunnerConfig, load_config
+from .codebook import Codebook, OverlayError, load_codebook
+from .config import ConfigError, RunnerConfig, load_config
 from .records import BatchRecords, BatchView, InputIndex
-from .rules import Rules, load_rules
+from .rules import Rules, RulesError, load_rules
 from .taxonomy import load_taxonomy
 
 
 class RecordsError(Exception):
     """배치 기록이 입력과 이어지지 않을 때."""
+
+
+# 명세·설정 파일이 잘못됐을 때 나는 예외. 진입점은 이것을 잡아 한 줄 메시지와 종료 코드 2로 끝낸다(traceback 없이).
+SETUP_ERRORS = (OverlayError, RulesError, ConfigError, FileNotFoundError, KeyError)
 
 
 @dataclass(frozen=True)

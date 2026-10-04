@@ -25,6 +25,7 @@ import csv
 import json
 import shutil
 import sys
+import tempfile
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -32,7 +33,7 @@ from zoneinfo import ZoneInfo
 
 from . import csv_io, ids, judge_io, metrics, paths, validate
 from .validate import CONTROL_TARGET_FIELD
-from .context import RecordsError, load_environment, open_views
+from .context import SETUP_ERRORS, RecordsError, load_environment, open_views
 from .run_judge import MOCK_WARNING, foreign_judgment_ids
 
 NOTES_FILE = "results_notes.json"
@@ -108,8 +109,9 @@ def write_results(results_dir, codebook, rows, denominators, record):
 
     도중에 실패하면 임시 폴더를 지우고 예외를 다시 낸다. 결과 폴더가 생겼으면 세 파일이 모두 있다.
     """
-    tmp = results_dir.with_name(results_dir.name + ".tmp")
-    tmp.mkdir(parents=True)
+    results_dir.parent.mkdir(parents=True, exist_ok=True)
+    # 이름이 고유해야 한다: 강제 종료로 남은 .tmp가 다음 집계를 막지 않도록(ids는 RESULTS-… 정규식만 보므로 .tmp는 번호에 영향 없음)
+    tmp = Path(tempfile.mkdtemp(dir=results_dir.parent, prefix=results_dir.name + ".tmp-"))
     try:
         csv_io.append_rows(codebook, metrics.TABLE, tmp / ids.RESULTS_FILE, rows)
         write_denominators(tmp / DENOMINATORS_FILE, denominators)
@@ -173,7 +175,11 @@ def print_summary(rows, notes):
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
-    env = load_environment(args.rules)
+    try:
+        env = load_environment(args.rules)
+    except SETUP_ERRORS as exc:
+        print(f"명세·설정을 읽을 수 없습니다: {type(exc).__name__}: {exc}")
+        return EXIT_INVALID
     rules = env.rules
     for warning in rules.load_warnings:
         print(f"주의: {warning}")
@@ -223,8 +229,11 @@ def main(argv=None):
     issues = metrics.validate_results(env.codebook, rules, rows, valid_units)
     for issue in issues:
         print(issue)
-    if validate.errors_of(issues):
-        print("07 결과가 검증을 통과하지 못해 쓰지 않습니다.")
+    denominator_problems = metrics.validate_denominators(notes)
+    for problem in denominator_problems:
+        print(f"[error] results_denominators {problem}")
+    if validate.errors_of(issues) or denominator_problems:
+        print("07 결과 또는 분모 행이 검증을 통과하지 못해 쓰지 않습니다.")
         return EXIT_INVALID
 
     warnings = inconclusive_warnings(rules, rows, notes)
@@ -233,9 +242,10 @@ def main(argv=None):
     results_dir = root / ids.new_results_dir_name(root, datetime.now(timezone).strftime("%Y%m%d"))
     record = {
         "note": "07_results.csv의 보조 기록. 코드북 7 CSV에 속하지 않는다. 07에 열을 추가하지 않고 여기에 둔다.",
-        "denominators_note": ("회신 ④: 보류를 분모에서 뺀 지표마다 rows.<result_id>.denominators와 results_denominators.csv에 "
-                              "D(유효)·I(보류)·U(판정 없음)·other를 둔다. 보류율 = I/(D+I). 단위 지표는 judged = D + I, "
-                              "대상 = judged + U + other. extra_slices는 result_id가 없어 JSON에만 있다."),
+        "denominators_note": ("[확정 — 코드북 담당 회신 2026-10-05 ④] 보류(inconclusive)를 실패율에서 뺐으면 보류 건수·비율과 분모를 함께 제시. "
+                              "[구현, 잠정 — 지표 명세(코드북 담당) 전] 제시 형식: rows.<result_id>.denominators와 results_denominators.csv에 "
+                              "지표×성분마다 D(유효)·I(보류)·U(판정 없음)·other·target. 보류율 = I/(D+I). handling=excluded 행은 "
+                              "judged = D + I, target = judged + U + other. extra_slices는 result_id가 없어 JSON에만 있다."),
         "inconclusive_report": rules["aggregation"]["inconclusive_report"],
         "slice_key_rule": ("risk_group·risk_age_turn의 primary_risk 키: 위험 문항은 02 primary_risk, 대조 문항은 02 "
                            f"{CONTROL_TARGET_FIELD}(어느 위험군의 대조인지, 회신 ②·잠정 OV-P4). 행별 rows.<id>.slice_key_sources·"

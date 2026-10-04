@@ -18,6 +18,7 @@ import yaml
 from . import __version__, csv_io, judge_io, paths, validate
 from .adapters import create_adapter
 from .codebook import fixed_value as codebook_fixed_value, load_codebook
+from .context import SETUP_ERRORS
 from .config import load_config
 from .ids import IdAllocator
 from .records import INPUT_FILES, MANIFEST_FILE, InputIndex, load_inputs   # noqa: F401  (INPUT_FILES는 테스트가 쓴다)
@@ -284,9 +285,13 @@ def main(description, default_protocol, conversation_mode, conduct, argv=None):
                        --protocol이 다른 방식의 프로토콜이면 실행하지 않는다.
     """
     args = build_parser(description, default_protocol).parse_args(argv)
-    taxonomy = load_taxonomy()
-    codebook = load_codebook(taxonomy)
-    config = load_config()
+    try:
+        taxonomy = load_taxonomy()
+        codebook = load_codebook(taxonomy)
+        config = load_config()
+    except SETUP_ERRORS as exc:                      # overlay·설정 파일 문제: traceback 대신 한 줄 + 종료 2
+        print(f"명세·설정을 읽을 수 없습니다: {type(exc).__name__}: {exc}")
+        return EXIT_INVALID_INPUT
 
     protocol = config["protocols"].get(args.protocol)
     if protocol is None or protocol["conversation_mode"] != conversation_mode:
