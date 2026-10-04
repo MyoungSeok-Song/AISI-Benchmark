@@ -34,6 +34,13 @@ _TYPE_KEYWORDS = [
     ("숫자", "number"),
 ]
 _RE_SEMVER = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
+_RE_FIXED = re.compile(r"(-?[0-9]+(?:\.[0-9]+)?)\s*(?:으|)로 고정")      # '숫자 0.0으로 고정', '양의 정수 1024로 고정'
+
+
+def fixed_value(fmt):
+    """형식 원문이 '…로 고정'이면 그 값(문자열), 아니면 None. 코드북이 고정값을 enum 없이 적은 필드용."""
+    match = _RE_FIXED.search(fmt)
+    return match.group(1) if match else None
 
 
 def _infer_type(fmt):

@@ -1,10 +1,33 @@
-"""설정 파일(config/runner.yaml, config/models.yaml) 로드."""
+"""설정 파일(config/runner.yaml, config/models.yaml) 로드.
+
+로드할 때 모델 옵션의 extra_body·extra_generation_config에 호출 파라미터 키가 들어 있으면 거부한다.
+그 키는 러너가 run_params(코드북 04 고정값)에서 보내는 것이라, 옵션에 두면 공급자에 보내는 값이 04 기록과 어긋난다.
+"""
 import hashlib
 from dataclasses import dataclass, field
 
 import yaml
 
 from . import paths
+
+
+class ConfigError(Exception):
+    """설정 파일이 러너 규칙에 어긋날 때."""
+
+
+# 모델 옵션(extra_body·extra_generation_config)에 둘 수 없는 키: 러너가 run_params에서 보내는 호출 파라미터
+PARAM_KEYS_FORBIDDEN_IN_OPTIONS = ("max_tokens", "max_completion_tokens", "max_output_tokens", "maxOutputTokens",
+                                   "temperature", "top_p", "topP")
+_OPTION_BLOCKS = ("extra_body", "extra_generation_config")
+
+
+def _check_options(model_id, options):
+    """어댑터 추가 설정이 호출 파라미터를 덮어쓰지 않는지."""
+    for block in _OPTION_BLOCKS:
+        forbidden = sorted(set(options.get(block) or {}) & set(PARAM_KEYS_FORBIDDEN_IN_OPTIONS))
+        if forbidden:
+            raise ConfigError(f"models.yaml {model_id}.options.{block}에 호출 파라미터 키 {forbidden}가 있습니다. "
+                              "temperature·top_p·출력 한도는 runner.yaml run_params에서만 정합니다(04_runs 기록과 일치해야 함)")
 
 
 @dataclass(frozen=True)
@@ -49,6 +72,8 @@ def load_config(config_dir=paths.CONFIG_DIR):
     prompt = (config_dir / raw["system_prompt_file"]).read_text(encoding="utf-8").rstrip("\n")
     models = {model_id: ModelEntry(model_id=model_id, **entry)
               for model_id, entry in models_raw.items()}
+    for model_id, entry in models.items():
+        _check_options(model_id, entry.options)
     return RunnerConfig(
         raw=raw,
         system_prompt_text=prompt,

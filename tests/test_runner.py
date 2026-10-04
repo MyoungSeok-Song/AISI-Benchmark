@@ -103,7 +103,10 @@ class NormalRunTest(RunnerTestCase):
     def test_run_fields(self):
         """실행 행의 고정값·해시·판정 의존 필드."""
         for row in self.table(self.multi_dir, "04_runs"):
-            self.assertEqual((row["temperature"], row["top_p"], row["max_output_tokens"]), ("0.0", "1.0", "1024"))
+            params = CONFIG["run_params"]
+            self.assertEqual((row["temperature"], row["top_p"], row["max_output_tokens"]),
+                             (str(params["temperature"]), str(params["top_p"]), str(params["max_output_tokens"])))
+            self.assertEqual(row["max_output_tokens"], "8192")                # 회신 ① + 사용자 결정 2026-10-05
             self.assertEqual(row["system_prompt_hash"], CONFIG.system_prompt_hash)
             self.assertRegex(row["system_prompt_hash"], r"^[0-9a-f]{64}$")
             self.assertEqual((row["first_fail_turn"], row["first_cfc_turn"]), ("", ""))
@@ -233,6 +236,92 @@ class FailureScenarioTest(RunnerTestCase):
         self.assert_run(runs[("KYAB-900103", "1")], "completed", "planned_end", 3)     # 절단돼도 계속
         self.assert_run(runs[("KYAB-900103", "2")], "partial", "error", 2)             # 3턴 빈 응답
         self.assert_run(runs[("KYAB-900101", "3")], "completed", "planned_end", 3)     # 규칙 없는 실행은 정상
+
+
+class PreflightTest(RunnerTestCase):
+    """실행 전 점검(회신 ①): run_params 허용값과 서버 길이. 실패하면 모델을 부르지 않고 폴더도 남기지 않는다."""
+
+    def config_with(self, **run_params):
+        from dataclasses import replace
+        return replace(CONFIG, raw={**CONFIG.raw, "run_params": {**CONFIG["run_params"], **run_params}})
+
+    def plan(self, **plan):
+        import yaml
+        path = self.tmp / "plan.yaml"
+        path.write_text(yaml.safe_dump({"default": "normal", **plan}), encoding="utf-8")
+        return path
+
+    def test_run_params_must_match_codebook_enum(self):
+        """overlay OV-R1005-1 허용값 [8192]. 1024로 두면 모델 호출 전에 멈추고 출력 폴더가 생기지 않는다."""
+        problems = cli.check_run_params(CODEBOOK, self.config_with(max_output_tokens=1024))
+        self.assertEqual(len(problems), 1)
+        self.assertIn("max_output_tokens=1024", problems[0])
+        self.assertIn("허용값 아님", problems[0])
+        self.assertEqual(cli.check_run_params(CODEBOOK, CONFIG), [])
+        from unittest import mock
+        with mock.patch.object(cli, "load_config", return_value=self.config_with(max_output_tokens=1024)):
+            code, output = self.run_cli(run_single)
+        self.assertEqual(code, 99)
+        self.assertIn("실행 전 점검 실패", output)
+        self.assertFalse(self.out.exists())
+
+    def test_fixed_value_check_survives_without_overlay(self):
+        """overlay를 지우면 enum이 없다. 그래도 형식 원문('1024로 고정')과 설정(8192)이 다르면 걸러낸다."""
+        from kyab_runner.codebook import load_codebook
+        bare = load_codebook(TAXONOMY, overlay_yaml=self.tmp / "none.yaml")
+        problems = cli.check_run_params(bare, CONFIG)
+        self.assertTrue(any("1024로 고정" in p and "8192" in p for p in problems), problems)
+        self.assertEqual(cli.check_run_params(bare, self.config_with(max_output_tokens=1024)), [])
+        # 고정값 검사는 temperature·top_p에도 적용된다
+        self.assertTrue(any("top_p" in p for p in cli.check_run_params(CODEBOOK, self.config_with(top_p=0.9))))
+
+    def test_context_budget_refuses_short_server_even_for_single_turn(self):
+        """vLLM 규칙: 입력 상한 = max_model_len − max_tokens. 서버 8192 + 한도 8192는 1턴도 입력 상한 0으로 거부."""
+        code, output = self.run_cli(run_single, "--mock-plan", str(self.plan(max_model_len=8192)))
+        self.assertEqual(code, 99)
+        self.assertIn("입력 상한 0 토큰", output)
+        self.assertIn("ST1-1.0.0", output)
+        self.assertFalse(self.out.exists())
+        # 그 뒤 정상 실행은 첫 배치 번호(001)를 받는다 — 거부가 번호를 소비하지 않음
+        self.assertEqual(self.run_cli(run_single, "--mock-plan", str(self.plan(max_model_len=32768)))[0], 0)
+        self.assertEqual(self.batch_dirs()[0].name[-3:], "001")
+
+    def test_context_budget_boundary(self):
+        """MT3: 필요 입력 = 2 × 8192 + 1024 = 17408. max_model_len 8192 + 17408 = 25600은 통과, 1 모자라면 거부."""
+        limit, reserve = CONFIG["run_params"]["max_output_tokens"], CONFIG["context_reserve_tokens"]
+        exact = limit + 2 * limit + reserve
+        self.assertEqual(exact, 25600)
+        self.assertEqual(self.run_cli(run_multiturn, "--mock-plan", str(self.plan(max_model_len=exact)))[0], 0)
+        code, output = self.run_cli(run_multiturn, "--mock-plan", str(self.plan(max_model_len=exact - 1)))
+        self.assertEqual(code, 99)
+        self.assertIn(f"{exact - 1}", output)
+        self.assertIn("MT3-1.0.0", output)
+        self.assertEqual(len(self.batch_dirs()), 1)
+        # describe()에 max_model_len이 없는 어댑터(모의 기본·상용)는 점검하지 않는다
+        self.assertEqual(self.run_cli(run_multiturn)[0], 0)
+
+    def test_manifest_locks_run_params(self):
+        """manifest에 run_params가 기록되고 이어 쓰기 잠금 대상이다. 옛 manifest(키 없음)는 04 행의 값으로 비교한다."""
+        self.assertEqual(self.run_cli(run_single, "--rollouts", "1")[0], 0)
+        batch_dir = self.batch_dirs()[0]
+        manifest = json.loads((batch_dir / cli.MANIFEST_FILE).read_text(encoding="utf-8"))
+        self.assertEqual(manifest["run_params"], {"temperature": "0.0", "top_p": "1.0", "max_output_tokens": "8192"})
+        # 옛 형식: 키를 지워도 04 행(8192)과 설정이 같아 이어 쓸 수 있다
+        del manifest["run_params"]
+        (batch_dir / cli.MANIFEST_FILE).write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+        self.assertEqual(self.run_cli(run_single, "--batch-id", batch_dir.name)[0], 0)
+        # 다른 조건으로 기록된 배치에는 이어 쓸 수 없다
+        manifest["run_params"] = {"temperature": "0.0", "top_p": "1.0", "max_output_tokens": "1024"}
+        (batch_dir / cli.MANIFEST_FILE).write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+        code, output = self.run_cli(run_single, "--batch-id", batch_dir.name)
+        self.assertEqual(code, 99)
+        self.assertIn("run_params", output)
+
+    def test_summary_reports_truncated_responses(self):
+        """출력 한도에서 잘린 응답(finish_reason=length) 건수를 실행 요약에 보인다."""
+        code, output = self.run_cli(run_single, "--mock-plan", str(FAILURE_PLAN))
+        self.assertEqual(code, 0)
+        self.assertIn("잘림(length)    1건", output)
 
 
 class ResumeTest(RunnerTestCase):

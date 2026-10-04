@@ -965,6 +965,22 @@ class PipelineTest(JudgedTestCase):
         overall_id = next(rid for rid, n in notes["rows"].items() if n["runs_in_slice"] == 18)
         self.assertNotIn("failure_rate_if_inconclusive_failed", next(r for r in notes["rows"][overall_id]["denominators"] if r["metric"] == "failure_rate"))
 
+    def test_mixed_run_params_are_refused(self):
+        """같은 모델 묶음에 호출 파라미터 조합이 둘 이상이면 집계를 거부한다(1,024 배치와 8,192 배치는 따로)."""
+        runs = self.table(self.single_dir, "04_runs")
+        for row in runs:
+            row["max_output_tokens"] = "1024"
+        csv_io.rewrite_table(CODEBOOK, "04_runs", self.single_dir / "04_runs.csv", runs)
+        code, output = self.aggregate("--allow-mock-judge")
+        self.assertEqual(code, run_aggregate.EXIT_INVALID)
+        self.assertIn("실행 조건이 섞여", output)
+        self.assertIn("1024", output)
+        self.assertEqual(self.results_dirs(), [])
+        # 한 배치만 집계하면 통과하고 notes에 조건이 남는다
+        self.assertEqual(self.aggregate("--allow-mock-judge", batches=[self.multi_dir])[0], 0)
+        notes = json.loads((self.results_dirs()[0] / run_aggregate.NOTES_FILE).read_text(encoding="utf-8"))
+        self.assertEqual(notes["models"][0]["run_params"], [{"temperature": "0.0", "top_p": "1.0", "max_output_tokens": "8192"}])
+
     def test_result_ids_continue_across_aggregations(self):
         """집계할 때마다 새 폴더·새 result_id. 앞선 결과 파일은 그대로다."""
         self.assertEqual(self.aggregate("--allow-mock-judge")[0], 0)

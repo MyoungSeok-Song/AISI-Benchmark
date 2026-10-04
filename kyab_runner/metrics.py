@@ -635,10 +635,25 @@ def aggregate(codebook, rules, cases, new_result_id, calculated_at):
             # 회신 ④: 모델 단위 판단 보류 — 주 판정 자리의 verdict 분포(범위별)와 보류율
             "verdict_distribution": distribution,
             "inconclusive_rate_all_slots": ratio(inconclusive_slots, judged_slots),
+            # 회신 ①: 실행 조건 기록. 조합이 둘 이상이면 run_aggregate가 집계를 거부한다
+            "run_params": [dict(zip(RUN_PARAM_FIELDS, combo)) for combo in run_param_combos(included_group).get((model_id, model_version), {})],
             "unfinished_judgment_rows": sum(c.unfinished for c in included_group),
             "truncated_responses": sum(c.truncated for c in included_group),
         })
     return rows, {"models": group_notes, "rows": row_notes, "extra_slices": extra_slices}
+
+
+RUN_PARAM_FIELDS = ("temperature", "top_p", "max_output_tokens")
+
+
+def run_param_combos(cases):
+    """집계 대상 실행의 호출 파라미터 조합(04 기록값). 반환: {(model_id, model_version): {조합 튜플: 실행 수}}"""
+    combos = defaultdict(Counter)
+    for case in cases:
+        if case.included:
+            run = case.run
+            combos[(run["model_id"], run["model_version"])][tuple(run.get(f, "") for f in RUN_PARAM_FIELDS)] += 1
+    return combos
 
 
 def denominator_rows(notes):

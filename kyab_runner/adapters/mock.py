@@ -15,6 +15,7 @@
    "rules": [{"item_id": "KYAB-900003", "scenario": "blocked"},
              {"item_id": "KYAB-900101", "turn_index": 2, "scenario": "error"}]}
 rules는 위에서부터 처음 맞는 것을 쓴다. 조건 키: item_id, turn_index, rollout_no.
+plan에 max_model_len을 두면 describe()가 그 값을 돌려준다(실행 전 길이 점검의 시험용).
 """
 from .base import Adapter, AdapterResult
 
@@ -26,12 +27,20 @@ _FLAKY_FAILURES = 2         # flaky 시나리오가 실패하는 횟수
 class MockAdapter(Adapter):
     def __init__(self, model, plan):
         self._model = model
+        self._plan = plan
         self._default = plan.get("default", "normal")
         self._rules = plan.get("rules", [])
         unknown = {r["scenario"] for r in self._rules} | {self._default}
         unknown -= set(SCENARIOS)
         if unknown:
             raise ValueError(f"알 수 없는 모의 시나리오 {sorted(unknown)} (가능: {SCENARIOS})")
+
+    def describe(self):
+        """시험용: plan의 max_model_len이 있으면 로컬 서버처럼 돌려준다."""
+        info = {"adapter": "mock", "scenario": self._default}
+        if "max_model_len" in self._plan:
+            info["max_model_len"] = self._plan["max_model_len"]
+        return info
 
     def _scenario(self, call_info):
         for rule in self._rules:

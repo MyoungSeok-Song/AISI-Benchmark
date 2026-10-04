@@ -25,7 +25,7 @@ from kyab_runner.adapters.base import CallInfo                         # noqa: E
 from kyab_runner.adapters.gemini import GeminiAdapter                  # noqa: E402
 from kyab_runner.adapters.http_json import HttpReply, TransportFailure, TransportTimeout   # noqa: E402
 from kyab_runner.adapters.openai import OpenAIAdapter                  # noqa: E402
-from kyab_runner.config import load_config                             # noqa: E402
+from kyab_runner.config import ConfigError, _check_options, load_config   # noqa: E402
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 CONFIG = load_config()
@@ -262,3 +262,26 @@ class KeyAndRegistrationTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OptionGuardTest(unittest.TestCase):
+    """models.yaml 추가 설정(extra_body·extra_generation_config)은 호출 파라미터를 덮어쓸 수 없다(회신 ① 한도 변경 뒤 어긋남 방지)."""
+
+    def test_forbidden_keys_rejected_for_every_adapter_option_block(self):
+        for block, key in (("extra_body", "max_tokens"), ("extra_body", "max_completion_tokens"), ("extra_body", "temperature"),
+                           ("extra_body", "top_p"), ("extra_generation_config", "maxOutputTokens"), ("extra_generation_config", "topP")):
+            with self.assertRaises(ConfigError) as ctx:
+                _check_options("some-model", {block: {key: 1}})
+            self.assertIn(key, str(ctx.exception))
+            self.assertIn("run_params", str(ctx.exception))
+
+    def test_other_keys_allowed(self):
+        _check_options("m", {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}, "reasoning_effort": "minimal"},
+                             "extra_generation_config": {"thinkingConfig": {"thinkingBudget": 0}}})
+        _check_options("m", {})
+
+    def test_shipped_config_passes_and_uses_long_timeout(self):
+        config = load_config()
+        for model_id in ("gpt-5.6-terra", "claude-sonnet-4.6", "gemini-3.8-flash"):
+            self.assertEqual(config.models[model_id].options["request_timeout_s"], 600)
+

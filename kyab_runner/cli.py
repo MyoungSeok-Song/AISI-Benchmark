@@ -17,7 +17,7 @@ import yaml
 
 from . import __version__, csv_io, judge_io, paths, validate
 from .adapters import create_adapter
-from .codebook import load_codebook
+from .codebook import fixed_value as codebook_fixed_value, load_codebook
 from .config import load_config
 from .ids import IdAllocator
 from .records import INPUT_FILES, MANIFEST_FILE, InputIndex, load_inputs   # noqa: F401  (INPUT_FILES는 테스트가 쓴다)
@@ -25,7 +25,7 @@ from .session import Batch, RunSession
 from .taxonomy import load_taxonomy
 
 # 재시작할 때 처음 실행과 같아야 하는 값. 하나라도 다르면 같은 배치로 이어 쓸 수 없다.
-_MANIFEST_LOCKED = ("protocol_id", "model_id", "dataset_version", "system_prompt_hash", "input_sha256")
+_MANIFEST_LOCKED = ("protocol_id", "model_id", "dataset_version", "system_prompt_hash", "input_sha256", "run_params")
 
 EXIT_OK, EXIT_NOTHING_TO_RUN, EXIT_INVALID_INPUT, EXIT_INTERRUPTED = 0, 1, 2, 130
 
@@ -117,11 +117,65 @@ def load_mock_plan(args):
     return {"default": args.mock_scenario}
 
 
+def check_run_params(codebook, config):
+    """실행 전 점검 1: run_params가 코드북 04 허용값(overlay enum)에 맞는지. 반환: 문제 설명 목록.
+
+    허용값 목록이 없는 필드는 형식 원문의 '…로 고정' 값과 대조한다(overlay를 지운 뒤에도 검사가 남게).
+    여기서 걸러야 하는 까닭: 기록 단계(05 → 04 순서)에서 걸리면 모델 호출(상용이면 유료)이 끝난 뒤라 낭비이고
+    짝 없는 05 행이 남는다.
+    """
+    problems = []
+    for name, value in config["run_params"].items():
+        spec = codebook.field("04_runs", name)
+        cell = csv_io.to_cell(value)
+        problem = spec.check(cell)
+        if problem is None and not spec.enum:
+            fixed = codebook_fixed_value(spec.format)
+            if fixed is not None and float(fixed) != float(value):
+                problem = f"코드북 형식 원문은 {fixed}로 고정인데 설정은 {cell}"
+        if problem:
+            problems.append(f"run_params.{name}={cell}: {problem} (코드북 04 {name} — config/runner.yaml 또는 overlay 확인)")
+    return problems
+
+
+def check_context_budget(config, adapter, protocol_id):
+    """실행 전 점검 2: 로컬 서버 길이가 이 프로토콜의 최악 입력을 받을 수 있는지. 반환: 문제 설명 또는 None.
+
+    vLLM 0.30은 입력 상한을 max_model_len − max_tokens로 잡는다. 마지막 턴 입력은 앞 턴 응답(각 최대 한도)과
+    프롬프트 몫(context_reserve_tokens)을 더한 것이다.
+      max_model_len − max_output_tokens ≥ (planned_round_count − 1) × max_output_tokens + context_reserve_tokens
+    describe()에 max_model_len이 없는 어댑터(상용·모의)는 점검하지 않는다.
+    """
+    max_model_len = adapter.describe().get("max_model_len")
+    if max_model_len is None:
+        return None
+    limit = config["run_params"]["max_output_tokens"]
+    rounds = config.protocol(protocol_id)["planned_round_count"]
+    needed = (rounds - 1) * limit + config["context_reserve_tokens"]
+    budget = max_model_len - limit
+    if budget < needed:
+        return (f"서버 max_model_len {max_model_len} − 출력 한도 {limit} = 입력 상한 {budget} 토큰인데, {protocol_id}"
+                f"({rounds}턴)의 최악 입력은 ({rounds} − 1) × {limit} + 여유 {config['context_reserve_tokens']} = {needed} 토큰입니다. "
+                "models.yaml server.max_model_len을 올리거나 runner.yaml max_output_tokens를 낮추세요 (vLLM: 입력 상한 = max_model_len − max_tokens)")
+    return None
+
+
 def open_batch(args, codebook, config, dataset_version, input_digests):
-    """배치 폴더를 새로 만들거나(--batch-id 없음) 기존 배치를 이어 연다."""
+    """배치 폴더를 새로 만들거나(--batch-id 없음) 기존 배치를 이어 연다.
+
+    사전 점검(run_params 허용값, 서버 길이)과 어댑터 생성을 폴더를 만들기 전에 끝낸다. 실패하면 빈 폴더가
+    남지 않고 다음 배치 번호도 건너뛰지 않는다.
+    """
     model = config.models.get(args.model)
     if model is None or not model.enabled:
         sys.exit(f"모델 '{args.model}'은 등록되지 않았거나 enabled: false 입니다 (config/models.yaml)")
+    problems = check_run_params(codebook, config)
+    if problems:
+        sys.exit("실행 전 점검 실패 — 모델을 호출하지 않았습니다:\n  " + "\n  ".join(problems))
+    adapter = create_adapter(model, load_mock_plan(args))
+    problem = check_context_budget(config, adapter, args.protocol)
+    if problem:
+        sys.exit(f"실행 전 점검 실패 — 모델을 호출하지 않았습니다: {problem}")
 
     today = datetime.now(ZoneInfo(config["timezone"])).strftime("%Y%m%d")
     ids = IdAllocator(codebook, args.out, today)
@@ -131,8 +185,7 @@ def open_batch(args, codebook, config, dataset_version, input_digests):
         sys.exit(f"이어 쓸 배치 폴더가 없습니다: {batch_dir}")
     batch_dir.mkdir(parents=True, exist_ok=True)
 
-    batch = Batch(codebook=codebook, config=config, model=model,
-                  adapter=create_adapter(model, load_mock_plan(args)), ids=ids,
+    batch = Batch(codebook=codebook, config=config, model=model, adapter=adapter, ids=ids,
                   batch_dir=batch_dir, run_batch_id=run_batch_id, dataset_version=dataset_version,
                   protocol_id=args.protocol, library_version=library_version())
     _write_or_check_manifest(batch, input_digests, codebook)
@@ -148,6 +201,7 @@ def _write_or_check_manifest(batch, input_digests, codebook):
         "dataset_version": batch.dataset_version,
         "system_prompt_hash": batch.config.system_prompt_hash,
         "input_sha256": input_digests,
+        "run_params": {k: csv_io.to_cell(v) for k, v in batch.call_params().items()},   # 04 기록과 같은 문자열
         "execution_library_version": batch.library_version,
         "codebook_overlays": codebook.applied_overlays,
         "adapter_info": batch.adapter.describe(),
@@ -156,6 +210,8 @@ def _write_or_check_manifest(batch, input_digests, codebook):
     path = batch.dir / MANIFEST_FILE
     if path.exists():
         saved = json.loads(path.read_text(encoding="utf-8"))
+        if "run_params" not in saved:                   # 2026-10-05 전 manifest: 기록된 04 행의 값을 기준으로 삼는다
+            saved["run_params"] = _recorded_run_params(batch) or current["run_params"]
         changed = [k for k in _MANIFEST_LOCKED if saved[k] != current[k]]
         if changed:
             sys.exit(f"{batch.run_batch_id}에 이어 쓸 수 없습니다. 처음 실행과 다른 값: {changed}")
@@ -164,6 +220,14 @@ def _write_or_check_manifest(batch, input_digests, codebook):
     else:
         path.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8")
         batch.log_event("batch_created", adapter_info=current["adapter_info"])
+
+
+def _recorded_run_params(batch):
+    """배치의 04 행에 기록된 호출 파라미터(첫 행 기준). 행이 없으면 None."""
+    runs = batch.recorded_runs()
+    if not runs:
+        return None
+    return {name: runs[0][name] for name in batch.call_params()}
 
 
 # ── 배치 진행 ───────────────────────────────────────────────────────────
@@ -200,6 +264,9 @@ def print_summary(batch, new_rows):
     print(f"  run_status      {dict(Counter(r['run_status'] for r in runs))}")
     print(f"  stop_reason     {dict(Counter(r['stop_reason'] for r in runs))}")
     print(f"  response_status {dict(Counter(r['response_status'] for r in responses))}")
+    truncated = sum(1 for r in responses if r["finish_reason"] == "length")
+    if truncated:                               # 출력 한도에서 잘린 응답: 상담 안내 누락 판정의 원인이 될 수 있다(회신 ①)
+        print(f"  잘림(length)    {truncated}건 / 응답 {len(responses)}행")
     usage = Counter()
     for row in responses:                       # 토큰은 CSV에 칸이 없어 원본 응답에서 합산한다
         reported = json.loads(row["raw_response_json"]).get("usage") or {}

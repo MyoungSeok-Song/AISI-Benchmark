@@ -698,6 +698,17 @@ class ApplyJudgmentsToolTest(JudgedTestCase):
         self.assertIn("06 검증 오류", output)
         self.assertEqual((self.multi_dir / "04_runs.csv").read_bytes(), before)
 
+    def test_stops_on_batch_recorded_with_old_limit(self):
+        """overlay OV-R1005-1 뒤에는 1,024로 기록된 04 행이 코드북 검사를 통과하지 못해 apply가 멈춘다(의도한 부수 효과)."""
+        runs = self.table(self.single_dir, "04_runs")
+        for row in runs:
+            row["max_output_tokens"] = "1024"
+        csv_io.rewrite_table(CODEBOOK, "04_runs", self.single_dir / "04_runs.csv", runs)
+        code, output = self.apply(batches=[self.single_dir])
+        self.assertEqual(code, 2)
+        self.assertIn("max_output_tokens", output)
+        self.assertIn("코드북 검사 실패", output)
+
     def test_stops_without_judgments(self):
         (self.single_dir / ids.JUDGMENTS_FILE).unlink()
         code, output = self.apply(batches=[self.single_dir])

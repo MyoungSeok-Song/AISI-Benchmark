@@ -203,6 +203,15 @@ def main(argv=None):
     if not any(case.included for case in cases):
         print("집계할 실행이 없습니다.")
         return EXIT_NOTHING
+    # 회신 ①: 같은 모델 묶음 안에서 호출 파라미터(temperature, top_p, max_output_tokens)가 섞이면 한 행에 합칠 수 없다.
+    # 07에는 실행 조건 칸이 없어 같은 (모델, 슬라이스) 행이 둘 생기고 배치 ID로 04를 봐야만 구분되기 때문이다.
+    mixed = {model: dict(combos) for model, combos in metrics.run_param_combos(cases).items() if len(combos) > 1}
+    if mixed:
+        for (model_id, _), combos in mixed.items():
+            print(f"집계를 거부합니다: 모델 {model_id}의 실행 조건이 섞여 있습니다 "
+                  + "; ".join(f"{dict(zip(metrics.RUN_PARAM_FIELDS, combo))} × {n}" for combo, n in combos.items()))
+        print("한도가 다른 배치는 따로 집계하세요(예: 1,024 배치와 8,192 배치).")
+        return EXIT_INVALID
 
     timezone = ZoneInfo(env.config["timezone"])
     calculated_at = datetime.now(timezone).isoformat(timespec="milliseconds")

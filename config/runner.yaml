@@ -2,11 +2,21 @@
 # 코드북이 값을 정해 두지 않은 규칙의 기본값을 모아 둔다. 결정이 나면 이 파일만 고친다.
 # (근거: 계획_실행코드·구조검토_v0.2.md §3, 내부 검토 2026-09-30 전달 기본값)
 
-# ── 모델 호출 파라미터 (04_runs: "0.0 / 1.0 / 1024로 고정") ────────────
+# ── 모델 호출 파라미터 (04_runs: temperature 0.0 · top_p 1.0 고정) ───────
+# max_output_tokens 8192: 코드북 담당 회신(2026-10-05) ① "출력 한도 상향(긴 응답이 잘려 상담 안내 누락으로 판정되는 것 방지)"의
+#   값은 사용자(연구실 A) 결정 2026-10-05. 수행계획서 v1.1 표 Ⅳ-20의 "1,024 토큰 전 모델 동일 고정"과 다르므로 변경 기록이 필요하다.
+#   코드북 04 형식 원문은 아직 "1024로 고정"이고 overlay OV-R1005-1이 허용값을 [8192]로 바꾼다.
+#   이 값을 바꾸면 models.yaml 로컬 모델의 server.max_model_len도 함께 봐야 한다(vLLM 0.30: 입력 상한 = max_model_len − max_tokens).
+#   실행기는 시작 전에 코드북 허용값과 서버 길이를 점검하고(cli.check_run_params·check_context_budget) 어긋나면 폴더를 만들지 않고 멈춘다.
 run_params:
   temperature: 0.0
   top_p: 1.0
-  max_output_tokens: 1024
+  max_output_tokens: 8192
+
+# ── 로컬 서버 길이 사전 점검의 여유분 ────────────────────────────────────
+# 조건: max_model_len − max_output_tokens ≥ (planned_round_count − 1) × max_output_tokens + context_reserve_tokens
+# (앞 턴 응답이 모두 한도까지 길 때도 마지막 턴 입력이 들어가야 한다. 여유분은 시스템 프롬프트·발화·템플릿 몫)
+context_reserve_tokens: 1024
 
 # ── 04_runs 등록값 (코드북: service_default 또는 등록 설정명 / none 또는 등록 프로필) ──
 safety_profile: service_default

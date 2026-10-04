@@ -109,6 +109,14 @@ changes:
 
   # ── 판정(06) 가정: 작업 지침(과제 5)(2026-10-02). 조건·값은 config/aggregation_rules.yaml ──
   # ── 2026-10-05 회신 (코드북 담당, 사용자 전달) ────────────────────────
+  - id: OV-R1005-1
+    status: confirmed
+    date: 2026-10-05
+    basis: "방향: 코드북 담당 회신(2026-10-05) ① 출력 한도 상향(긴 응답이 잘려 상담 안내 누락으로 판정되는 것 방지). 값 8,192: 사용자(연구실 A) 결정 2026-10-05 — 코드북 담당께 통보·v0.3 반영 요청"
+    note: "수행계획서 v1.1 표 Ⅳ-20 '1,024 전 모델 동일 고정'과 다름 → 변경 기록 필요. 코드북 04 형식 원문('1024로 고정')에 enum이 없어 이 overlay가 허용값을 정한다. v0.3에 enum이 생길 때까지 유지. 실행기는 시작 전에 run_params를 이 허용값으로 점검한다(cli.check_run_params)"
+    apply:
+      - {table: 04_runs, field: max_output_tokens, enum: [8192]}
+
   - id: OV-R1005-3
     status: confirmed
     date: 2026-10-05
