@@ -67,9 +67,11 @@ models:
   # server.max_model_len 32768 (2026-10-05, 출력 한도 8,192에 맞춤): vLLM 0.30은 요청의 입력 상한을 max_model_len − max_tokens로
   #   잡는다. 8192로 두면 입력 상한이 0이 되어 모든 호출이 400으로 실패한다. 3턴의 마지막 턴 입력은 시스템 프롬프트 + 앞 두 응답
   #   (각 ≤ 8,192) + 발화라 최악 약 17k가 필요하다. Kanana의 max_position_embeddings 상한이 32,768이다.
-  #   **실기동 미검증**: GPU가 다른 사용자 작업으로 차 있어(2026-10-05) 32k 설정으로 띄워 보지 못했다. 확인할 것 —
-  #   27B의 상태 캐시 블록 수와 --max-num-seqs 64의 관계, max-num-batched-tokens 8192(chunked prefill)가 결정성에 주는 영향,
-  #   KV 캐시 크기(README 모델 표의 '동시 처리 수'가 바뀐다). 8,192 조건의 결정성(3회 동일)도 다시 본다.
+  #   실기동 확인(2026-10-05, GPU 0, 배치 RBATCH-20261005-001~004): 두 모델 모두 32k로 기동·스모크 통과, 결정성 12/12 턴.
+  #   KV 캐시 Kanana 11.66GiB=226,368토큰(32k 요청 동시 6.91x), 27B 18.73GiB=284,717토큰(8.69x). 27B는 --max-num-seqs 64로
+  #   정상 기동(어텐션 블록 784토큰 = mamba 페이지 크기). chunked prefill(max_num_batched_tokens 8192)은 켜져 있고 결정성에 영향 없음.
+  #   주의 — Kanana(TRITON_MLA)는 max_model_len이 바뀌면 같은 입력에도 greedy 응답이 달라진다(8k↔32k 0/36 일치, 각 설정 안에서는
+  #   36/36 재현). 27B(TRITON_ATTN)는 8k↔32k 36/36 동일. 이 값을 바꾸면 Kanana 배치는 다시 실행해야 한다. 세부는 README '등록된 로컬 모델'.
   #   MT7·MT10(확장 검토 대상): 최악 가정(앞 턴 응답이 모두 8,192)이면 (턴 − 1) × 8,192 + 여유가 32k를 넘어 사전 점검에 걸린다.
   #   Kanana는 max_position_embeddings 32,768이 상한이라 더 올릴 수 없다(27B는 262,144). 실제 응답은 수백 토큰이라
   #   대부분 들어가지만, 긴 응답이 난 실행만 400으로 빠질 수 있다 — 범위 밖, 기록만.
@@ -92,7 +94,7 @@ models:
       server:
         hf_repo: Qwen/Qwen3-8B
         dtype: bfloat16          # 모델 config.json의 torch_dtype과 같음
-        max_model_len: 32768       # 출력 한도 8,192 기준(위 설명). 실기동 미검증
+        max_model_len: 32768       # 출력 한도 8,192 기준(위 설명). 비활성 모델이라 실기동 안 함
         gpu_memory_utilization: 0.5
         port: 8000
         # 접두부 캐시를 끈다. 켜 두면 temperature 0.0에서도 반복 간 응답이 갈렸다.
@@ -119,7 +121,7 @@ models:
       server:
         hf_repo: Qwen/Qwen3.8-27B
         dtype: bfloat16
-        max_model_len: 32768       # 출력 한도 8,192 기준(위 설명). 실기동 미검증
+        max_model_len: 32768       # 출력 한도 8,192 기준(위 설명). 2026-10-05 실기동 확인
         gpu_memory_utilization: 0.92     # H100 80GB 1장에 BF16 가중치(약 51GiB) + KV 캐시
         port: 8000
         extra_args:
@@ -150,7 +152,7 @@ models:
       server:
         hf_repo: kakaocorp/kanana-2-30b-a3b-instruct-2601
         dtype: bfloat16          # config.json의 dtype과 같음. 양자화하지 않는다(제공 모델 그대로 평가)
-        max_model_len: 32768       # 출력 한도 8,192 기준(위 설명). 실기동 미검증
+        max_model_len: 32768       # 출력 한도 8,192 기준(위 설명). 2026-10-05 실기동 확인
         gpu_memory_utilization: 0.92
         port: 8000
         extra_args:

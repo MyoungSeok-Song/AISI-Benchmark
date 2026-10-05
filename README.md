@@ -77,19 +77,20 @@ bash tools/e2e_judge_aggregate.sh
 | 서버·라이브러리 정보 | 기동 명령, dtype, GPU, vLLM·torch 버전, CUDA 빌드 → `batch_manifest.json`의 `adapter_info`, `runner_events.jsonl` |
 | 모델 다운로드 | 서버 도구는 받지 않음. HF 캐시에 스냅샷이 없으면 멈춤 |
 
-### 등록된 로컬 모델 (스모크 결과는 2026-09-30·10-02, 출력 한도 1,024 · `max_model_len` 8,192 조건. H100 80GB 1장, 한 번에 1건씩 호출)
+### 등록된 로컬 모델 (스모크 결과는 2026-10-05, 출력 한도 8,192 · `max_model_len` 32,768 조건. H100 80GB 1장(GPU 0), 한 번에 1건씩 호출)
 
-| `model_id` | HF 저장소 · revision | GPU 메모리 | 출력 속도 | 3회 반복 동일 | 동시 처리 수(8k 기동 로그) | 추가 서버 옵션 | 상태 |
+| `model_id` | HF 저장소 · revision | GPU 메모리 | 출력 속도 | 3회 반복 동일 | 동시 처리 수(32k 기동 로그) | 추가 서버 옵션 | 상태 |
 |---|---|---|---|---|---|---|---|
 | `qwen3-8b-local` | Qwen/Qwen3-8B · `b968826d` | 약 40GB (메모리 비율 0.5 설정) | 약 146토큰/초 | 12/12 턴 | — | — | `enabled: false` — 재시작으로 가중치 소실, 재다운로드 안 함(평가 대상 아님) |
-| `qwen3.8-27b-local` | Qwen/Qwen3.8-27B · `1d4bf0f2` | 약 73GB (가중치 51GiB, 비율 0.92) | 약 48토큰/초 | 12/12 턴 | 상태 캐시 블록 357 → `--max-num-seqs 64` | `--attention-backend TRITON_ATTN`, `--max-num-seqs 64` | 활성 |
-| `kanana-2-30b-local` | kakaocorp/kanana-2-30b-a3b-instruct-2601 · `4a781fe5` | 약 74GB (가중치 57GiB, KV 11.7GiB, 비율 0.92) | 약 145토큰/초 | 12/12 턴 | 약 27.9x (KV 22.6만 토큰 ÷ 8k) | `--attention-backend TRITON_MLA` | 활성 |
+| `qwen3.8-27b-local` | Qwen/Qwen3.8-27B · `1d4bf0f2` | 약 74GB (가중치 51.1GiB, KV 18.7GiB, 비율 0.92) | 약 49토큰/초 | 12/12 턴 | 8.69x (KV 28.5만 토큰 ÷ 32k) · `--max-num-seqs 64`로 기동 정상 | `--attention-backend TRITON_ATTN`, `--max-num-seqs 64` | 활성 |
+| `kanana-2-30b-local` | kakaocorp/kanana-2-30b-a3b-instruct-2601 · `4a781fe5` | 약 79GB (가중치 57.1GiB, KV 11.7GiB, 비율 0.92) | 약 150토큰/초 | 12/12 턴 | 6.91x (KV 22.6만 토큰 ÷ 32k) | `--attention-backend TRITON_MLA` | 활성 |
 
-- **2026-10-05: 출력 한도 8,192에 맞춰 `server.max_model_len`을 세 모델 모두 32,768로 바꿨습니다(실기동 미검증).** vLLM 0.30은 요청의 입력 상한을 `max_model_len − max_tokens`로 잡아, 8,192로 두면 모든 호출이 400으로 실패합니다. 32k 기동은 GPU가 비면 확인해야 합니다: KV 캐시 크기(위 표의 '동시 처리 수' 27.9x는 8k 기준이라 바뀜), 27B의 상태 캐시 블록 수와 `--max-num-seqs 64`의 관계, `max-num-batched-tokens` 8192(chunked prefill)가 결정성에 주는 영향, 8,192 조건의 3회 동일 여부. MT7·MT10은 최악 가정이면 32k를 넘어 사전 점검에 걸립니다(Kanana 상한 32,768).
+- **2026-10-05 실기동 확인(배치 RBATCH-20261005-001~004): 출력 한도 8,192 · `server.max_model_len` 32,768로 두 모델 모두 기동·스모크 통과.** vLLM 0.30은 요청의 입력 상한을 `max_model_len − max_tokens`로 잡아, 8,192로 두면 모든 호출이 400으로 실패하므로 32k가 필요합니다. 확인한 것 — 기동 시간 Kanana 8.6분(가중치 243초 + 엔진 준비 144초)·27B 6.8분(201초 + 126초); KV 캐시 Kanana 11.66GiB = 226,368토큰(32k 요청 기준 동시 6.91x), 27B 18.73GiB = 284,717토큰(8.69x); 27B는 어텐션 블록을 784토큰으로 맞추고(mamba 페이지 크기와 일치) `--max-num-seqs 64`로 정상 기동; chunked prefill(`max_num_batched_tokens` 8192)은 두 모델 모두 켜져 있으며 결정성은 12/12 턴 유지(3회 반복 동일). 잘림(`finish_reason=length`) 0건, 출력 토큰 최대 Kanana 292·27B 1,019. MT7·MT10은 최악 가정이면 32k를 넘어 사전 점검에 걸립니다(Kanana 상한 32,768).
+- **10/2 배치(1,024·8k 서버)와 본문 대조 — 27B는 36/36 글자 단위 동일, Kanana는 0/36.** Kanana의 입력은 같았고(요청 메시지·prompt_tokens 91 동일) 잘린 응답도 없었습니다. 원인 분리: 32k 서버에 `max_tokens` 1,024로 직접 호출하면 오늘 응답과 같고(→ `max_tokens`는 무관), `max_model_len` 8,192로 다시 띄워 10/2 요청을 보내면 10/2 응답 36/36을 재현하고 오늘 요청은 0/36 → **Kanana(TRITON_MLA 백엔드)는 `max_model_len`에 따라 greedy 출력이 달라집니다**(같은 설정 안에서는 결정적). 서버 설정이 바뀌면 Kanana 결과는 재실행해야 하며, `max_model_len`은 `batch_manifest.json`의 `adapter_info`에 남습니다. 27B(TRITON_ATTN)는 영향이 없었습니다. 8k 재기동은 원인 확인용 직접 호출만 했고 배치는 만들지 않았습니다(기동 로그 `var/vllm_server_kanana_8k_probe_20261005.log`).
 - 세 모델 모두 BF16, 접두부 캐시 끔입니다. Qwen 두 모델은 thinking을 끄고, Kanana(instruct 판본)는 thinking 스위치가 없습니다.
 - 샘플 02(2026-10-05): 대조 문항 KYAB-900002·900103에 대조 위험군 연결을 `tag_revision` 2로 덧붙여 `test_runner`의 판본 기대값이 `{900103: "2"}`로 바뀌었고, 옛 판정(판본 1)이 있는 배치에는 "현재 태그 판본이 아님" 경고와 재채점 필요가 생깁니다. 의도한 변화입니다.
-- 27B는 기본 어텐션 백엔드(FLASH_ATTN)가 이 venv의 torch 빌드와 맞지 않아 첫 forward에서 실패하므로 Triton 백엔드를 씁니다. 기본 동시 시퀀스 수(1024)도 이 모델의 상태 캐시 블록 수(357)를 넘어 기동이 거부되어 64로 낮췄습니다.
-- 27B의 3턴 응답 중 출력 토큰이 최대 1,019개였습니다(한도 1,024 조건). 한도를 8,192로 올린 뒤의 길이 분포는 재실행으로 확인합니다. 잘림(`finish_reason=length`) 건수는 실행 요약과 `results_notes.json`에 남습니다.
+- 27B는 기본 어텐션 백엔드(FLASH_ATTN)가 이 venv의 torch 빌드와 맞지 않아 첫 forward에서 실패하므로 Triton 백엔드를 씁니다. 기본 동시 시퀀스 수(1024)도 이 모델의 상태 캐시 블록 수(8k 기동 때 357)를 넘어 기동이 거부되어 64로 낮췄습니다(32k에서도 64로 정상 기동).
+- 27B의 3턴 응답 중 출력 토큰이 최대 1,019개였습니다(10/2 한도 1,024 조건, `finish_reason=stop`). 한도 8,192로 재실행해도 같은 응답이라 길이 분포가 바뀌지 않았습니다(개발 샘플 6문항 기준). 잘림(`finish_reason=length`) 건수는 실행 요약과 `results_notes.json`에 남습니다.
 - 속도는 순차 호출 기준입니다. 러너가 동시에 여러 건을 보내지 않으므로 vLLM의 배치 처리 이점은 아직 쓰지 않습니다.
 - Kanana는 MLA 구조(DeepseekV3, 전문가 128개 중 6개 활성)라 일반 어텐션 백엔드(`TRITON_ATTN`)를 거부합니다. 그래서 `TRITON_MLA`를 씁니다. 활성 파라미터가 약 3B라 27B보다 3배 빠릅니다.
 - **모델 캐시는 영구 디스크에 둡니다** (`config/runner.yaml`의 `hf_home` = `/home/ubuntu/342/myoungseok/.cache/huggingface`). `~/.cache`는 워크로드 재시작 때 지워집니다. 2026-10-02 재시작으로 Qwen 두 모델의 가중치가 사라졌고, 다시 받아야 합니다.
@@ -343,7 +344,7 @@ $PIP install --no-deps --force-reinstall "https://github.com/vllm-project/vllm/r
 
 ### 종단 시험
 
-`bash tools/e2e_judge_aggregate.sh`는 모의 배치 4개(ST1·MT3 정상, 실패 계획 ST1·MT3 — 차단·오류·시간초과·빈 응답·절단, 출력 한도 8,192 조건)를 `var/e2e_task6/`에 만들고, 모의 판정 → 06 검증 → `apply_judgments` → 집계(모의 판정 거부 확인 → 허용) → 차단 정책 비교(`count_as_refusal`/`exclude`, 규칙 판본은 현재 판본의 PATCH+1) → 결과 확인(완료 행의 CFC 빈칸 0, 07 코드북 위반 0, `results_denominators.csv`와 07의 `result_id` 1:1, `risk_group` 행에 ORR, 분모 불변식)까지 돌립니다. 실모델 배치를 함께 넣으려면 폴더를 인자로 줍니다(복사해서 쓰므로 원본은 바뀌지 않음). 1,024 한도로 기록된 옛 배치(2026-10-02 001~004)는 허용값 8192 때문에 `apply` 단계에서 거부되므로 기본값에서 뺐습니다 — GPU 재실행 뒤 8,192 조건의 새 배치를 넣습니다. 모의 판정이므로 나온 수치는 모델 평가가 아닙니다.
+`bash tools/e2e_judge_aggregate.sh`는 모의 배치 4개(ST1·MT3 정상, 실패 계획 ST1·MT3 — 차단·오류·시간초과·빈 응답·절단, 출력 한도 8,192 조건)를 `var/e2e_task6/`에 만들고, 모의 판정 → 06 검증 → `apply_judgments` → 집계(모의 판정 거부 확인 → 허용) → 차단 정책 비교(`count_as_refusal`/`exclude`, 규칙 판본은 현재 판본의 PATCH+1) → 결과 확인(완료 행의 CFC 빈칸 0, 07 코드북 위반 0, `results_denominators.csv`와 07의 `result_id` 1:1, `risk_group` 행에 ORR, 분모 불변식)까지 돌립니다. 실모델 배치를 함께 넣으려면 폴더를 인자로 줍니다(복사해서 쓰므로 원본은 바뀌지 않음). 1,024 한도로 기록된 옛 배치(2026-10-02 001~004)는 허용값 8192 때문에 `apply` 단계에서 거부되므로 기본값에서 뺐습니다. 8,192 조건의 실모델 배치는 `samples/output/RBATCH-20261005-001~004`(Kanana·27B 각 ST1·MT3)이며, 네 폴더를 인자로 넣은 실행(2026-10-05)은 06 168행·07 45행 코드북 위반 0·분모 630행 1:1로 통과했습니다. 모의 판정이므로 나온 수치는 모델 평가가 아닙니다.
 
 ## 납품 형식 (JSONL)
 
@@ -580,7 +581,7 @@ overlay의 `provisional` 항목과 `config/runner.yaml`의 기본값은 결정 �
 | 신규 문항 `source_license` | 임시 값 `LicenseRef-KYAB-internal` | 내부 코드 미정 |
 | 상용 모델 | 어댑터·오프라인 테스트만. 실호출 없음 | API 키·D06·D08 확인 후 |
 | 출력 한도 | `max_output_tokens` 8192 (overlay OV-R1005-1 허용값). 수행계획서 v1.1 표 Ⅳ-20의 1,024와 다름 → 변경 기록 필요 | 방향: **확정 — 회신 2026-10-05 ①**, 값 8,192: 사용자 결정 2026-10-05 |
-| 로컬 서버 길이 | `max_model_len` 32768, 사전 점검 여유 1024 토큰 | 구현(실기동 미검증) |
+| 로컬 서버 길이 | `max_model_len` 32768, 사전 점검 여유 1024 토큰 | 구현(2026-10-05 실기동 확인) |
 | 대조 문항의 위험군 연결 열 | 02 `control_target_risk`(스칼라 A1~A10, `secondary_risks` 뒤). 샘플은 900002→A8, 900103→A4(개발 샘플용 가정, tag_revision 2) | 열 추가 **확정 — 회신 2026-10-05 ②**; 이름·위치·값 규칙 잠정(OV-P4) |
 
 ### 판정 가정 (`config/aggregation_rules.yaml`, overlay OV-J1·J3·J4)
@@ -642,7 +643,7 @@ overlay의 `provisional` 항목과 `config/runner.yaml`의 기본값은 결정 �
 - LLM 판정기가 없습니다. 지금 나오는 07의 수치는 모의 판정기의 해시값에서 나온 것이며 모델 평가가 아닙니다.
 - 대조 문항의 위험군 연결(`control_target_risk`)을 새 태그 판본으로 고치면 주 판정 집합(현재 판본만)에서 그 문항의 기존 판정이 빠져 재채점이 필요하고, 그 전에는 `apply_judgments`가 멈춥니다. 집계 전용 필드 변경 시 재채점 면제는 협의 후보입니다.
 - 실데이터에서 대조 문항은 R1~R5(A1~A5)별 12개로 설계돼 A6~A10 행의 ORR은 비고, 위험군×연령×턴 칸에는 대조 문항이 약 2개씩 들어갑니다. ORR에는 신뢰구간 칸이 없습니다.
-- 출력 한도 8,192·`max_model_len` 32,768 서버 설정은 실기동으로 확인하지 못했습니다(GPU 점유). 실모델 배치(2026-10-02 001~004)는 1,024 조건이라 새 허용값과 섞어 집계하거나 `apply_judgments`를 돌릴 수 없습니다.
+- 실모델 배치(2026-10-02 001~004)는 1,024 조건이라 새 허용값과 섞어 집계하거나 `apply_judgments`를 돌릴 수 없습니다(8,192 조건은 2026-10-05 001~004). Kanana는 서버 `max_model_len`이 바뀌면 같은 입력에도 greedy 응답이 달라지므로('등록된 로컬 모델' 절), 서버 설정이 다른 Kanana 배치끼리는 본문을 비교하지 않습니다.
 - 코드북 v0.3 xlsx로 이관할 때 `NONE`(none_token)과 추가 열은 추출본(JSON)에 표현되지 않습니다. v0.3이 그 값을 형식 원문·허용값에 넣었는지 확인하고, 아니면 overlay 항목을 남겨야 합니다(규칙 로더가 불일치를 잡습니다).
 - 이어 쓰기 잠금에 `codebook_overlays`는 없습니다. overlay를 고친 뒤 진행 중 배치를 이어 쓰면 매니페스트의 overlay 기록만 처음 값으로 남습니다.
 - κ 분모 행의 U(자동 판정이 실패·검토 대기인 자리)는 세지 않습니다. 02에서 `authorized_by`는 아무 confirmed 항목이나 가리킬 수 있습니다(대상 열 지정 없음).
