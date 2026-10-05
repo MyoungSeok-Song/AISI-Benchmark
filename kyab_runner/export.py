@@ -450,9 +450,12 @@ def _library_version():
     return library_version()
 
 
-def sources_skeleton(index):
-    """원천 데이터셋 목록의 틀. data/ 원본 CSV가 있으면 sha256을 채우고 나머지는 TODO."""
-    data_dir = paths.RUNNER_DIR.parent / "data"
+# 원천 데이터셋의 원본 파일(프로젝트 폴더 data/, 러너 밖). 없으면 sha256을 비워 두고 TODO에 적는다.
+DEFAULT_DATA_DIR = paths.RUNNER_DIR.parent / "data"
+
+
+def sources_skeleton(index, data_dir=DEFAULT_DATA_DIR):
+    """원천 데이터셋 목록의 틀. data_dir에 원본 CSV가 있으면 sha256을 채우고 나머지는 TODO."""
     known_files = {"CAREBench": "CAREBench_prompts_500.csv", "MinorBench": "MinorBench_original_299.csv"}
     sources = {}
     for item in index.tables["01_items"]:
@@ -467,6 +470,8 @@ def sources_skeleton(index):
         if name in known_files and local.exists():
             entry["local_file"], entry["sha256"] = f"data/{known_files[name]}", _sha256(local)
         entry["TODO"] = [k for k in ("version", "location", "acquired_at") if not entry[k]]
+        if name in known_files and not entry["sha256"]:
+            entry["TODO"].append(f"원본 파일 없음: data/{known_files[name]} (sha256 미기록)")
         if name == "NEW":
             entry["TODO"].append("작성 근거 기록 방식(협의 후보 P3)")
     return {"note": "원천 데이터셋 목록 — 틀(연구실 A 제안). 판본·취득 위치·취득일은 채워야 한다(협의 후보 P1).", "sources": sources}

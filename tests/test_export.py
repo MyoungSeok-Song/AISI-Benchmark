@@ -52,8 +52,26 @@ class StructureTest(ExportTestCase):
             self.assertEqual(len(info["sha256"]), 64)
         sources = json.loads((self.export_dir / "sources.json").read_text(encoding="utf-8"))
         self.assertEqual(set(sources["sources"]), {"CAREBench", "MinorBench", "NEW"})
-        self.assertTrue(sources["sources"]["CAREBench"]["sha256"])
+        # 원본 CSV는 러너 밖(프로젝트 data/)에 있어 환경에 따라 없을 수 있다: 있으면 sha256, 없으면 TODO에 표시
+        care = sources["sources"]["CAREBench"]
+        if (export.DEFAULT_DATA_DIR / "CAREBench_prompts_500.csv").exists():
+            self.assertEqual(len(care["sha256"]), 64)
+        else:
+            self.assertEqual(care["sha256"], "")
+            self.assertTrue(any("원본 파일 없음" in t for t in care["TODO"]))
         self.assertIn("version", sources["sources"]["NEW"]["TODO"])
+
+    def test_sources_sha256_from_given_data_dir(self):
+        """원천 파일 해시는 주어진 data 폴더에서 읽는다(환경에 기대지 않는 확인)."""
+        import hashlib
+        data_dir = self.tmp / "data"
+        data_dir.mkdir()
+        (data_dir / "CAREBench_prompts_500.csv").write_text("case_uid,prompt\nX,Y\n", encoding="utf-8")
+        index, _, _ = self.views()
+        sources = export.sources_skeleton(index, data_dir)["sources"]
+        self.assertEqual(sources["CAREBench"]["sha256"], hashlib.sha256((data_dir / "CAREBench_prompts_500.csv").read_bytes()).hexdigest())
+        self.assertEqual(sources["MinorBench"]["sha256"], "")
+        self.assertTrue(any("원본 파일 없음" in t for t in sources["MinorBench"]["TODO"]))
 
     def test_items_single_and_multi_share_structure(self):
         """단일·3턴 문항의 키 구성이 같고 turns 길이만 1·3으로 다르다. 01·02·03 전 필드가 한 번씩 들어간다."""
