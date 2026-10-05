@@ -345,6 +345,36 @@ $PIP install --no-deps --force-reinstall "https://github.com/vllm-project/vllm/r
 
 `bash tools/e2e_judge_aggregate.sh`는 모의 배치 4개(ST1·MT3 정상, 실패 계획 ST1·MT3 — 차단·오류·시간초과·빈 응답·절단, 출력 한도 8,192 조건)를 `var/e2e_task6/`에 만들고, 모의 판정 → 06 검증 → `apply_judgments` → 집계(모의 판정 거부 확인 → 허용) → 차단 정책 비교(`count_as_refusal`/`exclude`, 규칙 판본은 현재 판본의 PATCH+1) → 결과 확인(완료 행의 CFC 빈칸 0, 07 코드북 위반 0, `results_denominators.csv`와 07의 `result_id` 1:1, `risk_group` 행에 ORR, 분모 불변식)까지 돌립니다. 실모델 배치를 함께 넣으려면 폴더를 인자로 줍니다(복사해서 쓰므로 원본은 바뀌지 않음). 1,024 한도로 기록된 옛 배치(2026-10-02 001~004)는 허용값 8192 때문에 `apply` 단계에서 거부되므로 기본값에서 뺐습니다 — GPU 재실행 뒤 8,192 조건의 새 배치를 넣습니다. 모의 판정이므로 나온 수치는 모델 평가가 아닙니다.
 
+## 납품 형식 (JSONL)
+
+AISI 미팅(2026-10-05) 요구에 맞춘 **내보내기**입니다(`납품형식_JSONL스키마_v0.1.md`). 작업용 기록은 지금처럼 코드북 7 CSV이고, 이 도구는 그 CSV를 기계적으로 변환만 합니다. 필드 이름과 값은 코드북 그대로이며, 새로 두는 것은 묶음 이름(`turns`·`evaluation`·`metadata`·`tags`·`review`·`provenance`·`model`·`settings`·`outcome`·`scores`·`crri`)과 파일 구성뿐입니다 — 둘 다 **연구실 A 제안(잠정)**이며 코드북 담당이 확인하면 확정됩니다.
+
+```bash
+.venv/bin/python tools/export_jsonl.py <배치 폴더> [...] --out <납품 폴더> [--input 입력 폴더] [--results RESULTS 폴더] [--allow-mock-judge]
+```
+
+| 산출물 | 내용 |
+|---|---|
+| `items.jsonl` | 문항 전체 단일 파일. `item_id`+`item_version`당 1줄. `turns`(03, `turn_index` 순), `evaluation`(루브릭·기대 응답·금지 응답·위험 단서), `metadata`(문항 메타 + `tags` 현재 판본 + `review` + `tag_history` 02 전체 행), `provenance`(원천·원문·한국화·라이선스·상위 문항). 단일턴과 3턴은 같은 구조(turns 길이만 1·3). 01·02·03의 모든 필드가 한 번씩 들어가며 배치표가 코드북 열을 다 덮지 못하면 내보내기가 거부됩니다 |
+| `responses/<model_id>.jsonl` | 실행 1회 = 1줄. 04 행(`model`·`settings`·`outcome` 묶음) + `turns[]`(05 행: `messages` = 실제 보낸 대화, `raw_response` = 공급자 원본). 시스템 프롬프트 원문은 해시별로 `manifest.json`에 한 번 |
+| `judgments/<model_id>.jsonl` | 판정 1건 = 1줄. 06 행 + 연결 키(`item_id`·`item_version`·`run_id`·`rollout_no`, 04·05에서 찾아 덧붙임). `scores`(d1~d6)·`crri`(4축) 묶음, 해당 없는 차원은 null, 치명적 실패 없음은 `"NONE"` |
+| `results/` | `--results`로 준 폴더의 `07_results.csv`·`results_denominators.csv`·`results_notes.json` 그대로 |
+| `schema/*.schema.json` | 코드북 FieldSpec(허용값·정규식·형식) + overlay에서 **생성**(손으로 쓰지 않음). 분류 코드 필드는 옛 체계(R1~R5) 행도 받되 판본별 검사는 입력 검증이 함 |
+| `manifest.json` | 파일별 행 수·sha256, dataset_version, 코드북 overlay 목록, 규칙 판본, 실행 코드 판본, 시스템 프롬프트 원문, 모의 판정 포함 여부, 패턴 경고 |
+| `sources.json` | 원천 데이터셋(CAREBench·MinorBench·NEW) 틀: 라이선스·문항 수·`data/` 원본 sha256은 채우고, 판본·취득 위치·취득일은 TODO |
+
+값 형식: 코드북 종류 기준으로 JSON 배열·객체는 실제 값, 정수·숫자·boolean은 실제 형식(그 필드의 빈칸은 `null`), 문자열 종류의 빈칸은 `""`. 키 순서 고정, `ensure_ascii=false`, 한 줄 한 객체.
+
+검증·안전장치(어느 하나라도 걸리면 종료 코드 2):
+- **왕복 검증** — JSONL을 다시 01~06 CSV 셀로 풀어 원본과 셀 단위로 대조. 문자열이 다르면 JSON 필드는 파싱값, 숫자 필드는 수치로 비교(다른 팀 CSV의 표기 차이 흡수). 판정 연결 키도 04·05와 대조.
+- **스키마 검증** — 모든 줄을 생성된 스키마로 검사(`jsonschema`).
+- 입력 3종·06은 집계와 같은 검증을 거치고, 같은 모델에 호출 파라미터가 섞이면 거부, 모의 판정(`production: false`)은 `--allow-mock-judge`가 있어야 하며 manifest에 표시.
+- 비밀값 패턴(`sk-`, `AIza`, `hf_`, `Bearer`)이 출력 어디에든 있으면 출력을 지우고 거부. 이메일 패턴은 응답 본문에 정상적으로 나올 수 있어(상담기관 안내 등) 경고와 위치 목록(manifest `pattern_warnings`)만.
+
+출처 역추적에서 지금 코드북으로는 끊기는 곳(명세 §5, 협의 후보 — `results_notes.json`의 `codebook_candidates`에도 있음): P1 원천 데이터셋 판본·위치·취득일(→ `sources.json`으로), P2 한국화 이력(누가·언제·어느 판), P3 신규 문항 작성 근거, P4 대조 문항이 본뜬 위험 문항.
+
+샘플: `python tools/export_jsonl.py var/e2e_task6/RBATCH-… --out var/export_sample --results var/e2e_task6/RESULTS-… --allow-mock-judge` (개발 샘플 6문항, 모의 모델 1종).
+
 ## 동작 규칙
 
 ### 모델에 보내는 것
@@ -476,7 +506,8 @@ runner/
     vllm_server.py          로컬 vLLM 서버 기동·종료·상태
     check_determinism.py    반복 간 응답 동일 여부 확인
     apply_judgments.py      판정 결과로 04_runs의 first_fail_turn·first_cfc_turn 채우기
-    e2e_judge_aggregate.sh  판정·집계 종단 시험 (10-02 배치 복사본 + 모의 실패 배치)
+    e2e_judge_aggregate.sh  판정·집계 종단 시험 (모의 배치 4개, 실모델 배치는 인자로)
+    export_jsonl.py         납품 형식(JSONL) 내보내기 명령행
   schema/
     codebook_v0.2.json            코드북 추출본 (손으로 고치지 않음)
     overlay_v0.3_confirmed.yaml   v0.3 xlsx가 오기 전까지의 확정·가정 변경
@@ -510,12 +541,13 @@ runner/
     run_judge.py            판정 실행기
     metrics.py              지표 산식, 실행 단위 정리, 슬라이스 집계, 07 검증
     run_aggregate.py        집계 실행기
+    export.py               납품 형식(JSONL) 내보내기·스키마 생성·왕복 검증
   samples/
     input/                  샘플 입력 (900000번대 ID, 실제 문항 아님)
     output/                 샘플 실행 결과
     mock_plan_failures.yaml 실패 경로 모의 계획
-  tests/                    test_runner.py, test_judge_io.py, test_metrics.py(지표 손계산 대조),
-                            test_local_vllm.py, test_commercial_adapters.py, fixtures/(가짜 응답)
+  tests/                    test_runner.py, test_overlay.py, test_judge_io.py, test_metrics.py(지표 손계산 대조),
+                            test_export.py, test_local_vllm.py, test_commercial_adapters.py, fixtures/(가짜 응답)
   var/                      서버 기동 정보·로그 (git 제외)
 ```
 
