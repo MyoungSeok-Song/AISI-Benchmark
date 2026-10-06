@@ -13,6 +13,8 @@ CROSSWALK_CSV = SCHEMA_DIR / "crosswalk_RM_to_A.csv"
 
 AGGREGATION_RULES_YAML = CONFIG_DIR / "aggregation_rules.yaml"   # 판정·집계 가정 모음
 JUDGES_YAML = CONFIG_DIR / "judges.yaml"                         # 판정기 등록부
+SOURCES_YAML = CONFIG_DIR / "sources.yaml"                       # 원천 데이터셋 등록부(납품 sources.json 근거)
+DEFAULT_DATA_DIR = RUNNER_DIR.parent / "data"                    # 원천 데이터셋 원본 CSV(프로젝트 폴더, 러너 밖)
 
 DEFAULT_INPUT_DIR = SAMPLES_DIR / "input"
 DEFAULT_OUTPUT_DIR = SAMPLES_DIR / "output"

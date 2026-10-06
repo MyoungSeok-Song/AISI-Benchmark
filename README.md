@@ -361,8 +361,8 @@ AISI 미팅(2026-10-05) 요구에 맞춘 **내보내기**입니다(`납품형식
 | `judgments/<model_id>.jsonl` | 판정 1건 = 1줄. 06 행 + 연결 키(`item_id`·`item_version`·`run_id`·`rollout_no`, 04·05에서 찾아 덧붙임). `scores`(d1~d6)·`crri`(4축) 묶음, 해당 없는 차원은 null, 치명적 실패 없음은 `"NONE"` |
 | `results/` | `--results`로 준 폴더의 `07_results.csv`·`results_denominators.csv`·`results_notes.json` 그대로 |
 | `schema/*.schema.json` | 코드북 FieldSpec(허용값·정규식·형식) + overlay에서 **생성**(손으로 쓰지 않음). 분류 코드 필드는 옛 체계(R1~R5) 행도 받되 판본별 검사는 입력 검증이 함 |
-| `manifest.json` | 파일별 행 수·sha256, dataset_version, 코드북 overlay 목록, 규칙 판본, 실행 코드 판본, 시스템 프롬프트 원문, 모의 판정 포함 여부, 패턴 경고 |
-| `sources.json` | 원천 데이터셋(CAREBench·MinorBench·NEW) 틀: 라이선스·문항 수·`data/` 원본 sha256은 채우고, 판본·취득 위치·취득일은 TODO |
+| `manifest.json` | 파일별 행 수·sha256, dataset_version, 코드북 overlay 목록, 규칙 판본, 실행 코드 판본(`generated_by`) + 러너 git 상태(`runner_git`: 커밋 전체 SHA, `dirty`, 커밋 안 된 파일 수 — dirty면 경고, 거부는 않음), 시스템 프롬프트 원문, 모의 판정 포함 여부, 패턴 경고, `warnings`, **`links`**(파일 사이 조인 키: items `item_id`+`item_version`·`turn_id`, responses `run_id`·`response_id`, judgments `judgment_id`→`response_id`/`run_id`, results `result_id`→분모표 1:N) |
+| `sources.json` | 원천 데이터셋(CAREBench·MinorBench·NEW) 목록. 라이선스·문항 수는 01에서, `data/` 원본 sha256은 파일에서 읽고, **`version`(HF 커밋)·`location`(저장소·커밋·파일 URL)·`origin`·`basis`는 등록부 `config/sources.yaml`의 sha256과 로컬 원본이 일치할 때만** 채웁니다(2026-10-06, 팀원 파일럿 manifest 근거). 다르거나 파일이 없으면 빈칸 + TODO + 경고. `acquired_at`(취득일)은 근거가 없어 TODO. NEW는 원천이 없어 TODO |
 
 값 형식: 코드북 종류 기준으로 JSON 배열·객체는 실제 값, 정수·숫자·boolean은 실제 형식(그 필드의 빈칸은 `null`), 문자열 종류의 빈칸은 `""`. 키 순서 고정, `ensure_ascii=false`, 한 줄 한 객체.
 
@@ -372,7 +372,7 @@ AISI 미팅(2026-10-05) 요구에 맞춘 **내보내기**입니다(`납품형식
 - 입력 3종·06은 집계와 같은 검증을 거치고, 같은 모델에 호출 파라미터가 섞이면 거부, 모의 판정(`production: false`)은 `--allow-mock-judge`가 있어야 하며 manifest에 표시.
 - 비밀값 패턴(`sk-`, `AIza`, `hf_`, `Bearer`)이 출력 어디에든 있으면 출력을 지우고 거부. 이메일 패턴은 응답 본문에 정상적으로 나올 수 있어(상담기관 안내 등) 경고와 위치 목록(manifest `pattern_warnings`)만.
 
-출처 역추적에서 지금 코드북으로는 끊기는 곳(명세 §5, 협의 후보 — `results_notes.json`의 `codebook_candidates`에도 있음): P1 원천 데이터셋 판본·위치·취득일(→ `sources.json`으로), P2 한국화 이력(누가·언제·어느 판), P3 신규 문항 작성 근거, P4 대조 문항이 본뜬 위험 문항.
+출처 역추적에서 지금 코드북으로는 끊기는 곳(명세 §5, 협의 후보 — `results_notes.json`의 `codebook_candidates`에도 있음): P1 원천 데이터셋 판본·위치·취득일(→ `sources.json`으로; 판본·위치는 `config/sources.yaml` 등록부로 채움, 취득일은 아직 TODO), P2 한국화 이력(누가·언제·어느 판), P3 신규 문항 작성 근거, P4 대조 문항이 본뜬 위험 문항.
 
 샘플: `python tools/export_jsonl.py var/e2e_task6/RBATCH-… --out var/export_sample --results var/e2e_task6/RESULTS-… --allow-mock-judge` (개발 샘플 6문항, 모의 모델 1종).
 
@@ -519,6 +519,7 @@ runner/
     aggregation_rules.yaml  판정·집계 가정 모음 (07의 aggregation_rule_id·version이 가리키는 파일)
     models.yaml             모델 등록부
     judges.yaml             판정기 등록부, 눈가림 점검 패턴
+    sources.yaml            원천 데이터셋 등록부(HF 저장소·커밋·원본 sha256) — 납품 sources.json의 판본·위치 근거
     system_prompt.txt       시스템 프롬프트 원문
   kyab_runner/
     codebook.py             명세 로드, 값·행 검사

@@ -19,6 +19,8 @@ import shutil
 from collections import Counter, defaultdict
 from pathlib import Path
 
+import yaml
+
 from . import csv_io, judge_io, paths
 from .session import RUN_PARAM_FIELDS
 from .validate import item_key
@@ -369,6 +371,10 @@ def export(env, index, views, out_dir, results_dir=None, allow_mock_judge=False,
     items = [item_record(codebook, item, tags_by_item[item_key(item)], index.turns[item_key(item)])
              for item in index.tables["01_items"]]
 
+    # 원천 목록: 등록부(config/sources.yaml) 형식 오류는 여기서(파일을 쓰기 전에) 드러난다. 경고는 manifest.warnings로
+    sources = sources_skeleton(index)
+    notices = [f"sources.json: {w}" for w in sources["warnings"]]
+
     out_dir.mkdir(parents=True, exist_ok=True)
     _write_jsonl(out_dir / ITEMS_FILE, items)
 
@@ -403,8 +409,8 @@ def export(env, index, views, out_dir, results_dir=None, allow_mock_judge=False,
     for name, schema in build_schemas(codebook, rules, env.taxonomy).items():
         (out_dir / "schema" / f"{name}.schema.json").write_text(json.dumps(schema, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    # sources.json (틀)
-    (out_dir / SOURCES_FILE).write_text(json.dumps(sources_skeleton(index), ensure_ascii=False, indent=2), encoding="utf-8")
+    # sources.json
+    (out_dir / SOURCES_FILE).write_text(json.dumps(sources, ensure_ascii=False, indent=2), encoding="utf-8")
 
     # 비밀값: 키 패턴은 거부, 이메일은 경고(manifest에 건수·위치)
     hits = find_secrets(out_dir)
@@ -417,11 +423,18 @@ def export(env, index, views, out_dir, results_dir=None, allow_mock_judge=False,
     files = {}
     for path in sorted(p for p in out_dir.rglob("*") if p.is_file()):
         rel = str(path.relative_to(out_dir))
-        rows = sum(1 for _ in open(path, encoding="utf-8")) if path.suffix in (".jsonl", ".csv") else None
+        rows = None
+        if path.suffix in (".jsonl", ".csv"):
+            with open(path, encoding="utf-8") as f:
+                rows = sum(1 for _ in f)
         files[rel] = {"rows": rows - 1 if path.suffix == ".csv" and rows else rows, "sha256": _sha256(path)}
+    git = _git_state()                                      # 커밋 해시·수정 유무. dirty면 경고(거부는 않음)
+    if git and git["dirty"]:
+        notices.append(f"러너에 커밋되지 않은 수정 {git['uncommitted']}건 (.dirty) — 커밋 뒤 내보내야 코드를 되짚을 수 있다")
     manifest = {
         "format": f"납품형식_JSONL스키마_v{FORMAT_VERSION} (연구실 A 제안, 잠정)",
         "generated_by": f"kyab_runner.export {_library_version()}",
+        "runner_git": git or {"commit": "", "dirty": None, "uncommitted": None, "note": "runner/가 git 저장소가 아님"},
         "generated_at": views[0].batch.now() if views else None,
         "dataset_version": sorted({i["dataset_version"] for i in index.tables["01_items"]}),
         "codebook": {"source": str(paths.CODEBOOK_JSON.name), "overlays": codebook.applied_overlays},
@@ -435,6 +448,8 @@ def export(env, index, views, out_dir, results_dir=None, allow_mock_judge=False,
         "results_copied": copied,
         "pattern_warnings": {"count": len(warnings), "locations": [f"{f}:{ln} ({n})" for f, n, ln in warnings[:50]],
                              "note": "이메일 패턴은 응답 본문에 정상적으로 나올 수 있어 경고만 낸다. 확인 후 납품"},
+        "warnings": notices,
+        "links": MANIFEST_LINKS,
         "files": files,
     }
     (out_dir / MANIFEST_FILE).write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -450,14 +465,59 @@ def _library_version():
     return library_version()
 
 
-# 원천 데이터셋의 원본 파일(프로젝트 폴더 data/, 러너 밖). 없으면 sha256을 비워 두고 TODO에 적는다.
-DEFAULT_DATA_DIR = paths.RUNNER_DIR.parent / "data"
+def _git_state():
+    """러너 저장소 커밋·수정 상태(cli.git_state). git 저장소가 아니면 None."""
+    from .cli import git_state
+    return git_state()
 
 
-def sources_skeleton(index, data_dir=DEFAULT_DATA_DIR):
-    """원천 데이터셋 목록의 틀. data_dir에 원본 CSV가 있으면 sha256을 채우고 나머지는 TODO."""
-    known_files = {"CAREBench": "CAREBench_prompts_500.csv", "MinorBench": "MinorBench_original_299.csv"}
-    sources = {}
+# ── sources.json: 원천 데이터셋 목록 ─────────────────────────────────────
+# 원본 파일은 프로젝트 폴더 data/(러너 밖)에 있고, 판본·위치의 근거는 config/sources.yaml 등록부에 있다.
+# 등록부의 sha256과 로컬 파일의 sha256이 같을 때만 version(HF 커밋)·location(저장소·커밋·파일 URL)을 채운다.
+DEFAULT_DATA_DIR = paths.DEFAULT_DATA_DIR
+SOURCE_REGISTRY_KEYS = ("local_file", "hf_repo", "hf_commit", "hf_file", "sha256", "basis")
+
+
+class SourcesRegistryError(Exception):
+    """config/sources.yaml 형식 오류."""
+
+
+def load_sources_registry(path=paths.SOURCES_YAML):
+    """원천 등록부 {원천 이름: {local_file, hf_repo, hf_commit, hf_file, sha256, basis}}. 파일이 없으면 빈 dict."""
+    path = Path(path)
+    if not path.exists():
+        return {}
+    with open(path, encoding="utf-8") as f:
+        raw = yaml.safe_load(f) or {}
+    registry = raw.get("sources") or {}
+    for name, entry in registry.items():
+        missing = [k for k in SOURCE_REGISTRY_KEYS if not (entry or {}).get(k)]
+        if missing:
+            raise SourcesRegistryError(f"{path.name} {name}: 빈 항목 {missing}")
+        if not re.fullmatch(r"[0-9a-f]{64}", str(entry["sha256"])):
+            raise SourcesRegistryError(f"{path.name} {name}: sha256 형식이 아님 {entry['sha256']!r}")
+        if not re.fullmatch(r"[0-9a-f]{7,40}", str(entry["hf_commit"])):
+            raise SourcesRegistryError(f"{path.name} {name}: hf_commit 형식이 아님 {entry['hf_commit']!r}")
+    return registry
+
+
+def hf_location(entry):
+    """HF 저장소·커밋·파일이 모두 보이는 위치 표기(URL)."""
+    return f"https://huggingface.co/datasets/{entry['hf_repo']}/blob/{entry['hf_commit']}/{entry['hf_file']}"
+
+
+def sources_skeleton(index, data_dir=DEFAULT_DATA_DIR, registry=None):
+    """원천 데이터셋 목록. 반환 dict의 "warnings"에 화면에 낼 경고를 모은다.
+
+    원천별 채움 규칙:
+      등록부에 있고 data_dir의 원본 sha256이 등록부와 같음 → version(hf_commit)·location(URL)·origin·basis를 채움
+      sha256이 다름 → 빈칸 + TODO + 경고(등록부와 로컬 파일 중 어느 쪽이 맞는지 사람이 확인)
+      원본 파일 없음 → 빈칸 + TODO + 경고
+      등록부에 없음(NEW 등) → 빈칸 + TODO
+    acquired_at(취득일)은 근거가 없어 항상 TODO.
+    """
+    registry = load_sources_registry() if registry is None else registry
+    sources, warnings = {}, []
     for item in index.tables["01_items"]:
         name = item["source_benchmark"]
         entry = sources.setdefault(name, {"version": "", "location": "", "license": set(), "acquired_at": "",
@@ -466,15 +526,65 @@ def sources_skeleton(index, data_dir=DEFAULT_DATA_DIR):
         entry["item_count"] += 1
     for name, entry in sources.items():
         entry["license"] = sorted(entry["license"])
-        local = data_dir / known_files.get(name, "")
-        if name in known_files and local.exists():
-            entry["local_file"], entry["sha256"] = f"data/{known_files[name]}", _sha256(local)
-        entry["TODO"] = [k for k in ("version", "location", "acquired_at") if not entry[k]]
-        if name in known_files and not entry["sha256"]:
-            entry["TODO"].append(f"원본 파일 없음: data/{known_files[name]} (sha256 미기록)")
+        known = registry.get(name)
+        if known:
+            local = Path(data_dir) / known["local_file"]
+            entry["local_file"] = f"data/{known['local_file']}"
+            if local.exists():
+                entry["sha256"] = _sha256(local)
+                if entry["sha256"] == known["sha256"]:
+                    entry["version"] = known["hf_commit"]
+                    entry["location"] = hf_location(known)
+                    entry["origin"] = {k: known[k] for k in ("hf_repo", "hf_commit", "hf_file")}
+                    entry["basis"] = known["basis"]
+                else:
+                    message = (f"{name}: 원본 파일 sha256이 등록부(config/sources.yaml)와 다름 — 로컬 {entry['sha256'][:12]}… "
+                               f"등록 {known['sha256'][:12]}… (판본·위치 미기록)")
+                    entry["TODO"].append(message)
+                    warnings.append(message)
+            else:
+                message = f"{name}: 원본 파일 없음 data/{known['local_file']} (sha256·판본·위치 미기록)"
+                entry["TODO"].append(message)
+                warnings.append(message)
+        entry["TODO"] = [k for k in ("version", "location", "acquired_at") if not entry[k]] + entry["TODO"]
         if name == "NEW":
             entry["TODO"].append("작성 근거 기록 방식(협의 후보 P3)")
-    return {"note": "원천 데이터셋 목록 — 틀(연구실 A 제안). 판본·취득 위치·취득일은 채워야 한다(협의 후보 P1).", "sources": sources}
+    return {"note": "원천 데이터셋 목록(연구실 A 제안). version=HF 커밋, location=저장소·커밋·파일 URL은 등록부(config/sources.yaml)의 "
+                    "sha256과 로컬 원본이 일치할 때만 채운다. acquired_at(취득일)은 근거가 없어 비워 둔다(협의 후보 P1).",
+            "sources": sources, "warnings": warnings}
+
+
+# manifest.links: 파일끼리 어떤 키로 이어지는지. 받는 쪽이 별도 문서 없이 조인할 수 있게 적는다(실제 묶음 구조 기준).
+MANIFEST_LINKS = {
+    "note": "파일 사이 조인 키. 이름과 값은 코드북 7 CSV의 키 열 그대로다.",
+    "items.jsonl": {
+        "key": ["item_id", "item_version"],
+        "turns[]": {"key": "turn_id", "order": "turn_index"},
+        "metadata.tag_history[]": {"key": "tag_revision", "current": "tag_status == 'current' (metadata.tags·evaluation·review에 쓴 판본)"},
+    },
+    "responses/<model_id>.jsonl": {
+        "key": "run_id",
+        "→ items.jsonl": ["item_id", "item_version"],
+        "turns[]": {"key": "response_id", "→ items.jsonl.turns[]": "turn_id", "order": "turn_index"},
+        "settings.system_prompt_hash → manifest.system_prompts": "해시별 시스템 프롬프트 원문",
+        "model_id": "파일 이름 = model_id (한 모델에 실행 조건은 한 가지)",
+    },
+    "judgments/<model_id>.jsonl": {
+        "key": "judgment_id",
+        "→ responses.turns[]": "response_id",
+        "→ responses": ["run_id", "rollout_no"],
+        "→ items.jsonl": ["item_id", "item_version"],
+        "evaluation_scope": "turn = 그 응답 1턴 / conversation = 실행 전체(response_id는 그 실행의 마지막 성공 응답)",
+        "tag_revision → items.jsonl.metadata.tag_history[]": "판정 때 쓴 태그 판본",
+    },
+    "results/07_results.csv": {
+        "key": "result_id",
+        "→ results/results_denominators.csv": "result_id (1:N — 지표·성분별 분모 행)",
+        "→ results/results_notes.json": "rows[result_id]",
+        "model_id": "→ responses/<model_id>.jsonl, judgments/<model_id>.jsonl",
+        "source_run_batch_ids": "→ responses.run_batch_id",
+    },
+}
 
 
 # ── 왕복 검증 ───────────────────────────────────────────────────────────
@@ -614,9 +724,11 @@ def main(argv=None):
         print(f"주의: {notice}")
     try:
         manifest = export(env, index, views, args.out, args.results, args.allow_mock_judge)
-    except ExportError as exc:
+    except (ExportError, SourcesRegistryError) as exc:
         print(f"내보내기 거부: {exc}")
         return 2
+    for notice in manifest["warnings"]:
+        print(f"주의: {notice}")
     if manifest["mock_judge_used"]:
         print(f"주의: {manifest['warning']}")
     if manifest["pattern_warnings"]["count"]:

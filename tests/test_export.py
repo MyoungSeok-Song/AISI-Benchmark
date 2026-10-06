@@ -61,17 +61,79 @@ class StructureTest(ExportTestCase):
             self.assertTrue(any("원본 파일 없음" in t for t in care["TODO"]))
         self.assertIn("version", sources["sources"]["NEW"]["TODO"])
 
-    def test_sources_sha256_from_given_data_dir(self):
-        """원천 파일 해시는 주어진 data 폴더에서 읽는다(환경에 기대지 않는 확인)."""
+    def _registry(self, care_sha):
+        return {"CAREBench": {"local_file": "CAREBench_prompts_500.csv", "hf_repo": "org/CAREBench", "hf_commit": "a" * 40,
+                              "hf_file": "prompts.csv", "sha256": care_sha, "basis": "시험"},
+                "MinorBench": {"local_file": "MinorBench_original_299.csv", "hf_repo": "org/MinorBench", "hf_commit": "b" * 40,
+                               "hf_file": "test.csv", "sha256": "c" * 64, "basis": "시험"}}
+
+    def test_sources_filled_only_when_sha256_matches_registry(self):
+        """원천 판본·위치: 등록부 sha256 = 로컬 원본 sha256일 때만 채움. 다르면 TODO+경고, 파일 없으면 TODO+경고."""
         import hashlib
         data_dir = self.tmp / "data"
         data_dir.mkdir()
         (data_dir / "CAREBench_prompts_500.csv").write_text("case_uid,prompt\nX,Y\n", encoding="utf-8")
+        local_sha = hashlib.sha256((data_dir / "CAREBench_prompts_500.csv").read_bytes()).hexdigest()
         index, _, _ = self.views()
-        sources = export.sources_skeleton(index, data_dir)["sources"]
-        self.assertEqual(sources["CAREBench"]["sha256"], hashlib.sha256((data_dir / "CAREBench_prompts_500.csv").read_bytes()).hexdigest())
-        self.assertEqual(sources["MinorBench"]["sha256"], "")
-        self.assertTrue(any("원본 파일 없음" in t for t in sources["MinorBench"]["TODO"]))
+        # 일치: version=HF 커밋, location에 저장소·커밋·파일이 모두 보임, TODO에는 acquired_at만
+        result = export.sources_skeleton(index, data_dir, self._registry(local_sha))
+        care, minor, new = (result["sources"][k] for k in ("CAREBench", "MinorBench", "NEW"))
+        self.assertEqual((care["sha256"], care["version"]), (local_sha, "a" * 40))
+        self.assertIn("org/CAREBench", care["location"])
+        self.assertIn("a" * 40, care["location"])
+        self.assertTrue(care["location"].endswith("/prompts.csv"))
+        self.assertEqual(care["origin"], {"hf_repo": "org/CAREBench", "hf_commit": "a" * 40, "hf_file": "prompts.csv"})
+        self.assertEqual(care["TODO"], ["acquired_at"])
+        # 파일 없음(MinorBench): 빈칸 + TODO + 경고
+        self.assertEqual((minor["sha256"], minor["version"], minor["location"]), ("", "", ""))
+        self.assertTrue(any("원본 파일 없음" in t for t in minor["TODO"]))
+        self.assertNotIn("origin", minor)
+        # 등록부에 없음(NEW): 빈칸 + TODO, 경고 없음
+        self.assertEqual(new["TODO"][:3], ["version", "location", "acquired_at"])
+        self.assertEqual(len(result["warnings"]), 1)
+        self.assertIn("MinorBench", result["warnings"][0])
+        # 불일치: 로컬 파일은 있지만 등록부 sha256과 다름 → 채우지 않고 경고
+        result = export.sources_skeleton(index, data_dir, self._registry("d" * 64))
+        care = result["sources"]["CAREBench"]
+        self.assertEqual((care["sha256"], care["version"], care["location"]), (local_sha, "", ""))
+        self.assertTrue(any("등록부(config/sources.yaml)와 다름" in t for t in care["TODO"]))
+        self.assertEqual(len(result["warnings"]), 2)
+
+    def test_sources_registry_file(self):
+        """실제 등록부(config/sources.yaml)는 형식 검사를 통과하고, 깨진 등록부는 거부된다."""
+        registry = export.load_sources_registry()
+        self.assertEqual(set(registry), {"CAREBench", "MinorBench"})
+        bad = self.tmp / "sources_bad.yaml"
+        bad.write_text("sources:\n  CAREBench:\n    local_file: x.csv\n    sha256: zz\n", encoding="utf-8")
+        with self.assertRaises(export.SourcesRegistryError):
+            export.load_sources_registry(bad)
+        self.assertEqual(export.load_sources_registry(self.tmp / "none.yaml"), {})
+
+    def test_manifest_runner_git_and_links(self):
+        """manifest: 러너 git 커밋·dirty 표시(dirty면 경고, 거부는 않음)와 파일 사이 조인 키(links)."""
+        from unittest import mock
+        manifest = json.loads((self.export_dir / "manifest.json").read_text(encoding="utf-8"))
+        self.assertIn("runner_git", manifest)
+        self.assertEqual(set(manifest["links"]), {"note", "items.jsonl", "responses/<model_id>.jsonl",
+                                                  "judgments/<model_id>.jsonl", "results/07_results.csv"})
+        self.assertEqual(manifest["links"]["items.jsonl"]["key"], ["item_id", "item_version"])
+        self.assertEqual(manifest["links"]["responses/<model_id>.jsonl"]["key"], "run_id")
+        self.assertEqual(manifest["links"]["judgments/<model_id>.jsonl"]["→ responses.turns[]"], "response_id")
+        for state, expect_warning in (({"commit": "f" * 40, "dirty": True, "uncommitted": 2}, True),
+                                      ({"commit": "f" * 40, "dirty": False, "uncommitted": 0}, False),
+                                      (None, False)):
+            out = self.tmp / f"export_git_{expect_warning}_{state is None}"
+            with mock.patch.object(export, "_git_state", return_value=state):
+                code, output = self.run_export("--allow-mock-judge", out=out)
+            self.assertEqual(code, 0, output)
+            manifest = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
+            dirty_warnings = [w for w in manifest["warnings"] if ".dirty" in w]
+            self.assertEqual(bool(dirty_warnings), expect_warning, manifest["warnings"])
+            self.assertEqual(("커밋되지 않은 수정 2건" in output), expect_warning, output)
+            if state is None:
+                self.assertEqual(manifest["runner_git"]["dirty"], None)
+            else:
+                self.assertEqual(manifest["runner_git"], state)
 
     def test_items_single_and_multi_share_structure(self):
         """단일·3턴 문항의 키 구성이 같고 turns 길이만 1·3으로 다르다. 01·02·03 전 필드가 한 번씩 들어간다."""

@@ -65,6 +65,21 @@ def _git(*args):
         return None
 
 
+def git_state():
+    """러너 저장소의 커밋과 수정 상태. 납품 manifest가 실행 코드를 되짚을 수 있게 남긴다.
+
+    반환: {"commit": 전체 SHA, "dirty": 커밋 안 된 수정 유무, "uncommitted": 그 파일 수}.
+    runner/ 가 git 저장소가 아니면 None.
+    """
+    top = _git("rev-parse", "--show-toplevel")
+    sha = _git("rev-parse", "HEAD")
+    if not (top and sha and Path(top).resolve() == paths.RUNNER_DIR):
+        return None
+    status = _git("status", "--porcelain") or ""
+    changed = [line for line in status.splitlines() if line.strip()]
+    return {"commit": sha, "dirty": bool(changed), "uncommitted": len(changed)}
+
+
 def library_version():
     """execution_library_version. 예: runner-0.1.0+abc1234
 
