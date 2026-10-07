@@ -9,9 +9,10 @@
 
 정규화(시각류 필드 — 작업 지침 0절): ISO 시각(+09:00, 정밀도는 토큰에 남김), RBATCH·RUN·RESULTS의 날짜 8자리, .bak-시각,
 러너 코드 판본(runner-…+sha[.dirty]), 러너 절대 경로, 임시 폴더 경로, manifest의 runner_git·dirty 경고·파일 sha256(정규화한
-내용으로 다시 계산). 원천 파일(data/)은 러너 밖이라 환경마다 다르므로 sources.json은 '원천 파일 없음' 상태로 고정한다.
+내용의 해시로 치환 — 치환 전에 기록된 값이 실제 파일 바이트의 sha256과 같은지 확인한다). 파일은 바이트로 읽어 줄바꿈(CRLF/LF)
+변화도 잡는다. 원천 파일(data/)은 러너 밖이라 환경마다 다르므로 sources.json은 '원천 파일 없음' 상태로 고정한다.
 
-골든 갱신:  KYAB_UPDATE_GOLDEN=1 .venv/bin/python -m unittest tests.test_golden   (runner/ 폴더에서; 의도한 출력 변경일 때만)
+골든 갱신:  KYAB_UPDATE_GOLDEN=1 .venv/bin/python -m unittest discover -s tests -p test_golden.py   (runner/ 폴더에서; 의도한 출력 변경일 때만)
 정규화 결과 보기:  KYAB_GOLDEN_DUMP=<폴더>  — 정규화한 전체 출력을 그 폴더에 써 두 판본을 diff 할 수 있다.
 """
 import difflib
@@ -20,9 +21,12 @@ import itertools
 import json
 import os
 import re
+import tempfile
+import unittest
 from pathlib import Path
 from unittest import mock
 
+from support import bumped
 from test_judge_io import RULES, JudgedTestCase
 from test_metrics import hand_computed_scenario, provider_block_scenario, rules_with
 from test_runner import CODEBOOK, FAILURE_PLAN, RunnerTestCase
@@ -67,17 +71,39 @@ def normalize_name(relative):
     return normalize_text(relative, "\0")
 
 
-def normalize_file(path, relative, tmp, delivery_files):
-    """파일 1개의 정규화한 본문. 납품 manifest는 JSON으로 풀어 git 상태·dirty 경고를 지우고 파일 sha256을 다시 센다."""
-    text = normalize_text(path.read_text(encoding="utf-8"), tmp)
-    if relative.endswith("delivery/" + export.MANIFEST_FILE):
-        manifest = json.loads(text)
-        manifest["runner_git"] = "<GIT>"
-        manifest["warnings"] = [w for w in manifest["warnings"] if "커밋되지 않은 수정" not in w]
-        for name, info in manifest["files"].items():
-            info["sha256"] = hashlib.sha256(delivery_files[name].encode("utf-8")).hexdigest()
-        text = json.dumps(manifest, **JSON_KW)
+def read_text_bytes(path):
+    """줄바꿈을 보존해 읽는다 — Path.read_text의 universal newline은 CRLF를 LF로 바꿔 읽어 CSV 줄바꿈 변화를 놓친다(R18)."""
+    return path.read_bytes().decode("utf-8")
+
+
+# 납품 manifest에서 실행마다 달라지는 값만 원문에서 치환한다(다시 직렬화하지 않는다 — 직렬화 형식 변화도 골든이 잡아야 한다, R19).
+# dirty 경고는 export._build_manifest가 warnings의 마지막 원소로 붙이므로 앞 쉼표와 함께 지우고, 비게 되면 '[]'로 맞춘다.
+_MANIFEST_RULES = (
+    (re.compile(r'"runner_git": \{.*?\n  \}', re.S), '"runner_git": "<GIT>"'),
+    (re.compile(r',?\n\s*"[^"\n]*커밋되지 않은 수정[^"\n]*"'), ""),
+    (re.compile(r'"warnings": \[\s*\]'), '"warnings": []'),
+)
+
+
+def normalize_manifest(raw, delivery_dir, delivery_files, tmp):
+    """납품 manifest 본문. 기록된 sha256이 실제 파일 바이트와 같은지 확인한 뒤 정규화한 본문의 sha256으로 치환한다."""
+    manifest = json.loads(raw)
+    text = normalize_text(raw, tmp)
+    for name, info in manifest["files"].items():
+        actual = hashlib.sha256((delivery_dir / name).read_bytes()).hexdigest()
+        assert info["sha256"] == actual, f"manifest의 sha256이 실제 파일과 다름: {name} 기록 {info['sha256'][:12]}… 실제 {actual[:12]}…"
+        text = text.replace(info["sha256"], sha256_text(delivery_files[name]))
+    for pattern, replacement in _MANIFEST_RULES:
+        text = pattern.sub(replacement, text)
     return text
+
+
+def normalize_file(path, relative, tmp, delivery_dir, delivery_files):
+    """파일 1개의 정규화한 본문(바이트로 읽음). 납품 manifest는 normalize_manifest."""
+    raw = read_text_bytes(path)
+    if relative.endswith("delivery/" + export.MANIFEST_FILE):
+        return normalize_manifest(raw, delivery_dir, delivery_files, tmp)
+    return normalize_text(raw, tmp)
 
 
 def sha256_text(text):
@@ -138,10 +164,10 @@ class GoldenChainTest(JudgedTestCase):
         delivery = self.out / "delivery"
         for path in paths_sorted:                    # 납품 파일을 먼저 정규화해 manifest의 sha256을 다시 셀 수 있게 한다
             if delivery in path.parents and path.name != export.MANIFEST_FILE:
-                delivery_files[str(path.relative_to(delivery))] = normalize_text(path.read_text(encoding="utf-8"), self.tmp)
+                delivery_files[str(path.relative_to(delivery))] = normalize_text(read_text_bytes(path), self.tmp)
         for path in paths_sorted:
             relative = normalize_name(str(path.relative_to(self.out)))
-            files[relative] = normalize_file(path, relative, self.tmp, delivery_files)
+            files[relative] = normalize_file(path, relative, self.tmp, delivery, delivery_files)
         return files
 
     def test_chain_outputs_match_golden(self):
@@ -151,7 +177,7 @@ class GoldenChainTest(JudgedTestCase):
             for name, text in files.items():
                 target = Path(DUMP_DIR) / name
                 target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text(text, encoding="utf-8")
+                target.write_bytes(text.encode("utf-8"))
         if UPDATE:
             GOLDEN_DIR.mkdir(exist_ok=True)
             CHAIN_MANIFEST.write_text(json.dumps(digests, **JSON_KW) + "\n", encoding="utf-8")
@@ -167,6 +193,52 @@ class GoldenChainTest(JudgedTestCase):
             self.assertNotRegex(name + "\n" + text, r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}", name)
             self.assertNotIn(str(self.tmp), text, name)
             self.assertNotRegex(text, r"runner-0\.\d+\.\d+\+", name)
+
+    def test_e2e_check_passes_on_chain_outputs(self):
+        """tools/e2e_check.py(종단 시험 7단계)가 이 사슬 출력(배치 4 + 결과 폴더 2)을 통과한다 — tooling-08·R25."""
+        import e2e_check
+        code, output = self.capture(e2e_check.main, [str(self.out), RULES.rule_version, bumped(RULES.rule_version)])
+        self.assertEqual(code, 0, output)
+        self.assertIn("e2e 확인 통과", output)
+
+
+class NormalizationTest(unittest.TestCase):
+    """정규화 자체의 안전망: 줄바꿈을 흡수하지 않고(R18), manifest의 틀린 sha256·직렬화 변화를 놓치지 않는다(R19)."""
+
+    def test_crlf_and_lf_normalize_differently(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            lf, crlf = Path(tmp) / "lf.csv", Path(tmp) / "crlf.csv"
+            lf.write_bytes(b"a,b\n1,2\n")
+            crlf.write_bytes(b"a,b\r\n1,2\r\n")
+            self.assertNotEqual(normalize_file(lf, "x/lf.csv", tmp, Path(tmp), {}), normalize_file(crlf, "x/crlf.csv", tmp, Path(tmp), {}))
+
+    def test_manifest_sha256_is_verified_and_only_volatile_values_are_replaced(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            delivery = Path(tmp) / "delivery"
+            delivery.mkdir()
+            (delivery / "items.jsonl").write_bytes(b'{"a": 1}\n')
+            good = hashlib.sha256(b'{"a": 1}\n').hexdigest()
+            manifest = {"runner_git": {"commit": "abc", "dirty": True, "uncommitted": 1},
+                        "warnings": ["sources.json: x", "러너에 커밋되지 않은 수정 1건 (.dirty) — 커밋 뒤 내보내야 코드를 되짚을 수 있다"],
+                        "files": {"items.jsonl": {"sha256": good, "rows": 1}}}
+            path = delivery / export.MANIFEST_FILE
+            relative = "delivery/" + export.MANIFEST_FILE
+            path.write_text(json.dumps(manifest, **JSON_KW), encoding="utf-8")
+            text = normalize_file(path, relative, tmp, delivery, {"items.jsonl": '{"a": 1}\n'})
+            self.assertIn('"runner_git": "<GIT>"', text)
+            self.assertNotIn("커밋되지 않은 수정", text)
+            self.assertIn('"warnings": [\n    "sources.json: x"\n  ]', text)       # 깨끗한 트리의 렌더링과 같은 형태
+            self.assertIn(good, text)                                              # 내용이 같으니 해시도 같다
+            manifest["warnings"] = [manifest["warnings"][1]]
+            path.write_text(json.dumps(manifest, **JSON_KW), encoding="utf-8")
+            self.assertIn('"warnings": []', normalize_file(path, relative, tmp, delivery, {"items.jsonl": '{"a": 1}\n'}))
+            manifest["files"]["items.jsonl"]["sha256"] = good[::-1]                # 틀린 해시는 통과하지 않는다
+            path.write_text(json.dumps(manifest, **JSON_KW), encoding="utf-8")
+            with self.assertRaises(AssertionError):
+                normalize_file(path, relative, tmp, delivery, {"items.jsonl": '{"a": 1}\n'})
+            manifest["files"]["items.jsonl"]["sha256"] = good                      # 직렬화 형식 변화도 본문을 바꾼다
+            path.write_text(json.dumps(manifest, ensure_ascii=False, indent=4), encoding="utf-8")
+            self.assertNotEqual(normalize_file(path, relative, tmp, delivery, {"items.jsonl": '{"a": 1}\n'}), text)
 
 
 # ── 지표 골든 ────────────────────────────────────────────────────────────
@@ -246,7 +318,7 @@ class GoldenMetricsTest(RunnerTestCase):
         self.check("two_models.default", self.aggregate_files(two_model_scenario(), RULES))
 
     def test_direct_slices(self):
-        """대조 문항만 있는 슬라이스(FR 계열 빈값, MRS 분자 0 — metrics-03 전 상태)와 단일 문항만의 슬라이스."""
+        """대조 문항만 있는 슬라이스(FR 계열 빈값, MRS 분자 빈칸(null) — metrics-03 이후 상태)와 단일 문항만의 슬라이스."""
         scenario = hand_computed_scenario()
         self.check("hand.control_only", self.slice_files(scenario, lambda c: c.item["case_type"] == "safe_control"))
         self.check("hand.single_only", self.slice_files(scenario, lambda c: c.item["conversation_mode"] == "single"))

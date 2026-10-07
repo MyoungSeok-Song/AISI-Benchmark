@@ -69,9 +69,9 @@ class SpecDataTest(unittest.TestCase):
             target = Path(tmp) / "generated.py"
             target.write_text(text, encoding="utf-8")
             module = load_module(target)
+            self.assertIn(_xlsx_common.file_sha256(source), text)    # 원본 sha256이 머리글에 — with 블록 안에서(R22: 밖에서는 파일이 지워져 늘 참)
         self.assertEqual((module.DATA, module.N), (data, 3))
         self.assertIn("자동 생성 — 손으로 고치지 말 것", text)
-        self.assertIn(_xlsx_common.file_sha256(source) if source.exists() else "", text)
 
 
 @unittest.skipUnless(CODEBOOK_XLSX and TAXONOMY_XLSX, "원본 xlsx가 없는 환경(저장소 밖 파일)")

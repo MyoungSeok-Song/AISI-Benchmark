@@ -81,10 +81,6 @@ class RequestShapeTest(unittest.TestCase):
         self.assertFalse(config.models["qwen3-8b-local"].enabled)         # 가중치 없음
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class ServedModelCheckTest(unittest.TestCase):
     """서버가 올린 스냅샷 확인(adapters-14): root의 마지막 경로 요소가 revision과 같아야 하고, 빈 revision은 거부."""
 
@@ -109,10 +105,15 @@ class ServedModelCheckTest(unittest.TestCase):
 
     def test_describe_attaches_server_info_only_for_this_model(self):
         import json
+        import shutil
+        import tempfile
         from unittest import mock
         from kyab_runner.adapters import local_vllm
         adapter, _ = self.make("/cache/snapshots/rev")
-        info_file = Path(self._testMethodName + ".json")
+        # 임시 폴더에 쓴다(R21): cwd(runner/)에 쓰면 실패 시 파일이 남아 provenance.git_state가 dirty로 보고 실배치 판본에 .dirty가 붙는다
+        tmp = Path(tempfile.mkdtemp(prefix="kyab_test_"))
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        info_file = tmp / "vllm_server.json"
         with mock.patch.object(local_vllm, "SERVER_INFO_FILE", info_file), \
                 mock.patch("urllib.request.urlopen", side_effect=OSError("no server")):
             info_file.write_text(json.dumps({"revision": "rev", "port": 8000, "pid": 1}), encoding="utf-8")
@@ -121,4 +122,7 @@ class ServedModelCheckTest(unittest.TestCase):
             described = adapter.describe()
             self.assertNotIn("server", described)
             self.assertIn("server_info_skipped", described)
-        info_file.unlink()
+
+
+if __name__ == "__main__":                            # 파일 맨 끝에 둔다(R20)
+    unittest.main()

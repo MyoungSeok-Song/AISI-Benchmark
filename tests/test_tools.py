@@ -1,4 +1,5 @@
-"""도구 검사(tooling-08): check_determinism, build_samples, e2e_check, vllm_server(서버 없이)."""
+"""도구 검사(tooling-08): check_determinism, build_samples, vllm_server(서버 없이), 테스트 파일 배치.
+e2e_check는 test_golden의 사슬 출력(배치 4 + 결과 2)으로 검사한다."""
 import importlib.util
 import contextlib
 import io
@@ -15,6 +16,18 @@ from kyab_runner import paths                                          # noqa: E
 from kyab_runner.sources import load_sources_registry                  # noqa: E402
 
 VLLM_SERVER = RUNNER_DIR / "tools" / "vllm_server.py"
+
+
+class TestFileLayoutTest(unittest.TestCase):
+    """R20: 테스트 파일의 `if __name__ == "__main__"` 블록 뒤에 클래스가 있으면 직접 실행 때 조용히 빠진다 — 블록은 맨 끝에."""
+
+    def test_main_guard_is_the_last_statement(self):
+        import ast
+        for path in sorted((RUNNER_DIR / "tests").glob("test_*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            guards = [i for i, node in enumerate(tree.body) if isinstance(node, ast.If) and "__main__" in ast.unparse(node.test)]
+            for position in guards:
+                self.assertEqual(position, len(tree.body) - 1, f"{path.name}: __main__ 블록 뒤에 정의가 있음")
 
 
 class ApplyJudgmentsEntryTest(RunnerTestCase):

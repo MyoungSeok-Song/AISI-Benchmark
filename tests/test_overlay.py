@@ -235,8 +235,9 @@ class TaxonomyLoadTest(unittest.TestCase):
         self.assertFalse(hasattr(TAXONOMY, "sort_order"))       # 읽는 곳이 없던 필드 제거
 
 
-class OverlayStructureTest(OverlayTest):
+class OverlayStructureTest(unittest.TestCase):
     """overlay 파일 구조 오류(codebook-03)는 traceback 대신 항목 ID가 든 OverlayError."""
+    setUp, load = OverlayTest.setUp, OverlayTest.load      # 메서드만 빌린다 — 상속하면 부모 테스트 10개가 한 번 더 돈다(R26)
 
     def load_raw(self, text):
         path = self.tmp / "overlay_raw.yaml"

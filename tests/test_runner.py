@@ -582,10 +582,6 @@ class ValidationTest(RunnerTestCase):
         self.assertIn("enabled: false", output)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class ManifestLockTest(RunnerTestCase):
     """이어 쓰기 잠금: manifest에서 잠금 키가 빠져 있어도 KeyError가 아니라 불일치 메시지와 종료 2(core-10)."""
 
@@ -750,3 +746,7 @@ class ConfigCheckTest(RunnerTestCase):
         with self.assertRaises(ConfigError) as caught:
             self.load_with(mutate_models=lambda m: m["models"]["mock-echo"].update(enabled="false"))
         self.assertIn("true/false", str(caught.exception))
+
+
+if __name__ == "__main__":                            # 파일 맨 끝에 둔다 — 뒤에 클래스가 있으면 직접 실행 때 조용히 빠진다(R20)
+    unittest.main()
