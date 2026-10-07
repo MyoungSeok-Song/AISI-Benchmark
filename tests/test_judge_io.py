@@ -246,6 +246,27 @@ class MockJudgeTest(JudgedTestCase):
             self.assertEqual(code, 2, module.__name__)
             self.assertIn("시험용 규칙 오류", output)
 
+    def test_broken_batch_manifest_is_a_message_not_a_traceback(self):
+        """R04: 잘린 JSON·필수 키 빠짐·객체가 아닌 batch_manifest.json → 네 진입점 모두 한 줄 메시지·종료 2(종료 1은 '할 일 없음')."""
+        from kyab_runner import export, run_aggregate
+        from kyab_runner.layout import BATCH_MANIFEST_FILE
+        manifest_path = self.single_dir / BATCH_MANIFEST_FILE
+        original = json.loads(manifest_path.read_text(encoding="utf-8"))
+        entry_points = ((run_judge.main, ["--validate-only"]), (run_aggregate.main, ["--allow-mock-judge"]),
+                        (apply_judgments.main, ["--dry-run"]), (export.main, ["--out", str(self.tmp / "delivery"), "--allow-mock-judge"]))
+        cases = (('{"run_batch_id": "RBATCH-20261005-001", ', "읽을 수 없습니다"),
+                 (json.dumps({k: v for k, v in original.items() if k != "protocol_id"}), "'protocol_id'"),
+                 ("[]", "필수 키가 없습니다"))
+        for broken, expected in cases:
+            manifest_path.write_text(broken, encoding="utf-8")
+            for main, extra in entry_points:
+                code, output = self.capture(main, [str(self.single_dir), *extra])
+                self.assertEqual(code, 2, (broken[:24], main.__module__, output))
+                self.assertIn("배치 또는 입력을 읽을 수 없습니다", output)
+                self.assertIn(expected, output)
+                self.assertIn(BATCH_MANIFEST_FILE, output)
+                self.assertNotIn("Traceback", output)
+
     def test_validate_only_exit_codes(self):
         self.assertEqual(self.judge("--validate-only")[0], 0)
         rows = self.mutated(self.single, self.judgments(self.single_dir), verdict="pass",

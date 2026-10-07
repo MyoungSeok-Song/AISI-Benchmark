@@ -13,18 +13,10 @@ from . import csv_io, paths, validate
 from .codebook import Codebook, load_codebook
 from .config import RunnerConfig, load_config
 from .errors import SetupError
-from .records import BatchRecords, BatchView, InputIndex
+from .records import BatchRecords, BatchView, InputIndex, RecordsError      # noqa: F401 (RecordsError는 이 모듈 이름으로도 쓴다)
 from .rules import Rules, load_rules
 from .taxonomy import load_taxonomy
 from .vocab import check_vocabulary
-
-
-class RecordsError(Exception):
-    """배치 기록이 입력과 이어지지 않거나 입력 3종이 검증을 통과하지 못할 때. issues에 검증 결과 전체가 들어 있다."""
-
-    def __init__(self, message, issues=()):
-        super().__init__(message)
-        self.issues = list(issues)
 
 
 # 명세·설정 파일이 잘못됐을 때 나는 예외. 진입점은 이것을 잡아 한 줄 메시지와 종료 코드 2로 끝낸다(traceback 없이).
@@ -82,7 +74,8 @@ def open_views(env, input_dir, batch_dirs):
     return index, views, notices
 
 
-READ_ERRORS = (csv_io.CsvFormatError, FileNotFoundError, RecordsError)     # 배치·입력을 읽다 나는 예외(설정 오류와 구분)
+# 배치·입력을 읽다 나는 예외(설정 오류와 구분). 깨진 batch_manifest.json(JSON·필수 키)은 BatchRecords가 RecordsError로 바꾼다.
+READ_ERRORS = (csv_io.CsvFormatError, FileNotFoundError, RecordsError)
 
 
 def report_read_error(exc):

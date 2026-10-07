@@ -28,6 +28,17 @@ RUNNER_STAGES = ("실행 자동기록 필수",)
 RUN_PARAM_FIELDS = ("temperature", "top_p", "max_output_tokens")
 
 
+class RecordsError(Exception):
+    """배치 기록이 깨졌거나 입력과 이어지지 않거나 입력 3종이 검증을 통과하지 못할 때. issues에 검증 결과 전체가 들어 있다.
+
+    진입점은 context.READ_ERRORS로 잡아 한 줄 메시지와 종료 코드 2로 끝낸다(traceback 없이).
+    """
+
+    def __init__(self, message, issues=()):
+        super().__init__(message)
+        self.issues = list(issues)
+
+
 def load_inputs(codebook, input_dir):
     """입력 3종을 읽는다. 반환: ({표 이름: 행 목록}, {파일명: sha256})."""
     tables, digests = {}, {}
@@ -91,9 +102,17 @@ class BatchRecords(BatchFolder):
 
     def __init__(self, codebook, config, batch_dir):
         super().__init__(codebook, config, batch_dir)
-        self.manifest = fileio.read_json(self.dir / BATCH_MANIFEST_FILE)
-        self.run_batch_id = self.manifest["run_batch_id"]
-        self.protocol_id = self.manifest["protocol_id"]
+        path = self.dir / BATCH_MANIFEST_FILE
+        # 잘린 JSON·키 빠진 manifest(손으로 고쳤거나 손상)는 traceback·종료 1이 아니라 RecordsError(종료 2)로 — 종료 1은 '할 일 없음'이다
+        try:
+            self.manifest = fileio.read_json(path)
+        except ValueError as exc:                     # json.JSONDecodeError
+            raise RecordsError(f"{path}: batch_manifest.json을 읽을 수 없습니다 — {exc}") from exc
+        try:
+            self.run_batch_id = self.manifest["run_batch_id"]
+            self.protocol_id = self.manifest["protocol_id"]
+        except (KeyError, TypeError) as exc:          # TypeError: 최상위가 객체가 아님
+            raise RecordsError(f"{path}: batch_manifest.json에 필수 키가 없습니다 — {type(exc).__name__}: {exc}") from exc
 
     def changed_inputs(self, index):
         """실행 때와 내용이 달라진 입력 파일 이름 목록.
