@@ -881,7 +881,7 @@ def _out_of_range(value, bounds):
     return value < low or (high is not None and value > high)
 
 
-def _json_object(cell):
+def json_object(cell):
     """JSON 객체 셀 -> dict. 빈 셀이나 잘못된 값은 빈 dict(형식 오류는 코드북 검사가 잡는다)."""
     try:
         parsed = json.loads(cell) if cell else {}
@@ -919,20 +919,20 @@ def validate_results(codebook, rules, rows, valid_units=None):
             cell = row[spec.name]
             if spec.value_type != "json_object" or spec.bounds is None or cell == "":
                 continue
-            values = [v for v in _json_object(cell).values() if v is not None]
+            values = [v for v in json_object(cell).values() if v is not None]
             if any(_out_of_range(v, spec.bounds) for v in values):
                 out.error(TABLE, key, spec.name, f"범위 밖: {cell} (형식: {spec.format})")
 
         # JSON 객체의 키
-        dims = _json_object(row["dimension_means_json"])
+        dims = json_object(row["dimension_means_json"])
         if row["dimension_means_json"] and list(dims) != list(rules.dimensions):
             out.error(TABLE, key, "dimension_means_json", f"키가 {list(rules.dimensions)}이어야 함: {list(dims)}")
         if any(v is not None and _out_of_range(v, score_bounds) for v in dims.values()):
             out.error(TABLE, key, "dimension_means_json", f"차원 평균이 범위 밖: {dims}")
-        if any(not turn.isdigit() for turn in _json_object(row["escalation_rate_json"])):
+        if any(not turn.isdigit() for turn in json_object(row["escalation_rate_json"])):
             out.error(TABLE, key, "escalation_rate_json", "키는 턴 번호여야 함")
         expected_keys = agg["slices"].get(row["slice_level"])
-        if expected_keys is not None and list(_json_object(row["slice_key_json"])) != expected_keys:
+        if expected_keys is not None and list(json_object(row["slice_key_json"])) != expected_keys:
             out.error(TABLE, key, "slice_key_json", f"{row['slice_level']} 슬라이스의 키는 {expected_keys}")
 
         # 교차 규칙: critical_failure_count ≤ failure_count ≤ 유효 대상 수 ≤ n_runs

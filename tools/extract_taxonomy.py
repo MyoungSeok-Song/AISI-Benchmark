@@ -226,7 +226,7 @@ def legacy_scheme(code):
 
 
 def build_taxonomy(src_path, rows, notes):
-    """검증용 JSON. 대분류 아래에 소분류를 시트 순서대로 넣는다."""
+    """분류체계 자료(생성 모듈 TAXONOMY). 대분류 아래에 소분류를 시트 순서대로 넣는다."""
     def entry(r):
         return {"code": r["code"], "name": r["name"], "definition": r["definition"],
                 "scope_note": r["scope_note"], "source": r["source"],

@@ -9,11 +9,15 @@ from zoneinfo import ZoneInfo
 
 from . import paths
 from .errors import SetupError, load_yaml
-from .messages import CONTEXT_POSITIONS
 
 
 class ConfigError(SetupError):
     """설정 파일이 러너 규칙에 어긋날 때."""
+
+
+# 구현된 context_text 위치. runner.yaml context_position은 이 중 하나여야 한다(여기서 검사, messages가 적용).
+# 공용 기반인 config가 실행 계층의 messages를 import하지 않도록 상수는 여기 둔다(R15).
+CONTEXT_POSITIONS = ("user_prefix",)
 
 
 # 모델 옵션(extra_body·extra_generation_config)에 둘 수 없는 키: 러너가 run_params에서 보내는 호출 파라미터와

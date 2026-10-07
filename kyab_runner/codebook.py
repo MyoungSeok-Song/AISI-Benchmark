@@ -32,8 +32,10 @@ _TYPE_KEYWORDS = [
     ("boolean", "bool"),
     ("정수", "int"),
     ("숫자", "number"),
-    ("소수", "number"),          # 07 비율 필드('0.0-1.0 소수'). 맨 뒤에 두어 'JSON 객체'·'정수'가 먼저 잡히게 한다
 ]
+# 07 비율 필드('0.0-1.0 소수', '0 이상의 소수'). 낱말 '소수'만으로는 수로 보지 않는다 — '성소수자'·'소수 의견' 같은 설명이
+# 형식 원문에 들어오면 텍스트 필드가 number로 바뀌어 모든 값을 거부하게 되므로(R07), 수 범위 표기와 함께 있을 때만 수다.
+_RE_DECIMAL = re.compile(r"(?:-?\d+\.\d+-\s*-?\d+\.\d+|\d+(?:\.\d+)?\s*이상의)\s*소수")
 _RE_SEMVER = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 # int()/float()는 ' 7'·'+7'·'1_000'·'nan'·'inf'·전각 숫자도 받아들여 뒤 단계(isdigit 비교, 키 조립)와 어긋난다. ASCII 표기만 허용
 _RE_INT = re.compile(r"^-?[0-9]+$")
@@ -59,9 +61,12 @@ def value_range(fmt):
 
 
 def _infer_type(fmt):
+    """형식 원문 → 값 종류. 키워드는 위에서부터 먼저 맞는 것('JSON 객체'·'정수'가 '소수'보다 먼저), 그다음 수 범위가 붙은 '소수'."""
     for keyword, value_type in _TYPE_KEYWORDS:
         if keyword in fmt:
             return value_type
+    if _RE_DECIMAL.search(fmt):
+        return "number"
     return "text"
 
 
@@ -217,7 +222,7 @@ class Codebook:
 
 
 # ── 로드 ────────────────────────────────────────────────────────────────
-def _field_from_json(table, raw):
+def _field_from_spec(table, raw):
     """추출본의 필드 dict -> FieldSpec."""
     fmt = raw["format"]
     enum = tuple(str(v) for v in (raw["enum"] or ()))
@@ -296,6 +301,7 @@ def _add_field(tables, entry, change, confirmed_ids, taxonomy):
 
 
 _ENUM_SOURCES = ("taxonomy.major", "taxonomy.sub")     # enum_from이 가리킬 수 있는 분류체계 코드 목록
+_TOP_KEYS = {"base", "changes"}                        # 최상위 키. base는 사람이 읽는 출처 표기(코드는 읽지 않는다)
 _ENTRY_KEYS = {"id", "status", "date", "basis", "note", "apply", "add_field"}
 _APPLY_KEYS = {"table", "field", "enum", "enum_add", "enum_from", "enum_kind", "required", "max_items", "format",
                "none_token", "regex"}
@@ -308,6 +314,9 @@ def _check_overlay_schema(overlay, tables):
     """overlay 파일의 구조·키·상태값·ID 중복·표 이름·enum_from을 검사한다. 오타가 조용히 무시되거나 traceback으로 끝나지 않게."""
     if not isinstance(overlay, dict) or not isinstance(overlay.get("changes"), list):
         raise OverlayError("overlay 파일은 'changes' 목록을 가진 매핑이어야 합니다(빈 파일·changes 누락 불가)")
+    unknown_top = sorted(set(overlay) - _TOP_KEYS)
+    if unknown_top:                                   # 최상위 키도 검사한다(R08): 모르는 키가 조용히 무시되지 않게
+        raise OverlayError(f"overlay 파일 최상위에 알 수 없는 키 {unknown_top} (가능: {sorted(_TOP_KEYS)})")
     seen = set()
     for entry in overlay["changes"]:
         if not isinstance(entry, dict):
@@ -344,7 +353,7 @@ def load_codebook(taxonomy, raw=codebook_data.CODEBOOK, overlay_yaml=paths.OVERL
     적용한 overlay 기록(applied_overlays)에는 id·status·basis와 note가 남아 매니페스트에서
     '잠정' 표시를 읽을 수 있다. raw 인자는 시험용 치환 자리다(읽기만 하므로 복사하지 않는다).
     """
-    tables = {name: [_field_from_json(name, fld) for fld in table["fields"]]
+    tables = {name: [_field_from_spec(name, fld) for fld in table["fields"]]
               for name, table in raw["tables"].items()}
 
     applied = []

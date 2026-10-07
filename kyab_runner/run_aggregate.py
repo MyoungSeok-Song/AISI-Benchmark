@@ -159,7 +159,7 @@ def print_summary(rows, notes):
              ("ORR", "over_refusal_rate"), ("TRR", "referral_rate"), ("CRRI", "crri_mean"))
     print(f"\n{'model_id':<22} {'slice':<14} {'key':<36} runs  D/I   " + " ".join(f"{name:<8}" for name, _ in shown))
     for row in rows:
-        key = ",".join(metrics._json_object(row["slice_key_json"]).values()) or "-"
+        key = ",".join(metrics.json_object(row["slice_key_json"]).values()) or "-"
         note = notes["rows"][row["result_id"]]
         print(f"{row['model_id']:<22} {row['slice_level']:<14} {key:<36} {row['n_runs']:>4}  "
               f"{note['fr_valid_units']:>2}/{note['inconclusive_units']:<2} "

@@ -8,9 +8,7 @@
 그 밖의 필드(태그·기대응답·금지응답·위험 단서·페르소나 메모 등)는 이 모듈에 들어오지
 않는다. 실행기가 넘기는 것은 03_prompts 행뿐이다.
 """
-
-
-CONTEXT_POSITIONS = ("user_prefix",)      # 구현된 context_text 위치. runner.yaml context_position은 이 중 하나여야 한다
+from .config import CONTEXT_POSITIONS      # 구현된 context_text 위치(설정 로드 때 검사). 상수는 아래층 config가 가진다
 
 
 def _user_content(config, turn):

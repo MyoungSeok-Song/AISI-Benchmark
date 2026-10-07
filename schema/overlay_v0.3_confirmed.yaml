@@ -21,7 +21,7 @@
 #   apply        있는 필드의 변경 목록. 항목마다 table, field (필수) + 아래 중 필요한 것
 #     enum         허용값 전체 교체
 #     enum_add     허용값 추가
-#     enum_from    분류체계 JSON에서 허용값을 가져옴: taxonomy.major | taxonomy.sub
+#     enum_from    분류체계 명세 모듈(kyab_runner/spec/taxonomy_data.py)에서 허용값을 가져옴: taxonomy.major | taxonomy.sub
 #     enum_kind    scalar(단일값) | array(JSON 배열의 원소)
 #     required     true | false  (false = 빈 값 허용. 조건부 필수는 validate.py·judge_io.py의 규칙이 검사)
 #     max_items    JSON 배열의 최대 원소 수
@@ -34,7 +34,7 @@
 #                코드북 담당 회신 없이는 열을 늘릴 수 없다는 프로젝트 규칙의 코드 쪽 가드)
 #   note         매니페스트(codebook_overlays)에 함께 남는 설명. 잠정 표시는 여기와 basis에 적는다.
 
-base: codebook_v0.2.json
+base: kyab_runner/spec/codebook_data.py (ETRI_7CSV_codebook_v0.2.xlsx 추출본, 자동 생성)
 
 changes:
   # ── 확정 사항 ────────────────────────────────────────────────────────

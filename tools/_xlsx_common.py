@@ -69,7 +69,7 @@ def file_sha256(path):
 def render_module(docstring, source_path, command, assignments):
     """생성 모듈 본문. assignments는 [(이름, 값)] 순서대로 `이름 = <pformat>`로 적는다.
 
-    pprint.pformat(sort_dicts=False)는 dict 키 순서를 지키므로 json 추출본과 같은 순서가 남는다.
+    pprint.pformat(sort_dicts=False)는 dict 키 순서를 지키므로 xlsx 시트의 열·행 순서가 그대로 남는다.
     """
     header = [f'"""{docstring}', "",
               "자동 생성 — 손으로 고치지 말 것. 원본이 바뀌면 추출기를 다시 돌린다.",

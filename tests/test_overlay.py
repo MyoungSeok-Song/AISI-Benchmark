@@ -26,7 +26,7 @@ class OverlayTest(unittest.TestCase):
 
     def load(self, *entries):
         path = self.tmp / "overlay.yaml"
-        path.write_text(yaml.safe_dump({"base": "codebook_v0.2.json", "changes": list(entries)}, allow_unicode=True),
+        path.write_text(yaml.safe_dump({"base": "kyab_runner/spec/codebook_data.py", "changes": list(entries)}, allow_unicode=True),
                         encoding="utf-8")
         return load_codebook(TAXONOMY, overlay_yaml=path)
 
@@ -122,6 +122,17 @@ class OverlayTest(unittest.TestCase):
 
 class FieldCheckTest(unittest.TestCase):
     """코드북 형식 원문 해석(cross-06): '소수'는 수, 범위('0.0-1.0', '0 이상')는 check가 본다."""
+
+    def test_decimal_keyword_needs_a_numeric_range(self):
+        """R07: '소수'는 수 범위 표기와 함께일 때만 number — '성소수자'·'소수 의견' 같은 설명으로 텍스트 필드가 number가 되지 않는다."""
+        from kyab_runner.codebook import _infer_type
+        for fmt in ("0.0-1.0 소수", "-1.0-1.0 소수", "0 이상의 소수", "0.5 이상의 소수"):
+            self.assertEqual(_infer_type(fmt), "number", fmt)
+        for fmt in ("성소수자 관련 여부 메모(자유 기술)", "소수 의견 요약", "최소수집 근거 메모", "자유 텍스트 (판정자 간 소수 의견 포함)"):
+            self.assertEqual(_infer_type(fmt), "text", fmt)
+        self.assertEqual(_infer_type("JSON 객체 (0.0-1.0 소수 값)"), "json_object")   # 키워드가 먼저
+        numbers = [f.name for f in CODEBOOK.fields("07_results") if f.value_type == "number"]
+        self.assertEqual(len(numbers), 14, numbers)                                   # 07 비율 필드 14개는 그대로 number
 
     def test_rate_fields_are_numbers_with_bounds(self):
         spec = CODEBOOK.field("07_results", "failure_rate")
@@ -245,9 +256,10 @@ class OverlayStructureTest(unittest.TestCase):
         return load_codebook(TAXONOMY, overlay_yaml=path)
 
     def test_structure_problems(self):
-        for text in ("", "changes:\n", "base: x\n", "changes:\n  - 3\n"):
+        for text in ("", "changes:\n", "base: x\n", "changes:\n  - 3\n", "base: x\nbsae: y\nchanges: []\n"):   # 마지막: 최상위 오타(R08)
             with self.assertRaises(OverlayError):
                 self.load_raw(text)
+        self.assertEqual(self.load_raw("base: x\nchanges: []\n").applied_overlays, [])
         with self.assertRaises(OverlayError) as caught:
             self.load(CONFIRMED, {"id": "OV-T-BAD", "status": "provisional", "basis": "시험",
                                   "apply": [{"table": "99_nope", "field": "x", "enum": ["a"]}]})

@@ -36,12 +36,12 @@ def item_key(row):
     return (row["item_id"], row["item_version"])
 
 
-def _item_label(key):
+def item_label(key):
     return f"{key[0]}@{key[1]}"
 
 
 def _tag_label(row):
-    return f"{_item_label(item_key(row))}#rev{row['tag_revision']}"
+    return f"{item_label(item_key(row))}#rev{row['tag_revision']}"
 
 
 def json_list(value):
@@ -67,10 +67,10 @@ def _check_links(out, items, tags, prompts):
     item_keys = {item_key(r) for r in items}
     for row in prompts:
         if item_key(row) not in item_keys:
-            out.error("03_prompts", row["turn_id"], "item_id", f"01_items에 없는 문항 판본 {_item_label(item_key(row))}")
+            out.error("03_prompts", row["turn_id"], "item_id", f"01_items에 없는 문항 판본 {item_label(item_key(row))}")
     for row in tags:
         if item_key(row) not in item_keys:
-            out.error("02_item_tags", _item_label(item_key(row)), "item_id", "01_items에 없는 문항 판본")
+            out.error("02_item_tags", item_label(item_key(row)), "item_id", "01_items에 없는 문항 판본")
 
 
 def _check_turns(out, items, prompts):
@@ -85,7 +85,7 @@ def _check_turns(out, items, prompts):
         expected = list(range(1, int(item["planned_round_count"]) + 1))
         actual = sorted(turns.get(item_key(item), []))
         if actual != expected:
-            out.error("03_prompts", _item_label(item_key(item)), "turn_index",
+            out.error("03_prompts", item_label(item_key(item)), "turn_index",
                       f"턴 번호 {actual} — planned_round_count 기준 {expected}이어야 함")
 
 
@@ -98,14 +98,14 @@ def _check_protocol(out, item, config):
     actual = (item["conversation_mode"], item["planned_round_count"])
     expected = (protocol["conversation_mode"], str(protocol["planned_round_count"]))
     if actual != expected:
-        out.error("01_items", _item_label(item_key(item)), "protocol_id",
+        out.error("01_items", item_label(item_key(item)), "protocol_id",
                   f"{item['protocol_id']}은 (conversation_mode, planned_round_count)={expected}인데 문항은 {actual}")
 
 
 def rule_original_text(out, item):
     """확정 4: original_text는 외부 원천을 번역·한국화한 문항만 필수."""
     from_source = item["source_benchmark"] != SOURCE_NEW
-    key = _item_label(item_key(item))
+    key = item_label(item_key(item))
     if from_source and not item["original_text"]:
         out.error("01_items", key, "original_text", "외부 원천 문항인데 원문이 없음")
     if from_source and not item["source_item_id"]:
@@ -114,7 +114,7 @@ def rule_original_text(out, item):
 
 def _check_rubric_registered(out, item, config):
     if item["rubric_id"] and item["rubric_id"] not in config["registered_rubric_ids"]:
-        out.error("01_items", _item_label(item_key(item)), "rubric_id",
+        out.error("01_items", item_label(item_key(item)), "rubric_id",
                   f"등록되지 않은 루브릭 {item['rubric_id']!r} (config/runner.yaml registered_rubric_ids)")
 
 
@@ -125,7 +125,7 @@ def _check_current_tag(out, items, tags):
     for item in items:
         count = current.get(item_key(item), 0)
         if count != 1:
-            out.error("02_item_tags", _item_label(item_key(item)), "tag_status", f"current 행이 {count}개 (1개여야 함)")
+            out.error("02_item_tags", item_label(item_key(item)), "tag_status", f"current 행이 {count}개 (1개여야 함)")
 
 
 def _scheme_of(tag):
@@ -244,7 +244,7 @@ def validate_inputs(codebook, taxonomy, config, items, tags, prompts):
         out.error("02_item_tags", "(코드북)", CONTROL_TARGET_FIELD,
                   f"코드북 02_item_tags에 {CONTROL_TARGET_FIELD!r} 열이 없음 (validate.CONTROL_TARGET_FIELD ↔ overlay OV-P4 확인)")
 
-    _check_fields(out, codebook, "01_items", items, lambda r: _item_label(item_key(r)))
+    _check_fields(out, codebook, "01_items", items, lambda r: item_label(item_key(r)))
     _check_fields(out, codebook, "02_item_tags", tags, _tag_label, skip=TAXONOMY_DEPENDENT_FIELDS)
     _check_fields(out, codebook, "03_prompts", prompts, lambda r: r["turn_id"])
 

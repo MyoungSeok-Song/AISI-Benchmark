@@ -32,7 +32,7 @@ from .issues import IssueCollector, check_fields, check_unique
 from .layout import JUDGE_INPUTS_FILE, JUDGMENTS_FILE, JUDGMENTS_TEMPLATE_FILE   # noqa: F401 (재수출)
 from .records import BatchView
 from .rules import TAG_REVISION_CURRENT
-from .validate import item_key, _item_label
+from .validate import item_key, item_label
 from .vocab import (JUDGE_STATUS_ADJUDICATED, JUDGE_STATUS_COMPLETED, JUDGE_STATUS_FAILED, JUDGE_TYPE_HUMAN, MODE_MULTI,
                     RESPONSE_SUCCESS, REVIEW_COMPLETED, SCOPE_CONVERSATION, SCOPE_TURN, VERDICT_FAIL, VERDICT_INCONCLUSIVE)
 
@@ -202,7 +202,7 @@ def rule_tag_revision(out, view, row, run):
     current = view.current_tag_of(run)["tag_revision"]
     if row["tag_revision"] not in revisions:
         out.error(TABLE, _row_label(row), "tag_revision",
-                  f"02_item_tags에 없는 태그 판본 {row['tag_revision']!r} ({_item_label(item_key(run))})")
+                  f"02_item_tags에 없는 태그 판본 {row['tag_revision']!r} ({item_label(item_key(run))})")
     elif row["tag_revision"] != current:
         out.warning(TABLE, _row_label(row), "tag_revision",
                     f"현재 태그 판본({current})이 아님 — 주 판정 집합에서 제외된다")
