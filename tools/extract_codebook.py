@@ -6,6 +6,7 @@
 
   * 열은 위치가 아니라 머리글 이름으로 찾는다(열이 옮겨져도 깨지지 않게).
   * 시트의 '…개 필드' 선언과 읽은 필드 수가 하나라도 어긋나면 모듈을 쓰지 않고 종료 코드 1로 끝낸다.
+  * 원본이 없거나 머리글을 못 찾으면(입력·형식 오류) stderr 한 줄 + 종료 코드 2(러너 계약과 같음).
   * 생성 모듈은 손으로 고치지 않는다. 판본이 바뀌면 CODEBOOK_VERSION만 올리고 다시 돌린다.
 
 실행:  .venv/bin/python tools/extract_codebook.py [--xlsx 경로]   (runner/ 폴더에서)
@@ -19,7 +20,7 @@ from pathlib import Path
 import openpyxl
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _xlsx_common import SPEC_DIR, file_sha256, nfc, render_module, resolve_xlsx, write_module   # noqa: E402
+from _xlsx_common import EXIT_MISMATCH, SPEC_DIR, file_sha256, nfc, refuse, render_module, resolve_xlsx, write_module   # noqa: E402
 
 # ── 판본 (코드북 xlsx 새 판이 오면 여기만 바꾼다) ────────────────────────
 CODEBOOK_VERSION = "0.2"
@@ -97,11 +98,11 @@ def read_sheet(ws):
     title, subtitle = cell_text(rows[0][0]), cell_text(rows[1][0])
     header_index = next((i for i, r in enumerate(rows) if r and "필드명" in [cell_text(c) for c in r]), None)
     if header_index is None:
-        sys.exit(f"[{ws.title}] '필드명' 머리글 행을 찾지 못했습니다")
+        refuse(f"[{ws.title}] '필드명' 머리글 행을 찾지 못했습니다")
     position = {cell_text(c): i for i, c in enumerate(rows[header_index]) if cell_text(c)}
     missing = [label for label, _ in HEADER_LABELS if label not in position]
     if missing:
-        sys.exit(f"[{ws.title}] 머리글 {missing}이 없습니다: {list(position)}")
+        refuse(f"[{ws.title}] 머리글 {missing}이 없습니다: {list(position)}")
     fields = []
     for row in rows[header_index + 1:]:
         padded = list(row) + [None] * (len(position) + 1)        # 짧은 행도 같은 길이로
@@ -154,7 +155,8 @@ def main(argv=None):
     xlsx = resolve_xlsx(args.xlsx, SRC_NAME_KEY)
     codebook, mismatched = build_codebook(xlsx)
     if mismatched:
-        sys.exit(f"선언 필드 수와 읽은 필드 수가 다른 시트 {mismatched} — 모듈을 쓰지 않았습니다")
+        print(f"선언 필드 수와 읽은 필드 수가 다른 시트 {mismatched} — 모듈을 쓰지 않았습니다", file=sys.stderr)
+        return EXIT_MISMATCH
     write_module(args.out, render(codebook, xlsx))
     return 0
 

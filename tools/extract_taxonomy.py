@@ -27,7 +27,7 @@ from pathlib import Path
 import openpyxl
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _xlsx_common import SPEC_DIR, nfc, render_module, resolve_xlsx, write_module   # noqa: E402
+from _xlsx_common import EXIT_MISMATCH, SPEC_DIR, nfc, refuse, render_module, resolve_xlsx, write_module   # noqa: E402
 
 # ── 산출물 ──────────────────────────────────────────────────────────────
 OUT_MODULE = SPEC_DIR / "taxonomy_data.py"
@@ -59,7 +59,7 @@ def header_map(ws, header_row, required):
     found = {cell_text(c): c.column for c in ws[header_row] if cell_text(c)}
     missing = [h for h in required if h not in found]
     if missing:
-        sys.exit(f"[{ws.title}] {header_row}행에 머리글 {missing}이 없습니다: {list(found)}")
+        refuse(f"[{ws.title}] {header_row}행에 머리글 {missing}이 없습니다: {list(found)}")
     return found
 
 
@@ -123,7 +123,7 @@ def read_overview(ws):
     header_row = next((r for r in range(1, ws.max_row + 1)
                        if cell_text(ws.cell(r, 1)) == "코드"), None)
     if header_row is None:
-        sys.exit(f"[{ws.title}] '코드' 머리글 행을 찾지 못했습니다")
+        refuse(f"[{ws.title}] '코드' 머리글 행을 찾지 못했습니다")
     cols = header_map(ws, header_row, ["코드", "대분류 코드와 이름", "하위 수",
                                        "소분류 코드와 이름", "상위 정의", "이전 코드"])
     majors, notes = [], []
@@ -296,7 +296,8 @@ def main(argv=None):
 
     failed = verify(rows, overview, sub39)
     if failed:
-        sys.exit(f"검산 실패 {failed}건 — 모듈을 쓰지 않았습니다")
+        print(f"검산 실패 {failed}건 — 모듈을 쓰지 않았습니다", file=sys.stderr)
+        return EXIT_MISMATCH
 
     taxonomy = build_taxonomy(src, rows, notes)
     crosswalk = build_crosswalk(rows)

@@ -5,6 +5,7 @@
 실행 (runner/ 폴더에서):  .venv/bin/python -m unittest discover -s tests -v
 """
 import importlib.util
+import io
 import os
 import tempfile
 import unittest
@@ -91,6 +92,66 @@ class ExtractorReproducibilityTest(unittest.TestCase):
             with open(os.devnull, "w") as sink, mock.patch("sys.stdout", sink):
                 extract_taxonomy.main(["--xlsx", TAXONOMY_XLSX, "--out", str(out)])
             self.assertEqual(out.read_bytes(), (RUNNER_DIR / "kyab_runner" / "spec" / "taxonomy_data.py").read_bytes())
+
+
+class ExtractorExitCodeTest(unittest.TestCase):
+    """R12: 추출기의 입력·형식 오류(원본 없음·머리글 없음)는 stderr 한 줄 + 종료 2(러너 계약), 선언 불일치만 추출기 고유의 1."""
+
+    def test_missing_xlsx_exits_2(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = str(Path(tmp) / "none.xlsx")
+            for call in (lambda: _xlsx_common.find_xlsx(tmp, "zzz"), lambda: _xlsx_common.resolve_xlsx(missing, "zzz"),
+                         lambda: extract_codebook.main(["--xlsx", missing]), lambda: extract_taxonomy.main(["--xlsx", missing])):
+                err = io.StringIO()
+                with mock.patch("sys.stderr", err), self.assertRaises(SystemExit) as caught:
+                    call()
+                self.assertEqual(caught.exception.code, _xlsx_common.EXIT_INVALID)
+                self.assertIn("xlsx", err.getvalue())
+
+    @staticmethod
+    def _workbook(path, declared_by_sheet, field_count):
+        """CSV_SHEETS 7장짜리 작은 코드북 xlsx: 제목·'N개 필드' 부제·머리글 행·필드 행 field_count개."""
+        import openpyxl
+        wb = openpyxl.Workbook()
+        wb.remove(wb.active)
+        for sheet in extract_codebook.CSV_SHEETS:
+            ws = wb.create_sheet(sheet)
+            ws.append([f"{sheet} 제목"])
+            ws.append([f"({declared_by_sheet.get(sheet, field_count)}개 필드)"])
+            ws.append([label for label, _ in extract_codebook.HEADER_LABELS])
+            for i in range(field_count):
+                ws.append(["필수", "", "", f"field_{i}", "설명", "자유 텍스트", "", "", "", ""])
+        wb.save(path)
+
+    def test_header_missing_exits_2_and_declared_mismatch_exits_1(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out.py"
+            ok = Path(tmp) / "codebook_ok.xlsx"
+            self._workbook(ok, {}, 2)
+            with open(os.devnull, "w") as sink, mock.patch("sys.stdout", sink):
+                self.assertEqual(extract_codebook.main(["--xlsx", str(ok), "--out", str(out)]), 0)
+            self.assertTrue(out.exists())
+            out.unlink()
+            # 선언 3개 vs 읽은 2개 → 1, 모듈 없음
+            mismatch = Path(tmp) / "codebook_mismatch.xlsx"
+            self._workbook(mismatch, {"04_runs": 3}, 2)
+            err = io.StringIO()
+            with open(os.devnull, "w") as sink, mock.patch("sys.stdout", sink), mock.patch("sys.stderr", err):
+                self.assertEqual(extract_codebook.main(["--xlsx", str(mismatch), "--out", str(out)]), _xlsx_common.EXIT_MISMATCH)
+            self.assertIn("04_runs", err.getvalue())
+            self.assertFalse(out.exists())
+            # '필드명' 머리글 없음 → 2
+            import openpyxl
+            wb = openpyxl.load_workbook(ok)
+            wb["02_item_tags"].cell(3, 4).value = "이름"
+            wb.save(ok)
+            err = io.StringIO()
+            with open(os.devnull, "w") as sink, mock.patch("sys.stdout", sink), mock.patch("sys.stderr", err), \
+                    self.assertRaises(SystemExit) as caught:
+                extract_codebook.main(["--xlsx", str(ok), "--out", str(out)])
+            self.assertEqual(caught.exception.code, _xlsx_common.EXIT_INVALID)
+            self.assertIn("02_item_tags", err.getvalue())
+            self.assertFalse(out.exists())
 
 
 class ExtractorVerifyTest(unittest.TestCase):

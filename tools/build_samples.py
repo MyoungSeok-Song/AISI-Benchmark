@@ -240,7 +240,8 @@ def to_cells(codebook, table, rows):
     columns = codebook.columns(table)
     unknown = sorted({name for row in rows for name in row} - set(columns))
     if unknown:
-        sys.exit(f"{table} 샘플에 코드북에 없는 열이 있습니다: {unknown}")
+        print(f"{table} 샘플에 코드북에 없는 열이 있습니다: {unknown}", file=sys.stderr)
+        sys.exit(EXIT_INVALID)                        # sys.exit(문자열)은 종료 1('할 일 없음')이라 계약과 어긋난다
     return [{c: csv_io.to_cell(row.get(c)) for c in columns} for row in rows]
 
 

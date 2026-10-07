@@ -17,6 +17,15 @@ RUNNER_DIR = Path(__file__).resolve().parent.parent
 SPEC_DIR = RUNNER_DIR / "kyab_runner" / "spec"
 # 원본 xlsx의 기본 위치(프로젝트 폴더, 저장소 밖·공유 대상 아님). --xlsx로 다른 경로를 줄 수 있다.
 DEFAULT_SRC_DIR = RUNNER_DIR.parent / "project proposal"
+# 종료 코드. 추출기는 생성 모듈을 만드는 쪽이라 러너 패키지를 import하지 않고 값만 맞춘다(kyab_runner/exitcodes.py 계약).
+EXIT_INVALID = 2        # 입력·형식 오류(원본 없음, 머리글 없음) — stderr 한 줄, 아무것도 쓰지 않음
+EXIT_MISMATCH = 1       # 원본은 읽었으나 선언·검산이 어긋남 — 모듈을 쓰지 않음(추출기 고유의 1)
+
+
+def refuse(message):
+    """입력·형식 오류로 멈춘다: stderr 한 줄 + 종료 2. sys.exit(문자열)은 종료 1이라 계약과 어긋나 쓰지 않는다."""
+    print(message, file=sys.stderr)
+    sys.exit(EXIT_INVALID)
 
 
 def nfc(text):
@@ -36,16 +45,16 @@ def find_xlsx(src_dir, name_key):
     """locate_xlsx와 같되 없으면 중단(종료 코드 2)."""
     path = locate_xlsx(src_dir, name_key)
     if path is None:
-        sys.exit(f"'{name_key}' xlsx를 {src_dir}에서 찾지 못했습니다 (--xlsx로 경로를 주세요)")
+        refuse(f"'{name_key}' xlsx를 {src_dir}에서 찾지 못했습니다 (--xlsx로 경로를 주세요)")
     return path
 
 
 def resolve_xlsx(arg, name_key):
-    """--xlsx 인자가 있으면 그 파일(없으면 중단), 없으면 기본 폴더에서 찾는다."""
+    """--xlsx 인자가 있으면 그 파일(없으면 중단, 종료 2), 없으면 기본 폴더에서 찾는다."""
     if arg is None:
         return find_xlsx(DEFAULT_SRC_DIR, name_key)
     if not os.path.isfile(arg):
-        sys.exit(f"xlsx 파일이 없습니다: {arg}")
+        refuse(f"xlsx 파일이 없습니다: {arg}")
     return arg
 
 

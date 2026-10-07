@@ -81,9 +81,19 @@ class BuildSamplesTest(RunnerTestCase):
         for name in ("01_items.csv", "02_item_tags.csv", "03_prompts.csv"):
             self.assertEqual((self.tmp / "input" / name).read_bytes(), (paths.DEFAULT_INPUT_DIR / name).read_bytes(), name)
 
+
+class BuildSamplesErrorTest(RunnerTestCase):
+    """build_samples 오류 경로 — data/가 없는 환경에서도 돈다(R23: 위 클래스의 skip 조건 밖)."""
+
     def test_missing_data_dir_is_a_message(self):
         code, output = capture(build_samples.main, ["--data-dir", str(self.tmp / "nope"), "--out", str(self.tmp / "x")])
         self.assertEqual((code, "원천 원본을 읽을 수 없습니다" in output), (2, True))
+
+    def test_unknown_column_in_sample_code_exits_2(self):
+        """R12: 샘플 코드의 열 이름 오타는 stderr 한 줄 + 종료 2(sys.exit(문자열)의 1이 아님)."""
+        code, output = capture(lambda _: build_samples.to_cells(CODEBOOK, "01_items", [{"item_id": "x", "no_such_column": 1}]), [])
+        self.assertEqual(code, 2)
+        self.assertIn("no_such_column", output)
 
 
 class VllmServerToolTest(RunnerTestCase):
