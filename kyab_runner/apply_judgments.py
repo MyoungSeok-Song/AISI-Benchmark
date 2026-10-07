@@ -58,6 +58,8 @@ def plan(env, view):
     filled = [r["run_id"] for r in runs if any(r[f] for f in TARGET_FIELDS)]
     if filled:
         reasons.append(f"이미 값이 있는 실행 {len(filled)}건 (예: {filled[0]}) — 덮어쓰지 않음")
+    if errors:                                             # 검증에 실패한 행으로 주 판정을 고르면 형식 오류(evaluated_at 등)가 예외로 샌다
+        return None, reasons
 
     primary = judge_io.select_primary(env.rules, view, judgments)
     values, incomplete = judge_io.first_turns(env.rules, view, primary)
@@ -119,7 +121,10 @@ def main(argv=None):
 
     plans, stopped = [], False
     for view in views:
-        planned, reasons = plan(env, view)
+        try:
+            planned, reasons = plan(env, view)
+        except csv_io.CsvFormatError as exc:              # 이 배치나 형제 배치의 06_judgments.csv가 깨짐
+            planned, reasons = None, [str(exc)]
         if reasons:
             stopped = True
             for reason in reasons:

@@ -214,7 +214,10 @@ def rule_rubric(out, rules, view, row, run):
     if row["rubric_id"] != expected:
         out.error(TABLE, _row_label(row), "rubric_id", f"문항의 rubric_id는 {expected!r}인데 {row['rubric_id']!r}")
     registered = rules.rubric_version(row["rubric_id"])
-    if registered is not None and row["rubric_version"] != registered:
+    if registered is None:                        # 등록 판본이 없으면 어떤 SemVer든 통과하던 구멍(runner.yaml과 규칙 파일이 어긋난 경우)
+        out.error(TABLE, _row_label(row), "rubric_version",
+                  f"{row['rubric_id']}의 등록 판본이 없음 (aggregation_rules.yaml judgment.rubric_versions)")
+    elif row["rubric_version"] != registered:
         out.error(TABLE, _row_label(row), "rubric_version",
                   f"{row['rubric_id']}의 등록 판본은 {registered}인데 {row['rubric_version']!r}")
 

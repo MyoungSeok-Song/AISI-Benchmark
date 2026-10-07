@@ -37,9 +37,10 @@ def build_parser():
     p.add_argument("batches", nargs="+", type=Path, help="배치 폴더 (…/RBATCH-YYYYMMDD-###)")
     p.add_argument("--input", type=Path, default=paths.DEFAULT_INPUT_DIR,
                    help="01_items.csv · 02_item_tags.csv · 03_prompts.csv가 있는 폴더")
-    p.add_argument("--judge", default="mock-judge", help="config/judges.yaml의 judge_id")
-    p.add_argument("--inputs-only", action="store_true", help="judge_inputs.jsonl만 만들고 끝낸다")
-    p.add_argument("--validate-only", action="store_true", help="이미 있는 06_judgments.csv를 검증만 한다")
+    p.add_argument("--judge", default="mock-judge", help="config/judges.yaml의 judge_id (--inputs-only·--validate-only에서는 쓰지 않음)")
+    mode = p.add_mutually_exclusive_group()       # 둘 다 주면 --inputs-only만 조용히 돌던 문제: argparse 사용 오류(종료 2)
+    mode.add_argument("--inputs-only", action="store_true", help="judge_inputs.jsonl만 만들고 끝낸다")
+    mode.add_argument("--validate-only", action="store_true", help="이미 있는 06_judgments.csv를 검증만 한다")
     return p
 
 
@@ -189,8 +190,13 @@ def main(argv=None):
 
     entry = env.rules.judges.get(args.judge)
     if entry is None:
-        sys.exit(f"판정기 '{args.judge}'는 등록되지 않았습니다 (config/judges.yaml)")
-    judge = create_judge(entry, env.rules)
+        print(f"판정기 '{args.judge}'는 등록되지 않았습니다 (config/judges.yaml)")
+        return EXIT_INVALID
+    try:
+        judge = create_judge(entry, env.rules)
+    except ValueError as exc:                     # 모르는 adapter·판정기 자체의 설정 오류
+        print(f"판정기를 만들 수 없습니다: {exc}")
+        return EXIT_INVALID
     if not entry.production:
         print(f"주의: {MOCK_WARNING}")
 
@@ -198,9 +204,14 @@ def main(argv=None):
     allocators, written, failed = {}, 0, False
     for view in views:
         root = view.batch.dir.parent
-        if root not in allocators:
-            allocators[root] = ids.judgment_id_allocator(env.codebook, root)
-        count = judge_batch(env, view, entry, judge, allocators[root])
+        try:
+            if root not in allocators:            # 실패한 발급기는 남기지 않는다 — 깨진 루트는 전역 고유를 확인할 수 없어 배치마다 실패가 맞다
+                allocators[root] = ids.judgment_id_allocator(env.codebook, root)
+            count = judge_batch(env, view, entry, judge, allocators[root])
+        except csv_io.CsvFormatError as exc:      # 이 배치나 형제 배치의 06이 깨짐
+            print(f"{view.batch.run_batch_id}: {exc}")
+            failed = True
+            continue
         if count is None:
             failed = True
             print(f"{view.batch.run_batch_id}: 검증 오류가 있어 기록하지 않았습니다.")
@@ -217,15 +228,15 @@ def validate_only(env, views):
     for view in views:
         try:
             judgments = judge_io.load_judgments(env.codebook, view.batch.dir)
-        except csv_io.CsvFormatError as exc:
+            print(f"{view.batch.run_batch_id}: 06_judgments {len(judgments)}행")
+            if not judgments:
+                codes.append(EXIT_NOTHING)
+                continue
+            errors = report(judge_io.validate_batch(env.codebook, env.rules, view, judgments))
+        except csv_io.CsvFormatError as exc:      # 이 배치나 형제 배치(전역 고유 검사)의 06이 깨짐
             print(f"{view.batch.run_batch_id}: {exc}")
             codes.append(EXIT_INVALID)
             continue
-        print(f"{view.batch.run_batch_id}: 06_judgments {len(judgments)}행")
-        if not judgments:
-            codes.append(EXIT_NOTHING)
-            continue
-        errors = report(judge_io.validate_batch(env.codebook, env.rules, view, judgments))
         codes.append(EXIT_INVALID if errors else EXIT_OK)
     return max(codes)
 

@@ -892,3 +892,47 @@ class RulesRegistryTest(RunnerTestCase):
                        lambda raw: raw["judgment"]["blank_allowed"][0]["when"].update(severity_tag="high")):
             with self.assertRaises(RulesError):
                 self.load(mutate)
+
+
+class JudgeErrorPathTest(JudgedTestCase):
+    """판정·apply의 오류 경로(judge-02·03·04·16·17): traceback·종료 1 대신 메시지와 종료 2."""
+
+    def test_unregistered_judge_and_bad_adapter_exit_2(self):
+        code, output = self.judge("--judge", "nope", batches=[self.single_dir])
+        self.assertEqual(code, run_judge.EXIT_INVALID)
+        self.assertIn("등록되지 않았습니다", output)
+        from unittest import mock
+        with mock.patch.object(run_judge, "create_judge", side_effect=ValueError("adapter x")):
+            code, output = self.judge(batches=[self.single_dir])
+        self.assertEqual((code, "판정기를 만들 수 없습니다" in output), (run_judge.EXIT_INVALID, True))
+
+    def test_inputs_only_and_validate_only_are_exclusive(self):
+        with self.assertRaises(SystemExit) as caught:
+            run_judge.main(["--inputs-only", "--validate-only", str(self.single_dir)])
+        self.assertEqual(caught.exception.code, 2)
+
+    def test_broken_sibling_06_is_reported_not_traceback(self):
+        path = self.single_dir / ids.JUDGMENTS_FILE
+        path.write_bytes(path.read_bytes().replace(b"judgment_id", b"judgmentid", 1))
+        before = (self.multi_dir / ids.JUDGMENTS_FILE).read_bytes()
+        for extra in ((), ("--validate-only",)):              # 판정과 검증 모두 형제 배치의 06을 읽는다(전역 고유 검사)
+            code, output = self.judge(*extra, batches=[self.multi_dir])
+            self.assertEqual(code, run_judge.EXIT_INVALID, output)
+            self.assertIn("머리글", output)
+        code, output = self.capture(apply_judgments.main, ["--dry-run", str(self.multi_dir)])
+        self.assertEqual((code, "머리글" in output), (2, True))
+        self.assertEqual((self.multi_dir / ids.JUDGMENTS_FILE).read_bytes(), before)
+
+    def test_apply_stops_on_invalid_06_without_exception(self):
+        rows = self.judgments(self.single_dir)
+        rows[0]["evaluated_at"] = "not-a-date"
+        csv_io.rewrite_table(CODEBOOK, "06_judgments", self.single_dir / ids.JUDGMENTS_FILE, rows)
+        code, output = self.capture(apply_judgments.main, ["--dry-run", str(self.single_dir)])
+        self.assertEqual(code, 2)
+        self.assertIn("06 검증 오류", output)
+
+    def test_unregistered_rubric_version_is_an_error(self):
+        rows = self.judgments(self.single_dir)
+        rows[0]["rubric_id"] = "RB-OTHER"
+        errors = self.errors(self.single, rows)
+        self.assertTrue(any(f == "rubric_version" and "등록 판본이 없음" in m for f, m in errors))
