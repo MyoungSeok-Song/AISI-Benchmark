@@ -19,6 +19,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 
+from . import codebook as codebook_module
 from . import csv_io, fileio, judge_io, paths, provenance
 from .errors import SetupError, load_yaml
 from .exitcodes import EXIT_INVALID, EXIT_OK
@@ -76,8 +77,8 @@ class ExportError(Exception):
 
 # ── 값 변환 ─────────────────────────────────────────────────────────────
 def to_value(spec, cell):
-    """CSV 셀 -> JSON 값 (코드북 필드 종류 기준)."""
-    if spec.value_type in ("json_array", "json_object"):
+    """CSV 셀 -> JSON 값 (코드북 필드 종류 기준). 코드북 검사를 통과한 셀만 받는다(형식 오류는 여기서 잡지 않는다)."""
+    if spec.is_json:
         return json.loads(cell) if cell != "" else None
     if spec.value_type == "int":
         return int(cell) if cell != "" else None
@@ -88,11 +89,11 @@ def to_value(spec, cell):
     return cell                                            # text·date·timestamp·semver: 빈칸은 ""
 
 
-def to_cell(spec, value):
-    """JSON 값 -> CSV 셀 (to_value의 역)."""
+def cell_from_value(spec, value):
+    """JSON 값 -> CSV 셀 (to_value의 역). csv_io.to_cell(값만 받음)과 이름이 겹치지 않게 한다."""
     if value is None:
         return ""
-    if spec.value_type in ("json_array", "json_object"):
+    if spec.is_json:
         return json.dumps(value, ensure_ascii=False)
     if spec.value_type == "bool":
         return "true" if value else "false"
@@ -101,12 +102,15 @@ def to_cell(spec, value):
     return str(value)
 
 
+to_cell = cell_from_value       # 옛 이름(테스트가 쓴다)
+
+
 def cells_equal(spec, original, restored):
     """왕복 비교: 문자열이 같으면 통과. 다르면 JSON은 파싱값, 숫자는 수치로 비교한다."""
     if original == restored:
         return True
     try:
-        if spec.value_type in ("json_array", "json_object"):
+        if spec.is_json:
             return json.loads(original) == json.loads(restored)
         if spec.value_type in ("number", "int"):
             return float(original) == float(restored)
@@ -195,6 +199,7 @@ def judgment_record(codebook, rules, row, run):
 
 # ── JSON Schema (코드북에서 생성) ────────────────────────────────────────
 _STRING_FORMATS = {"timestamp": "date-time", "date": "date"}
+SEMVER_PATTERN = codebook_module._RE_SEMVER.pattern          # 코드북 검사와 같은 정규식(문자열 동일)
 
 
 def field_schema(spec, extra_enum=()):
@@ -225,7 +230,7 @@ def field_schema(spec, extra_enum=()):
         schema = {"type": "string"}
         if spec.enum and spec.enum_kind == "scalar":
             schema = {"enum": enum + ([] if spec.required else [""])}
-        pattern = spec.regex or (r"^[0-9]+\.[0-9]+\.[0-9]+$" if spec.value_type == "semver" else "")
+        pattern = spec.regex or (SEMVER_PATTERN if spec.value_type == "semver" else "")
         if pattern and "enum" not in schema:
             schema["pattern"] = pattern
             if not spec.required:                           # 선택 필드의 빈칸은 정규식 대신 ""로 허용

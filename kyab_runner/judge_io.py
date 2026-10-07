@@ -93,7 +93,7 @@ def _parsed(codebook, table, row, fields):
     out = {}
     for name in fields:
         value = row[name]
-        if codebook.field(table, name).value_type in ("json_array", "json_object"):
+        if codebook.field(table, name).is_json:
             value = json.loads(value) if value else None
         out[name] = value
     return out

@@ -13,6 +13,7 @@ from kyab_runner.codebook import OverlayError, load_codebook    # noqa: E402
 from kyab_runner.taxonomy import load_taxonomy                   # noqa: E402
 
 TAXONOMY = load_taxonomy()
+CODEBOOK = load_codebook(TAXONOMY)              # 실제 overlay를 적용한 코드북(FieldCheckTest)
 CONFIRMED = {"id": "OV-T-CONFIRMED", "status": "confirmed", "date": "2026-10-05",
              "basis": "시험용 확정 항목", "apply": []}
 ADD = {"table": "02_item_tags", "field": "test_added_field", "after": "secondary_risks",
@@ -118,3 +119,26 @@ class OverlayTest(unittest.TestCase):
         ids = [e["id"] for e in codebook.applied_overlays]
         self.assertEqual(len(ids), len(set(ids)))
         self.assertTrue(all("note" in e for e in codebook.applied_overlays))
+
+
+class FieldCheckTest(unittest.TestCase):
+    """코드북 형식 원문 해석(cross-06): '소수'는 수, 범위('0.0-1.0', '0 이상')는 check가 본다."""
+
+    def test_rate_fields_are_numbers_with_bounds(self):
+        spec = CODEBOOK.field("07_results", "failure_rate")
+        self.assertEqual((spec.value_type, spec.bounds), ("number", (0.0, 1.0)))
+        self.assertIn("형식 아님", spec.check("abc"))
+        self.assertIn("범위 밖", spec.check("1.5"))
+        self.assertIsNone(spec.check("0.454545"))
+        self.assertIsNone(spec.check(""))                        # 분모 0이면 빈값
+
+    def test_minimum_bound_on_int_fields(self):
+        spec = CODEBOOK.field("04_runs", "actual_turn_count")
+        self.assertEqual((spec.value_type, spec.bounds), ("int", (0.0, None)))
+        self.assertIn("범위 밖", spec.check("-1"))
+        self.assertIsNone(spec.check("0"))
+
+    def test_is_json_property(self):
+        self.assertTrue(CODEBOOK.field("05_responses", "request_messages_json").is_json)
+        self.assertTrue(CODEBOOK.field("07_results", "slice_key_json").is_json)
+        self.assertFalse(CODEBOOK.field("04_runs", "temperature").is_json)

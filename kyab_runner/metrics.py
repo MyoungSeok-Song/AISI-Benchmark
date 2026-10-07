@@ -36,6 +36,7 @@ from dataclasses import dataclass
 from statistics import NormalDist
 
 from . import csv_io, judge_io
+from .codebook import value_range                     # 형식 원문의 범위 해석은 codebook이 맡는다(테스트가 metrics.value_range를 쓴다)
 from .issues import IssueCollector, check_unique
 from .records import RUN_PARAM_FIELDS                 # 집계 섞임 검사는 실행기가 04에 적는 호출 파라미터와 같은 키를 본다
 from .validate import CONTROL_TARGET_FIELD
@@ -734,19 +735,6 @@ def denominator_rows(notes, places=6):
 
 
 # ── 결과 검증 ───────────────────────────────────────────────────────────
-_RE_RANGE = re.compile(r"(-?\d+\.\d+)-(-?\d+\.\d+)")      # '0.0-1.0 소수', '-1.0-1.0 소수'
-_RE_MINIMUM = re.compile(r"(\d+) 이상")                    # '0 이상의 정수', '0 이상의 소수'
-
-
-def value_range(fmt):
-    """코드북 '들어갈 수 있는 값·형식' 원문에서 수의 범위를 읽는다. 반환: (하한, 상한) — 없으면 None."""
-    match = _RE_RANGE.search(fmt)
-    if match:
-        return float(match.group(1)), float(match.group(2))
-    match = _RE_MINIMUM.search(fmt)
-    return (float(match.group(1)), None) if match else None
-
-
 def _out_of_range(value, bounds):
     low, high = bounds
     return value < low or (high is not None and value > high)
@@ -786,30 +774,24 @@ def validate_results(codebook, rules, rows, valid_units=None):
 
     valid_units  {result_id: 유효 평가 대상 수}. 주어지면 failure_count ≤ 유효 대상 수와
                  failure_rate = failure_count ÷ 유효 대상 수를 확인한다(코드북 07 형식 원문).
-    검사: 코드북 행 검사 → result_id 고유 → 범위(형식 원문에서 읽음) → 교차 규칙.
+    검사: 코드북 행 검사(수 형식·범위 포함) → result_id 고유 → JSON 객체 값의 범위 → 교차 규칙.
     """
     out = IssueCollector()
     agg = rules["aggregation"]
     tolerance = 10 ** -agg["decimal_places"]
-    score_bounds = value_range(codebook.field(TABLE, "mean_rubric_score").format)
+    score_bounds = codebook.field(TABLE, "mean_rubric_score").bounds
     for row in rows:
         key = row["result_id"]
         for field, problem in codebook.check_row(TABLE, row):
             out.error(TABLE, key, field, problem)
 
-        # 범위: 형식 원문에 범위가 적힌 필드
+        # 범위: JSON 객체 값(escalation_rate_json 등). 수 필드의 범위는 코드북 행 검사가 본다
         for spec in codebook.fields(TABLE):
-            bounds, cell = value_range(spec.format), row[spec.name]
-            if bounds is None or cell == "" or spec.value_type == "json_array":
+            cell = row[spec.name]
+            if spec.value_type != "json_object" or spec.bounds is None or cell == "":
                 continue
-            if spec.value_type == "json_object":
-                values = [v for v in _json_object(cell).values() if v is not None]
-            else:
-                values = [_number(cell)]
-                if values[0] is None:
-                    out.error(TABLE, key, spec.name, f"수가 아님: {cell!r}")
-                    continue
-            if any(_out_of_range(v, bounds) for v in values):
+            values = [v for v in _json_object(cell).values() if v is not None]
+            if any(_out_of_range(v, spec.bounds) for v in values):
                 out.error(TABLE, key, spec.name, f"범위 밖: {cell} (형식: {spec.format})")
 
         # JSON 객체의 키

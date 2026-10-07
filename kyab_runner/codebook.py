@@ -32,8 +32,11 @@ _TYPE_KEYWORDS = [
     ("boolean", "bool"),
     ("정수", "int"),
     ("숫자", "number"),
+    ("소수", "number"),          # 07 비율 필드('0.0-1.0 소수'). 맨 뒤에 두어 'JSON 객체'·'정수'가 먼저 잡히게 한다
 ]
 _RE_SEMVER = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
+_RE_RANGE = re.compile(r"(-?\d+\.\d+)-(-?\d+\.\d+)")      # '0.0-1.0 소수', '-1.0-1.0 소수'
+_RE_MINIMUM = re.compile(r"(\d+) 이상")                    # '0 이상의 정수', '0 이상의 소수'
 _RE_FIXED = re.compile(r"(-?[0-9]+(?:\.[0-9]+)?)\s*(?:으|)로 고정")      # '숫자 0.0으로 고정', '양의 정수 1024로 고정'
 
 
@@ -41,6 +44,15 @@ def fixed_value(fmt):
     """형식 원문이 '…로 고정'이면 그 값(문자열), 아니면 None. 코드북이 고정값을 enum 없이 적은 필드용."""
     match = _RE_FIXED.search(fmt)
     return match.group(1) if match else None
+
+
+def value_range(fmt):
+    """형식 원문에서 수의 범위를 읽는다. 반환: (하한, 상한) — 상한이 없으면 (하한, None), 범위가 없으면 None."""
+    match = _RE_RANGE.search(fmt)
+    if match:
+        return float(match.group(1)), float(match.group(2))
+    match = _RE_MINIMUM.search(fmt)
+    return (float(match.group(1)), None) if match else None
 
 
 def _infer_type(fmt):
@@ -71,6 +83,16 @@ class FieldSpec:
     none_token: str = ""  # '해당 없음'을 뜻하는 기록값(예: critical_failure_code의 NONE). 없으면 빈 문자열
     added_by: str = ""    # overlay add_field로 들어온 필드면 그 항목 ID. 코드북 원본 필드는 빈 문자열
 
+    @property
+    def is_json(self):
+        """셀이 JSON 본문(배열·객체)인 필드. 값으로 풀어 쓰는 쪽(판정 입력·납품 JSONL)이 함께 쓴다."""
+        return self.value_type in ("json_array", "json_object")
+
+    @property
+    def bounds(self):
+        """형식 원문의 수 범위 (하한, 상한). 저장하지 않고 format에서 매번 읽어 overlay가 format을 바꿔도 어긋나지 않는다."""
+        return value_range(self.format)
+
     def check(self, value):
         """CSV에서 읽은 문자열 값 1개를 검사한다. 문제가 없으면 None, 있으면 설명."""
         if value is None or value == "":
@@ -84,6 +106,11 @@ class FieldSpec:
             return f"허용값 아님: {value!r} (허용: {', '.join(self.enum)})"
         if self.regex and not re.match(self.regex, value):
             return f"형식 불일치: {value!r} (정규식 {self.regex})"
+        if self.value_type in ("int", "number") and self.bounds is not None:
+            low, high = self.bounds
+            number = float(value)
+            if number < low or (high is not None and number > high):
+                return f"범위 밖: {value} (형식: {self.format})"
         return None
 
     def _check_array(self, value):
