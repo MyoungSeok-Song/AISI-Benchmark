@@ -36,6 +36,7 @@ from .layout import DENOMINATORS_FILE, NOTES_FILE                           # no
 from .validate import CONTROL_TARGET_FIELD
 
 # 코드북 07에 칸이 없어 results_notes.json에만 두는 항목. 열을 추가하지 않고 협의 후보로만 적는다 (S7).
+# 맨 뒤 P1~P4는 납품 형식(JSONL)의 출처 역추적 항목이다.
 CODEBOOK_CANDIDATES = [
     "대조 문항의 위험군 연결: 칼럼 추가 반영(회신 ② → 02 control_target_risk, 이름·위치 잠정 OV-P4). 07 slice_key_json 표기({\"primary_risk\": X}에 대조 문항 포함)와 혼합 행의 n_items·n_runs·n_responses·κ·사람 검토율 정의는 잠정 — 코드북 담당 지표 명세 확인 필요",
     "집계 전용 필드(control_target_risk)만 바뀐 태그 판본 상승에도 재채점을 요구할지(주 판정 집합이 current 판본만 쓰므로 현재는 재채점 필요) — 채점 운영 규칙 협의 후보",
@@ -173,7 +174,90 @@ def print_summary(rows, notes):
               + (f"; 잘림(length) {model['truncated_responses']}건" if model["truncated_responses"] else ""))
 
 
+# results_notes.json에 적는 설명문. 기록 형식의 일부라 바꾸면 보조 기록 바이트가 달라진다.
+DENOMINATORS_NOTE = ("[확정 — 코드북 담당 회신 2026-10-05 ④] 보류(inconclusive)를 실패율에서 뺐으면 보류 건수·비율과 분모를 함께 제시. "
+                     "[구현, 잠정 — 지표 명세(코드북 담당) 전] 제시 형식: rows.<result_id>.denominators와 results_denominators.csv에 "
+                     "지표×성분마다 D(유효)·I(보류)·U(판정 없음)·other·target. 보류율 = I/(D+I). handling=excluded 행은 "
+                     "judged = D + I, target = judged + U + other. extra_slices는 result_id가 없어 JSON에만 있다.")
+SLICE_KEY_RULE_ON = ("risk_group·risk_age_turn의 primary_risk 키: 위험 문항은 02 primary_risk, 대조 문항은 02 "
+                     f"{CONTROL_TARGET_FIELD}(어느 위험군의 대조인지, 회신 ②·잠정 OV-P4). 행별 rows.<id>.slice_key_sources·"
+                     "control_items·control_runs 참고. 대조 문항이 섞인 행의 n_items·n_runs·n_responses·κ·사람 검토율에는 "
+                     "대조 실행이 포함된다")
+SLICE_KEY_RULE_OFF = "대조 문항은 위험군 행에 들어가지 않음(substitute_control_target_risk: false)"
+
+
+def mock_judges_used(rules, judges):
+    """주 판정 집합에 쓰인 판정기 가운데 본평가용이 아닌 것(모의)."""
+    return sorted(set(judges) & rules.non_production_judges())
+
+
+def print_run_param_violations(codebook, cases):
+    """옛 조건(예: 1,024)으로 기록된 배치를 혼자 집계하는 경우: 거부하지 않고 경고. 반환: notes에 남길 위반 목록."""
+    violations = [{"model_id": m, "field": f, "value": v, "runs": n}
+                  for (m, f, v), n in sorted(metrics.run_params_violations(codebook, cases).items())]
+    for v in violations:
+        print(f"주의: {v['model_id']}의 실행 {v['runs']}건은 04 {v['field']}={v['value']!r}로 기록돼 현재 코드북 허용값과 다릅니다(옛 조건 배치)")
+    return violations
+
+
+def refuse_mixed_run_params(cases):
+    """회신 ①: 같은 모델 묶음 안에서 호출 파라미터(temperature, top_p, max_output_tokens)가 섞이면 한 행에 합칠 수 없다.
+
+    07에는 실행 조건 칸이 없어 같은 (모델, 슬라이스) 행이 둘 생기고 배치 ID로 04를 봐야만 구분되기 때문이다.
+    반환: 거부했으면 True(이유를 출력함).
+    """
+    mixed = {model: dict(combos) for model, combos in metrics.run_param_combos(cases).items() if len(combos) > 1}
+    for (model_id, _), combos in mixed.items():
+        print(f"집계를 거부합니다: 모델 {model_id}의 실행 조건이 섞여 있습니다 "
+              + "; ".join(f"{dict(zip(metrics.RUN_PARAM_FIELDS, combo))} × {n}" for combo, n in combos.items()))
+    if mixed:
+        print("한도가 다른 배치는 따로 집계하세요(예: 1,024 배치와 8,192 배치).")
+    return bool(mixed)
+
+
+def validate_outputs(codebook, rules, rows, notes):
+    """07 행과 분모 행을 검증하고 문제를 출력한다. 반환: 써도 되면 True."""
+    valid_units = {result_id: note["fr_valid_units"] for result_id, note in notes["rows"].items()}
+    issues = metrics.validate_results(codebook, rules, rows, valid_units)
+    for issue in issues:
+        print(issue)
+    denominator_problems = metrics.validate_denominators(notes)
+    for problem in denominator_problems:
+        print(f"[error] results_denominators {problem}")
+    if validate.errors_of(issues) or denominator_problems:
+        print("07 결과 또는 분모 행이 검증을 통과하지 못해 쓰지 않습니다.")
+        return False
+    return True
+
+
+def build_record(args, rules, notes, loaded, judges, mock_used, violations, warnings, judgment_warnings, calculated_at):
+    """results_notes.json 전체. 키 순서가 곧 파일 순서다(**notes는 judgment_validation_warnings와 codebook_candidates 사이)."""
+    return {
+        "note": "07_results.csv의 보조 기록. 코드북 7 CSV에 속하지 않는다. 07에 열을 추가하지 않고 여기에 둔다.",
+        "denominators_note": DENOMINATORS_NOTE,
+        "inconclusive_report": rules["aggregation"]["inconclusive_report"],
+        "denominators_format_version": metrics.DENOMINATORS_FORMAT_VERSION,
+        "run_params_violations": violations,
+        "slice_key_rule": SLICE_KEY_RULE_ON if rules["aggregation"]["substitute_control_target_risk"] else SLICE_KEY_RULE_OFF,
+        "inconclusive_warnings": warnings,
+        "calculated_at": calculated_at,
+        "aggregation_rule_id": rules.rule_id, "aggregation_rule_version": rules.rule_version,
+        "rules_file": str(args.rules), "rules_sha256": rules.sha256,
+        "provider_block_policy": rules["aggregation"]["provider_block_policy"],
+        "mock_judge_used": bool(mock_used),
+        "warning": MOCK_WARNING if mock_used else "",
+        "primary_judgments_by_judge": dict(judges),
+        "source_batches": [{"run_batch_id": view.batch.run_batch_id, "model_id": view.batch.manifest["model_id"],
+                            "protocol_id": view.batch.protocol_id, "runs": len(view.runs),
+                            "judgment_rows": len(judgments)} for view, judgments in loaded],
+        "judgment_validation_warnings": judgment_warnings,
+        **notes,
+        "codebook_candidates": CODEBOOK_CANDIDATES,
+    }
+
+
 def main(argv=None):
+    """준비 → 06 검증 → 모의 판정 거부 → 실행 단위 정리 → 조건 검사 → 집계 → 결과 검증 → 쓰기 → 요약. 출력 순서는 그대로다."""
     args = build_parser().parse_args(argv)
     prepared = prepare(args.input, args.batches, args.rules)
     if prepared is None:
@@ -191,7 +275,7 @@ def main(argv=None):
 
     # 모의 판정기 차단: 주 판정 집합에 본평가용이 아닌 판정기의 행이 있으면 기본으로 거부한다.
     judges = judges_in_primary(env, loaded)
-    mock_used = sorted(set(judges) & rules.non_production_judges())
+    mock_used = mock_judges_used(rules, judges)
     if mock_used and not args.allow_mock_judge:
         print(f"집계를 거부합니다: 본평가에 쓸 수 없는 판정기의 판정이 있습니다 {mock_used}. "
               "경로 확인용이면 --allow-mock-judge를 주세요.")
@@ -203,19 +287,8 @@ def main(argv=None):
     if not any(case.included for case in cases):
         print("집계할 실행이 없습니다.")
         return EXIT_NOTHING
-    # 옛 조건(예: 1,024)으로 기록된 배치를 혼자 집계하는 경우: 거부하지 않고 경고 + notes 기록
-    violations = [{"model_id": m, "field": f, "value": v, "runs": n}
-                  for (m, f, v), n in sorted(metrics.run_params_violations(env.codebook, cases).items())]
-    for v in violations:
-        print(f"주의: {v['model_id']}의 실행 {v['runs']}건은 04 {v['field']}={v['value']!r}로 기록돼 현재 코드북 허용값과 다릅니다(옛 조건 배치)")
-    # 회신 ①: 같은 모델 묶음 안에서 호출 파라미터(temperature, top_p, max_output_tokens)가 섞이면 한 행에 합칠 수 없다.
-    # 07에는 실행 조건 칸이 없어 같은 (모델, 슬라이스) 행이 둘 생기고 배치 ID로 04를 봐야만 구분되기 때문이다.
-    mixed = {model: dict(combos) for model, combos in metrics.run_param_combos(cases).items() if len(combos) > 1}
-    if mixed:
-        for (model_id, _), combos in mixed.items():
-            print(f"집계를 거부합니다: 모델 {model_id}의 실행 조건이 섞여 있습니다 "
-                  + "; ".join(f"{dict(zip(metrics.RUN_PARAM_FIELDS, combo))} × {n}" for combo, n in combos.items()))
-        print("한도가 다른 배치는 따로 집계하세요(예: 1,024 배치와 8,192 배치).")
+    violations = print_run_param_violations(env.codebook, cases)
+    if refuse_mixed_run_params(cases):
         return EXIT_INVALID
 
     stamp = clock.now(env.config)                 # calculated_at과 결과 폴더 날짜는 같은 시각에서 나온다
@@ -226,51 +299,14 @@ def main(argv=None):
         print(f"주의: 끝나지 않은 집계의 임시 폴더 {len(leftovers)}개가 있습니다(확인 후 직접 지우세요): {leftovers}")
     allocator = ids.result_id_allocator(env.codebook, root)
     rows, notes = metrics.aggregate(env.codebook, rules, cases, allocator.new, calculated_at)
-
-    valid_units = {result_id: note["fr_valid_units"] for result_id, note in notes["rows"].items()}
-    issues = metrics.validate_results(env.codebook, rules, rows, valid_units)
-    for issue in issues:
-        print(issue)
-    denominator_problems = metrics.validate_denominators(notes)
-    for problem in denominator_problems:
-        print(f"[error] results_denominators {problem}")
-    if validate.errors_of(issues) or denominator_problems:
-        print("07 결과 또는 분모 행이 검증을 통과하지 못해 쓰지 않습니다.")
+    if not validate_outputs(env.codebook, rules, rows, notes):
         return EXIT_INVALID
 
     warnings = inconclusive_warnings(rules, rows, notes)
     for warning in warnings:
         print(f"주의: {warning}")
     results_dir = root / ids.new_results_dir_name(root, clock.compact_date(stamp))
-    record = {
-        "note": "07_results.csv의 보조 기록. 코드북 7 CSV에 속하지 않는다. 07에 열을 추가하지 않고 여기에 둔다.",
-        "denominators_note": ("[확정 — 코드북 담당 회신 2026-10-05 ④] 보류(inconclusive)를 실패율에서 뺐으면 보류 건수·비율과 분모를 함께 제시. "
-                              "[구현, 잠정 — 지표 명세(코드북 담당) 전] 제시 형식: rows.<result_id>.denominators와 results_denominators.csv에 "
-                              "지표×성분마다 D(유효)·I(보류)·U(판정 없음)·other·target. 보류율 = I/(D+I). handling=excluded 행은 "
-                              "judged = D + I, target = judged + U + other. extra_slices는 result_id가 없어 JSON에만 있다."),
-        "inconclusive_report": rules["aggregation"]["inconclusive_report"],
-        "denominators_format_version": metrics.DENOMINATORS_FORMAT_VERSION,
-        "run_params_violations": violations,
-        "slice_key_rule": ("risk_group·risk_age_turn의 primary_risk 키: 위험 문항은 02 primary_risk, 대조 문항은 02 "
-                           f"{CONTROL_TARGET_FIELD}(어느 위험군의 대조인지, 회신 ②·잠정 OV-P4). 행별 rows.<id>.slice_key_sources·"
-                           "control_items·control_runs 참고. 대조 문항이 섞인 행의 n_items·n_runs·n_responses·κ·사람 검토율에는 "
-                           "대조 실행이 포함된다") if rules["aggregation"]["substitute_control_target_risk"] else
-                          "대조 문항은 위험군 행에 들어가지 않음(substitute_control_target_risk: false)",
-        "inconclusive_warnings": warnings,
-        "calculated_at": calculated_at,
-        "aggregation_rule_id": rules.rule_id, "aggregation_rule_version": rules.rule_version,
-        "rules_file": str(args.rules), "rules_sha256": rules.sha256,
-        "provider_block_policy": rules["aggregation"]["provider_block_policy"],
-        "mock_judge_used": bool(mock_used),
-        "warning": MOCK_WARNING if mock_used else "",
-        "primary_judgments_by_judge": dict(judges),
-        "source_batches": [{"run_batch_id": view.batch.run_batch_id, "model_id": view.batch.manifest["model_id"],
-                            "protocol_id": view.batch.protocol_id, "runs": len(view.runs),
-                            "judgment_rows": len(judgments)} for view, judgments in loaded],
-        "judgment_validation_warnings": judgment_warnings,
-        **notes,
-        "codebook_candidates": CODEBOOK_CANDIDATES,
-    }
+    record = build_record(args, rules, notes, loaded, judges, mock_used, violations, warnings, judgment_warnings, calculated_at)
     write_results(results_dir, env.codebook, rows, metrics.denominator_rows(notes, rules["aggregation"]["decimal_places"]), record)
 
     print_summary(rows, notes)

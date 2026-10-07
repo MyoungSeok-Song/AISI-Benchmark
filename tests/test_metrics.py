@@ -582,7 +582,7 @@ class HandComputedTest(MetricsTestCase):
         self.assertEqual({(e["slice"], tuple(e["slice_key"].values())) for e in notes["extra_slices"]},
                          {("user_gender", ("unspecified",)), ("case_type", ("risk_case",)), ("case_type", ("safe_control",))})
         # 분모 행: result_id로 07과 1:1, 모든 07 행에 FR 분모 행이 있고 D가 fr_valid_units와 같다
-        flat = metrics.denominator_rows(notes)
+        flat = metrics.denominator_rows(notes, RULES["aggregation"]["decimal_places"])
         self.assertEqual(list(flat[0]), metrics.DENOMINATOR_COLUMNS)
         self.assertEqual({r["result_id"] for r in flat}, {r["result_id"] for r in rows})
         fr_rows = {r["result_id"]: r for r in flat if r["metric"] == "failure_rate"}
