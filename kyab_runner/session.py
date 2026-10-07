@@ -156,7 +156,11 @@ class RunSession:
             "stop_reason": stop_reason,
         }
         self._check_open_vocabularies(run_row)
-        # 응답을 먼저, 실행 행을 나중에 쓴다. 실행 행이 있으면 그 실행의 응답은 모두 있다.
+        # 05·04를 모두 검사한 뒤에 쓴다(04가 거부되면 05도 쓰이지 않아 짝 없는 응답 행이 남지 않는다).
+        # 쓰는 순서는 응답이 먼저, 실행 행이 나중이다. 실행 행이 있으면 그 실행의 응답은 모두 있다.
+        if self._responses:
+            csv_io.check_rows(batch.codebook, "05_responses", self._responses, stages=RUNNER_STAGES)
+        csv_io.check_rows(batch.codebook, "04_runs", [run_row], stages=RUNNER_STAGES)
         if self._responses:
             csv_io.append_rows(batch.codebook, "05_responses", batch.dir / RESPONSES_FILE,
                                self._responses, stages=RUNNER_STAGES)

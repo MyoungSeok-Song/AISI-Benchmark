@@ -19,11 +19,10 @@ API 키
   매 호출 전체 메시지를 다시 보낸다. 공급자 쪽 대화 저장·이어 쓰기 기능은 쓰지 않는다.
 """
 import os
-import sys
 
 from . import http_json
-from .base import (RETRYABLE_HTTP_COMMERCIAL, Adapter, AdapterResult, connection_error_result,   # noqa: F401 (재수출)
-                   invalid_response_result, timeout_result)
+from .base import (RETRYABLE_HTTP_COMMERCIAL, Adapter, AdapterResult, AdapterSetupError,   # noqa: F401 (재수출)
+                   connection_error_result, invalid_response_result, timeout_result)
 from ..vocab import RESPONSE_ERROR
 
 RETRYABLE_HTTP = RETRYABLE_HTTP_COMMERCIAL          # 이 모듈의 옛 이름
@@ -34,8 +33,8 @@ def require_api_key(model):
     env_name = model.options["api_key_env"]
     key = os.environ.get(env_name, "")
     if not key:
-        sys.exit(f"모델 '{model.model_id}' 실행에는 환경변수 {env_name}가 필요합니다. "
-                 f"키는 환경변수로만 전달하고 파일에 적지 마세요.")
+        raise AdapterSetupError(f"모델 '{model.model_id}' 실행에는 환경변수 {env_name}가 필요합니다. "
+                                f"키는 환경변수로만 전달하고 파일에 적지 마세요.")
     return key
 
 

@@ -21,7 +21,7 @@ sys.path.insert(0, str(RUNNER_DIR))
 
 from kyab_runner.adapters import create_adapter                        # noqa: E402
 from kyab_runner.adapters.anthropic import AnthropicAdapter            # noqa: E402
-from kyab_runner.adapters.base import CallInfo                         # noqa: E402
+from kyab_runner.adapters.base import AdapterSetupError, CallInfo      # noqa: E402
 from kyab_runner.adapters.gemini import GeminiAdapter                  # noqa: E402
 from kyab_runner.adapters.http_json import HttpReply, TransportFailure, TransportTimeout   # noqa: E402
 from kyab_runner.adapters.openai import OpenAIAdapter                  # noqa: E402
@@ -250,9 +250,9 @@ class KeyAndRegistrationTest(unittest.TestCase):
         for model_id in self.MODELS:
             model = CONFIG.models[model_id]
             env = {k: v for k, v in os.environ.items() if k != model.options["api_key_env"]}
-            with mock.patch.dict(os.environ, env, clear=True), self.assertRaises(SystemExit) as raised:
+            with mock.patch.dict(os.environ, env, clear=True), self.assertRaises(AdapterSetupError) as raised:
                 create_adapter(model)
-            self.assertIn(model.options["api_key_env"], str(raised.exception.code))
+            self.assertIn(model.options["api_key_env"], str(raised.exception))
 
     def test_commercial_models_are_disabled(self):
         """키·D06·D08 확인 전에는 상용 모델이 실행되지 않는다."""

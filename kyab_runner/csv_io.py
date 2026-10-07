@@ -72,11 +72,10 @@ def read_if_exists(codebook, table, path):
     return read_table(codebook, table, path) if os.path.exists(path) else []
 
 
-def append_rows(codebook, table, path, rows, stages=None):
-    """행을 검사한 뒤 파일 끝에 덧붙인다. 파일이 없으면 머리글부터 쓴다.
+def check_rows(codebook, table, rows, stages=None):
+    """행을 코드북으로 검사하고 CSV 셀 문자열 행으로 바꾼다. 하나라도 어긋나면 CsvFormatError(아무것도 쓰기 전에).
 
-    하나라도 명세에 어긋나면 아무것도 쓰지 않고 CsvFormatError를 낸다
-    (코드북 원칙 3: 허용값만 기록).
+    실행기는 05 응답 행과 04 실행 행을 둘 다 여기로 먼저 검사한 뒤 쓴다 — 04가 거부되면 05도 쓰이지 않아 짝 없는 행이 남지 않는다.
     """
     columns = codebook.columns(table)
     cells = [{c: to_cell(row.get(c)) for c in columns} for row in rows]
@@ -85,8 +84,31 @@ def append_rows(codebook, table, path, rows, stages=None):
         problems = codebook.check_row(table, cell_row, stages=stages)
         if unknown or problems:
             raise CsvFormatError(f"{table} 기록 거부: 코드북에 없는 열 {sorted(unknown)}, 값 문제 {problems}")
+    return cells
 
+
+def _check_header_for_append(codebook, table, path):
+    """이어 쓸 파일의 머리글이 현재 코드북 열과 같은지. read_table은 overlay 열이 빠진 옛 머리글도 읽어 주지만,
+    그 파일에 지금 열 수의 행을 덧붙이면 CSV가 깨지므로 쓰기 전에 막는다."""
+    with open(path, encoding="utf-8-sig", newline="") as f:
+        header = next(csv.reader(f), [])
+    columns = codebook.columns(table)
+    if header != columns:
+        raise CsvFormatError(_header_diff(path, header, columns) + " — 이어 쓸 수 없습니다(옛 머리글 파일). 새 머리글로 옮긴 뒤 다시 실행하세요")
+
+
+def append_rows(codebook, table, path, rows, stages=None):
+    """행을 검사한 뒤 파일 끝에 덧붙인다. 파일이 없으면 머리글부터 쓴다.
+
+    하나라도 명세에 어긋나거나 기존 파일의 머리글이 현재 코드북과 다르면 아무것도 쓰지 않고 CsvFormatError를 낸다
+    (코드북 원칙 3: 허용값만 기록).
+    """
+    columns = codebook.columns(table)
     is_new = not os.path.exists(path)
+    if not is_new:
+        _check_header_for_append(codebook, table, path)
+    cells = check_rows(codebook, table, rows, stages)
+
     # 새 파일만 BOM을 붙인다. 이어 쓸 때 BOM이 중간에 끼면 안 된다.
     with open(path, "a", encoding="utf-8-sig" if is_new else "utf-8", newline="") as f:
         writer = csv.writer(f)      # 기본 dialect = RFC 4180 (\r\n, 필요한 셀만 따옴표)

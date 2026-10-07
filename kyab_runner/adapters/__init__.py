@@ -26,4 +26,5 @@ def create_adapter(model, mock_plan=None):
     if model.adapter == "gemini":
         from .gemini import GeminiAdapter
         return GeminiAdapter(model)
-    raise ValueError(f"알 수 없는 어댑터 '{model.adapter}'")
+    from .base import AdapterSetupError
+    raise AdapterSetupError(f"알 수 없는 어댑터 '{model.adapter}' (config/models.yaml {model.model_id})")

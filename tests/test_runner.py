@@ -634,3 +634,143 @@ class ManifestLockTest(RunnerTestCase):
         code, output = self.run_cli(run_single, "--batch-id", batch_dir.name)
         self.assertEqual(code, cli.EXIT_INVALID_INPUT)
         self.assertIn("model_id: 저장 None", output)
+
+
+class PreflightArgsTest(RunnerTestCase):
+    """실행 전 점검(core-01·05, adapters-06): 잘못된 인자·어댑터 문제는 모델 호출·폴더 생성 없이 종료 2."""
+
+    def assert_refused(self, *extra, text):
+        from kyab_runner import ids
+        before = ids.batch_dirs(self.out)
+        code, output = self.run_cli(run_single, *extra)
+        self.assertEqual(code, cli.EXIT_INVALID_INPUT, output)
+        self.assertIn(text, output)
+        self.assertEqual(ids.batch_dirs(self.out), before)            # 새 배치 폴더가 생기지 않는다
+
+    def test_rollouts_outside_codebook_values(self):
+        self.assert_refused("--rollouts", "4", text="rollout_no 허용값")
+        self.assert_refused("--rollouts", "-1", text="1 이상")
+
+    def test_batch_id_must_have_manifest(self):
+        (self.out / "foo").mkdir(parents=True)
+        self.assert_refused("--batch-id", "foo", text="--batch-id")
+        (self.out / "RBATCH-20260101-001").mkdir()
+        self.assert_refused("--batch-id", "RBATCH-20260101-001", text="manifest")
+        self.assertEqual(list((self.out / "RBATCH-20260101-001").iterdir()), [])     # 폴더는 손대지 않음
+
+    def test_mock_plan_problems_are_preflight_errors(self):
+        self.assert_refused("--mock-plan", str(self.tmp / "missing.yaml"), text="어댑터를 만들 수 없습니다")
+        self.assert_refused("--mock-scenario", "bogus", text="알 수 없는 모의 시나리오")
+
+    def test_protocol_mode_mismatch_exits_2(self):
+        code, output = self.run_cli(run_single, "--protocol", "MT3-1.0.0")
+        self.assertEqual(code, cli.EXIT_INVALID_INPUT)
+        self.assertIn("conversation_mode=single", output)
+        self.assertFalse(self.out.exists())
+
+    def test_adapter_setup_error_is_preflight_error(self):
+        from unittest import mock
+        from kyab_runner.adapters.base import AdapterSetupError
+        with mock.patch.object(cli, "create_adapter", side_effect=AdapterSetupError("서버 없음")):
+            self.assert_refused(text="서버 없음")
+
+    def test_corrupt_sibling_batch_is_reported(self):
+        self.assertEqual(self.run_cli(run_single, "--rollouts", "1")[0], 0)
+        batch_dir = self.batch_dirs()[0]
+        (batch_dir / "04_runs.csv").write_text("run_id,bogus\r\nx,y\r\n", encoding="utf-8")
+        code, output = self.run_cli(run_single, "--rollouts", "1")
+        self.assertEqual(code, cli.EXIT_INVALID_INPUT)
+        self.assertIn("기존 배치 기록을 읽을 수 없습니다", output)
+        self.assertEqual(len(self.batch_dirs()), 1)
+
+    def test_items_are_stripped_and_unknown_ids_warned(self):
+        code, output = self.run_cli(run_single, "--items", "KYAB-900001, NOPE", "--rollouts", "1")
+        self.assertEqual(code, 0, output)
+        self.assertIn("경고: --items에 있으나 01_items에 없는 ID ['NOPE']", output)
+        self.assertIn("실행 대상 1문항", output)
+
+
+class RecordGuardTest(RunnerTestCase):
+    """기록 단계 보호(core-04·15): 04가 거부되면 05도 쓰이지 않고, 옛 머리글 파일에는 이어 쓰지 않는다."""
+
+    def test_rejected_run_row_leaves_no_orphan_responses(self):
+        from kyab_runner.session import RunSession
+        from kyab_runner.adapters.mock import MockAdapter
+        from kyab_runner.ids import IdAllocator
+        from kyab_runner.session import Batch
+        from kyab_runner.records import InputIndex
+        index = InputIndex.load(CODEBOOK, paths.DEFAULT_INPUT_DIR)
+        item = next(i for i in index.tables["01_items"] if i["conversation_mode"] == "single")
+        batch_dir = self.out / "RBATCH-20260101-001"
+        batch_dir.mkdir(parents=True)
+        model = CONFIG.models["mock-echo"]
+        batch = Batch(codebook=CODEBOOK, config=CONFIG, model=model, adapter=MockAdapter(model, {}),
+                      ids=IdAllocator(CODEBOOK, self.out, "20260101"), batch_dir=batch_dir, run_batch_id=batch_dir.name,
+                      dataset_version=item["dataset_version"], protocol_id=item["protocol_id"], library_version="runner-0.0.0+test")
+        session = RunSession(batch, item, 4)                 # rollout_no 4는 코드북 허용값 밖 → 04 거부
+        turn = index.turns[validate.item_key(item)][0]
+        session.turn(turn, [{"role": "user", "content": turn["message_text"]}])
+        with self.assertRaises(csv_io.CsvFormatError):
+            session.finish(1)
+        self.assertFalse((batch_dir / "05_responses.csv").exists())
+
+    def test_append_refuses_old_header(self):
+        path = self.tmp / "02_item_tags.csv"
+        old_columns = [c for c in CODEBOOK.columns("02_item_tags") if c != validate.CONTROL_TARGET_FIELD]
+        path.write_text(",".join(old_columns) + "\r\n", encoding="utf-8-sig")
+        before = path.read_bytes()
+        row = dict.fromkeys(CODEBOOK.columns("02_item_tags"), "")
+        with self.assertRaises(csv_io.CsvFormatError) as caught:
+            csv_io.append_rows(CODEBOOK, "02_item_tags", path, [row])
+        self.assertIn("옛 머리글", str(caught.exception))
+        self.assertEqual(path.read_bytes(), before)
+
+
+class MessagesTest(RunnerTestCase):
+    """요청 메시지(core-11): context_text는 user 메시지 앞에 붙고, 지원하지 않는 위치는 즉시 오류."""
+
+    def test_context_prefix_and_unsupported_position(self):
+        from kyab_runner import messages
+        turn = {"context_text": "맥락", "message_text": "질문"}
+        built = messages.build_messages(CONFIG, [], turn)
+        self.assertEqual(built[-1]["content"], "맥락" + CONFIG["context_separator"] + "질문")
+        bad = type(CONFIG)(raw={**CONFIG.raw, "context_position": "system"}, system_prompt_text="s", system_prompt_hash="h", models={})
+        with self.assertRaises(ValueError):
+            messages.build_messages(bad, [], turn)
+
+
+class ConfigCheckTest(RunnerTestCase):
+    """설정 로드 검사(core-02, codebook-13): 빠진 키·잘못된 종류·모르는 모델 키는 ConfigError(한 줄, 종료 2)."""
+
+    def load_with(self, mutate_runner=None, mutate_models=None):
+        import yaml
+        from kyab_runner.config import load_config
+        config_dir = Path(tempfile.mkdtemp(prefix="config_", dir=self.tmp)) / "config"
+        shutil.copytree(paths.CONFIG_DIR, config_dir)
+        for name, mutate in (("runner.yaml", mutate_runner), ("models.yaml", mutate_models)):
+            if mutate:
+                raw = yaml.safe_load((config_dir / name).read_text(encoding="utf-8"))
+                mutate(raw)
+                (config_dir / name).write_text(yaml.safe_dump(raw, allow_unicode=True), encoding="utf-8")
+        return load_config(config_dir)
+
+    def test_runner_yaml_problems(self):
+        from kyab_runner.config import ConfigError
+        self.load_with()                                      # 실제 설정은 통과
+        cases = (lambda r: r.pop("safety_profile"), lambda r: r.update(max_attempts_per_turn=0),
+                 lambda r: r.update(context_position="system"), lambda r: r.update(default_rollouts="3"),
+                 lambda r: r.update(timezone="Mars/Olympus"))
+        for mutate in cases:
+            with self.assertRaises(ConfigError):
+                self.load_with(mutate_runner=mutate)
+
+    def test_models_yaml_problems(self):
+        from kyab_runner.config import ConfigError
+        with self.assertRaises(ConfigError) as caught:
+            self.load_with(mutate_models=lambda m: m["models"]["mock-echo"].update(enabeld=True))
+        self.assertIn("enabeld", str(caught.exception))
+        with self.assertRaises(ConfigError):
+            self.load_with(mutate_models=lambda m: m["models"]["mock-echo"].pop("provider"))
+        with self.assertRaises(ConfigError) as caught:
+            self.load_with(mutate_models=lambda m: m["models"]["mock-echo"].update(enabled="false"))
+        self.assertIn("true/false", str(caught.exception))

@@ -4,10 +4,12 @@
 그 키는 러너가 run_params(코드북 04 고정값)에서 보내는 것이라, 옵션에 두면 공급자에 보내는 값이 04 기록과 어긋난다.
 """
 import hashlib
-from dataclasses import dataclass, field
+from dataclasses import MISSING, dataclass, field, fields
+from zoneinfo import ZoneInfo
 
 from . import paths
 from .errors import SetupError, load_yaml
+from .messages import CONTEXT_POSITIONS
 
 
 class ConfigError(SetupError):
@@ -39,6 +41,67 @@ def _check_options(model_id, options):
     if "max_output_tokens" in (options.get("omit_params") or []):
         raise ConfigError(f"models.yaml {model_id}.options.omit_params에 max_output_tokens를 넣을 수 없습니다. "
                           "출력 한도는 항상 보냅니다(빼면 한도 없이 전송되거나 요청이 깨짐)")
+
+
+# runner.yaml에서 러너가 읽는 키와 값 종류. 실행 뒤(모델 호출 뒤)에야 KeyError로 드러나지 않도록 로드 때 한 번에 검사한다.
+# run_params는 cli.check_run_params가 코드북 04와 대조하므로 여기 두지 않는다. vllm_venv·hf_home·vllm_env는 도구만 읽는 선택 키.
+_RUNNER_KEYS = {
+    # 기록 환경
+    "timezone": str, "system_prompt_file": str,
+    # 04에 적는 등록 설정명과 그 등록 목록
+    "safety_profile": str, "tool_profile": str, "registered_safety_profiles": list, "registered_tool_profiles": list,
+    # 실행 방식
+    "protocols": dict, "default_rollouts": int, "max_attempts_per_turn": int, "context_reserve_tokens": int,
+    "context_position": str, "context_separator": str,
+    # 입력 선정·검증
+    "eligible_item_review_status": list, "eligible_lifecycle_status": list, "registered_rubric_ids": list,
+    # 05 finish_reason 정규화 어휘
+    "finish_reasons": list,
+}
+
+
+def _check_runner(raw):
+    """runner.yaml의 필수 키·값 종류·범위. 어긋나면 ConfigError(키 이름 포함)."""
+    if not isinstance(raw, dict):
+        raise ConfigError("runner.yaml: 매핑(키: 값)이어야 합니다")
+    for key, kind in _RUNNER_KEYS.items():
+        if key not in raw:
+            raise ConfigError(f"runner.yaml: 필수 키 {key!r}가 없습니다")
+        value = raw[key]
+        if not isinstance(value, kind) or (kind is int and isinstance(value, bool)):
+            raise ConfigError(f"runner.yaml {key}: {kind.__name__}이어야 합니다 (현재 {value!r})")
+    for key in ("default_rollouts", "max_attempts_per_turn"):
+        if raw[key] < 1:
+            raise ConfigError(f"runner.yaml {key}: 1 이상이어야 합니다 (현재 {raw[key]})")
+    if raw["context_position"] not in CONTEXT_POSITIONS:
+        raise ConfigError(f"runner.yaml context_position={raw['context_position']!r}: 지원 {CONTEXT_POSITIONS}")
+    for key, registry in (("safety_profile", "registered_safety_profiles"), ("tool_profile", "registered_tool_profiles")):
+        if raw[key] not in raw[registry]:
+            raise ConfigError(f"runner.yaml {key}={raw[key]!r}가 {registry}에 없습니다")
+    try:
+        ZoneInfo(raw["timezone"])
+    except Exception as exc:                          # ZoneInfoNotFoundError·ValueError 등
+        raise ConfigError(f"runner.yaml timezone={raw['timezone']!r}: 시간대를 찾을 수 없습니다 ({exc})") from exc
+    if not isinstance(raw.get("control_link_required", False), bool):
+        raise ConfigError("runner.yaml control_link_required는 true/false여야 합니다")
+
+
+def build_entry(cls, key_name, key, entry, source, error_cls):
+    """등록부(models.yaml·judges.yaml) 항목 1개 -> dataclass. 키가 빠지거나 모르면 TypeError 대신 error_cls(항목 이름 포함).
+
+    bool 필드에 문자열 'false' 같은 값이 오면 참으로 취급되는 사고를 막기 위해 bool 필드의 종류도 본다.
+    """
+    if not isinstance(entry, dict):
+        raise error_cls(f"{source} {key}: 매핑(키: 값)이어야 합니다 (현재 {entry!r})")
+    spec = {f.name: f for f in fields(cls) if f.name != key_name}
+    unknown = sorted(set(entry) - set(spec))
+    missing = sorted(name for name, f in spec.items() if name not in entry and f.default is MISSING and f.default_factory is MISSING)
+    if unknown or missing:
+        raise error_cls(f"{source} {key}: 모르는 키 {unknown} / 빠진 키 {missing}")
+    for name, f in spec.items():
+        if f.type is bool and name in entry and not isinstance(entry[name], bool):
+            raise error_cls(f"{source} {key}.{name}: true/false여야 합니다 (현재 {entry[name]!r} — 따옴표를 빼세요)")
+    return cls(**{key_name: key}, **entry)
 
 
 @dataclass(frozen=True)
@@ -76,16 +139,20 @@ class RunnerConfig:
 def load_config(config_dir=paths.CONFIG_DIR):
     """runner.yaml·models.yaml·시스템 프롬프트 -> RunnerConfig. config_dir는 시험용 치환 자리다."""
     raw = load_yaml(config_dir / paths.RUNNER_YAML.name, ConfigError)
-    models_raw = load_yaml(config_dir / paths.MODELS_YAML.name, ConfigError)["models"]
+    _check_runner(raw)
+    models_raw = load_yaml(config_dir / paths.MODELS_YAML.name, ConfigError)
+    if not isinstance(models_raw, dict) or not isinstance(models_raw.get("models"), dict):
+        raise ConfigError("models.yaml: 최상위 models 매핑이 없습니다")
 
     # 파일 끝 줄바꿈만 떼고 나머지는 그대로 쓴다. 해시는 실제로 보낸 문자열 기준.
-    prompt = (config_dir / raw["system_prompt_file"]).read_text(encoding="utf-8").rstrip("\n")
-    models = {model_id: ModelEntry(model_id=model_id, **entry)
-              for model_id, entry in models_raw.items()}
+    try:
+        prompt = (config_dir / raw["system_prompt_file"]).read_text(encoding="utf-8").rstrip("\n")
+    except FileNotFoundError as exc:
+        raise ConfigError(f"runner.yaml system_prompt_file: 파일이 없습니다 ({exc.filename})") from exc
+    models = {model_id: build_entry(ModelEntry, "model_id", model_id, entry, "models.yaml", ConfigError)
+              for model_id, entry in models_raw["models"].items()}
     for model_id, entry in models.items():
         _check_options(model_id, entry.options)
-    if not isinstance(raw.get("control_link_required", False), bool):
-        raise ConfigError("runner.yaml control_link_required는 true/false여야 합니다")
     return RunnerConfig(
         raw=raw,
         system_prompt_text=prompt,

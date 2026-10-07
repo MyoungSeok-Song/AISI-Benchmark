@@ -19,12 +19,13 @@ import json
 import socket
 import urllib.error
 import urllib.request
+from pathlib import Path
 from urllib.parse import urlparse
 
 from .. import fileio, paths
 from ..vocab import RESPONSE_ERROR
-from .base import (RETRYABLE_HTTP_LOCAL, Adapter, AdapterResult, chat_completion_result, connection_error_result,
-                   invalid_response_result, timeout_result)
+from .base import (RETRYABLE_HTTP_LOCAL, Adapter, AdapterResult, AdapterSetupError, chat_completion_result,
+                   connection_error_result, invalid_response_result, timeout_result)
 
 _LOCAL_HOSTS = ("127.0.0.1", "localhost", "::1")
 SERVER_INFO_FILE = paths.VLLM_SERVER_INFO                           # tools/vllm_server.py가 기록
@@ -39,7 +40,9 @@ class LocalVllmAdapter(Adapter):
         self._timeout = options.get("request_timeout_s", 120)
         self._extra_body = options.get("extra_body", {})
         if urlparse(self._base_url).hostname not in _LOCAL_HOSTS:
-            raise ValueError(f"local_vllm은 localhost만 호출합니다: {self._base_url}")
+            raise AdapterSetupError(f"local_vllm은 localhost만 호출합니다: {self._base_url}")
+        if not model.model_version:
+            raise AdapterSetupError(f"local_vllm 모델 {model.model_id}에는 model_version(HF revision)이 필요합니다 (config/models.yaml)")
         self._served = self._find_served_model()
 
     # ── 시작 전 확인 ────────────────────────────────────────────────────
@@ -48,14 +51,15 @@ class LocalVllmAdapter(Adapter):
         try:
             listing = self._get("/models")
         except (urllib.error.URLError, OSError) as exc:
-            raise SystemExit(f"vLLM 서버에 연결할 수 없습니다 ({self._base_url}): {exc}\n"
-                             f"먼저 tools/vllm_server.py start 로 서버를 띄우세요.")
+            raise AdapterSetupError(f"vLLM 서버에 연결할 수 없습니다 ({self._base_url}): {exc}\n"
+                                    f"먼저 tools/vllm_server.py start 로 서버를 띄우세요.") from exc
         served = next((m for m in listing["data"] if m["id"] == self._served_name), None)
         if served is None:
-            raise SystemExit(f"서버에 '{self._served_name}' 모델이 없습니다: {[m['id'] for m in listing['data']]}")
-        if self._model.model_version not in served.get("root", ""):
-            raise SystemExit(f"서버가 올린 모델 경로({served.get('root')})가 등록된 revision "
-                             f"{self._model.model_version}과 다릅니다")
+            raise AdapterSetupError(f"서버에 '{self._served_name}' 모델이 없습니다: {[m['id'] for m in listing['data']]}")
+        root = served.get("root") or ""                 # 스냅샷 폴더 경로의 마지막 요소가 revision이어야 한다(부분 문자열 비교는 ''에 뚫린다)
+        if Path(root).name != self._model.model_version:
+            raise AdapterSetupError(f"서버가 올린 모델 경로({served.get('root')})가 등록된 revision "
+                                    f"{self._model.model_version}과 다릅니다")
         return served
 
     def describe(self):
@@ -68,8 +72,12 @@ class LocalVllmAdapter(Adapter):
                 info["vllm_version"] = json.load(r).get("version")
         except (urllib.error.URLError, OSError, ValueError):
             info["vllm_version"] = None
-        if SERVER_INFO_FILE.exists():                 # 기동 명령·dtype·GPU
-            info["server"] = fileio.read_json(SERVER_INFO_FILE)
+        if SERVER_INFO_FILE.exists():                 # 기동 명령·dtype·GPU. 이 모델·포트의 기동 기록일 때만 옮겨 적는다
+            server = fileio.read_json(SERVER_INFO_FILE)
+            if server.get("revision") == self._model.model_version and server.get("port") == urlparse(self._base_url).port:
+                info["server"] = server
+            else:
+                info["server_info_skipped"] = f"{SERVER_INFO_FILE.name}이 이 모델·포트의 기동 기록이 아님"
         return info
 
     # ── 호출 ────────────────────────────────────────────────────────────

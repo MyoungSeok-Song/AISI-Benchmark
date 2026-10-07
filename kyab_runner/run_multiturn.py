@@ -22,7 +22,7 @@ MT7·MT10은 턴 수만 다른 같은 규칙이므로 --protocol만 바꿔 실�
 import sys
 
 from . import cli
-from .messages import build_messages, user_content
+from .messages import build_messages
 from .vocab import RESPONSE_SUCCESS
 
 DEFAULT_PROTOCOL = "MT3-1.0.0"
@@ -37,7 +37,7 @@ def conduct_multiturn(session, turns):
         result = session.turn(turn, messages)
         if result.response_status != RESPONSE_SUCCESS:
             break                                   # 이 턴의 응답이 없어 다음 턴을 이어 갈 수 없다
-        history.append((user_content(turn, config), result.response_text))
+        history.append((messages[-1]["content"], result.response_text))     # 실제로 보낸 user 문자열 그대로
 
 
 def main(argv=None):

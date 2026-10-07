@@ -84,3 +84,42 @@ class RequestShapeTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ServedModelCheckTest(unittest.TestCase):
+    """서버가 올린 스냅샷 확인(adapters-14): root의 마지막 경로 요소가 revision과 같아야 하고, 빈 revision은 거부."""
+
+    def make(self, root, model_version="rev"):
+        from unittest import mock
+        from kyab_runner.adapters.base import AdapterSetupError
+        model = ModelEntry(model_id="x", adapter="local_vllm", provider="local_vllm", model_version=model_version,
+                           model_snapshot_date="2026-09-30", api_version="v1", enabled=True,
+                           options={"base_url": "http://127.0.0.1:8000/v1", "served_model_name": "x"})
+        listing = {"data": [{"id": "x", "root": root, "max_model_len": 32768}]}
+        with mock.patch.object(LocalVllmAdapter, "_get", return_value=listing):
+            return LocalVllmAdapter(model), AdapterSetupError
+
+    def test_root_must_end_with_revision(self):
+        adapter, _ = self.make("/cache/snapshots/rev")
+        self.assertEqual(adapter._served["root"], "/cache/snapshots/rev")
+        for root in ("/cache/snapshots/other", None, ""):
+            with self.assertRaises(ValueError):           # AdapterSetupError(ValueError)
+                self.make(root)
+        with self.assertRaises(ValueError):
+            self.make("/cache/snapshots/", model_version="")
+
+    def test_describe_attaches_server_info_only_for_this_model(self):
+        import json
+        from unittest import mock
+        from kyab_runner.adapters import local_vllm
+        adapter, _ = self.make("/cache/snapshots/rev")
+        info_file = Path(self._testMethodName + ".json")
+        with mock.patch.object(local_vllm, "SERVER_INFO_FILE", info_file), \
+                mock.patch("urllib.request.urlopen", side_effect=OSError("no server")):
+            info_file.write_text(json.dumps({"revision": "rev", "port": 8000, "pid": 1}), encoding="utf-8")
+            self.assertEqual(adapter.describe()["server"]["pid"], 1)
+            info_file.write_text(json.dumps({"revision": "other", "port": 8000}), encoding="utf-8")
+            described = adapter.describe()
+            self.assertNotIn("server", described)
+            self.assertIn("server_info_skipped", described)
+        info_file.unlink()

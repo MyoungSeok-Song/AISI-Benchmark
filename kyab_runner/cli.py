@@ -5,7 +5,6 @@ run_single.py와 run_multiturn.py는 '대화 1건을 어떻게 진행하는가'(
 """
 import argparse
 import json
-import sys
 from collections import Counter
 from pathlib import Path
 
@@ -13,6 +12,7 @@ import yaml
 
 from . import clock, csv_io, fileio, judge_io, paths, validate
 from .adapters import create_adapter
+from .adapters.base import AdapterSetupError
 from .codebook import fixed_value as codebook_fixed_value, load_codebook
 from .context import SETUP_ERRORS, setup_error_message
 from .config import load_config
@@ -44,9 +44,9 @@ def build_parser(description, default_protocol):
                    help="출력 루트. 이 아래에 <run_batch_id>/ 폴더가 생긴다")
     p.add_argument("--model", default="mock-echo", help="config/models.yaml의 model_id")
     p.add_argument("--protocol", default=default_protocol, help="실행할 protocol_id")
-    p.add_argument("--rollouts", type=int, help="문항당 반복 횟수 (기본: runner.yaml default_rollouts)")
-    p.add_argument("--items", help="실행할 item_id를 쉼표로 나열 (기본: 프로토콜에 맞는 전체)")
-    p.add_argument("--batch-id", help="중단된 배치를 이어서 실행할 때 그 run_batch_id")
+    p.add_argument("--rollouts", type=int, help="문항당 반복 횟수. 코드북 04 rollout_no 허용값 안이어야 함 (0·생략: runner.yaml default_rollouts)")
+    p.add_argument("--items", help="실행할 item_id를 쉼표로 나열 — item_id 기준이라 그 문항의 모든 item_version이 선택됨 (기본: 프로토콜에 맞는 전체)")
+    p.add_argument("--batch-id", help="중단된 배치를 이어서 실행할 때 그 run_batch_id (batch_manifest.json이 있는 폴더)")
     p.add_argument("--allow-unverified", action="store_true",
                    help="검토 미통과·비활성 문항도 실행 (개발 샘플 전용)")
     p.add_argument("--validate-only", action="store_true", help="입력 검증만 하고 끝낸다")
@@ -118,6 +118,28 @@ def check_run_params(codebook, config):
     return problems
 
 
+def check_cli_args(codebook, args, rollouts):
+    """실행 전 점검 0: 명령행 인자가 코드북·폴더와 맞는지. 반환: 문제 설명 목록.
+
+    반복 횟수는 코드북 04 rollout_no 허용값(현재 1~3) 안이어야 한다 — 넘으면 모델을 부른 뒤에야 04 기록이 거부돼 짝 없는 05가 남는다.
+    --batch-id는 run_batch_id 형식이어야 하고 그 폴더에 manifest가 있어야 한다(없으면 새 배치로 오인해 모델을 부른다).
+    """
+    problems = []
+    if rollouts < 1:
+        problems.append(f"--rollouts {rollouts}: 1 이상이어야 함")
+    rollout_spec = codebook.field("04_runs", "rollout_no")
+    bad = [n for n in range(1, max(rollouts, 0) + 1) if rollout_spec.check(str(n))]
+    if bad:
+        problems.append(f"--rollouts {rollouts}: 반복 번호 {bad}는 코드북 04 rollout_no 허용값({', '.join(rollout_spec.enum)}) 밖")
+    if args.batch_id:
+        problem = codebook.field("04_runs", "run_batch_id").check(args.batch_id)
+        if problem:
+            problems.append(f"--batch-id {args.batch_id!r}: {problem}")
+        elif not (args.out / args.batch_id / MANIFEST_FILE).exists():
+            problems.append(f"이어 쓸 배치 폴더가 없거나 manifest가 없습니다: {args.out / args.batch_id}")
+    return problems
+
+
 def check_context_budget(config, adapter_info, protocol_id):
     """실행 전 점검 2: 로컬 서버 길이가 이 프로토콜의 최악 입력을 받을 수 있는지. 반환: 문제 설명 또는 None.
 
@@ -140,8 +162,8 @@ def check_context_budget(config, adapter_info, protocol_id):
     return None
 
 
-def preflight(args, codebook, config):
-    """실행 전 점검: 모델 등록·run_params 허용값·어댑터 생성·서버 길이. 반환: (model, adapter, adapter_info).
+def preflight(args, codebook, config, rollouts):
+    """실행 전 점검: 명령행 인자·모델 등록·run_params 허용값·어댑터 생성·서버 길이. 반환: (model, adapter, adapter_info).
 
     모두 폴더를 만들기 전에 끝낸다. 실패하면 PreflightError(빈 폴더가 남지 않고 다음 배치 번호도 건너뛰지 않는다).
     adapter.describe()는 한 번만 부른다(로컬 서버는 HTTP 호출이다) — 길이 점검과 manifest가 같은 값을 쓴다.
@@ -149,10 +171,13 @@ def preflight(args, codebook, config):
     model = config.models.get(args.model)
     if model is None or not model.enabled:
         raise PreflightError(f"모델 '{args.model}'은 등록되지 않았거나 enabled: false 입니다 (config/models.yaml)")
-    problems = check_run_params(codebook, config)
+    problems = check_run_params(codebook, config) + check_cli_args(codebook, args, rollouts)
     if problems:
         raise PreflightError("실행 전 점검 실패 — 모델을 호출하지 않았습니다:\n  " + "\n  ".join(problems))
-    adapter = create_adapter(model, load_mock_plan(args))
+    try:
+        adapter = create_adapter(model, load_mock_plan(args))
+    except (AdapterSetupError, OSError, ValueError, yaml.YAMLError) as exc:   # 키 없음·서버 미기동·모의 계획 파일 문제 등
+        raise PreflightError(f"실행 전 점검 실패 — 모델을 호출하지 않았습니다: 어댑터를 만들 수 없습니다: {exc}") from exc
     adapter_info = adapter.describe()
     problem = check_context_budget(config, adapter_info, args.protocol)
     if problem:
@@ -166,7 +191,10 @@ def open_batch(args, codebook, config, model, adapter, adapter_info, dataset_ver
     input_validation: 입력 검증 요약(오류·경고 건수, 제외 사유별 건수·문항). manifest에 남긴다(잠금 대상 아님).
     """
     today = clock.compact_date(clock.now(config))
-    ids = IdAllocator(codebook, args.out, today)
+    try:
+        ids = IdAllocator(codebook, args.out, today)
+    except csv_io.CsvFormatError as exc:              # 형제 배치의 04·05가 깨져 있으면 번호를 이어 셀 수 없다
+        raise PreflightError(f"출력 루트의 기존 배치 기록을 읽을 수 없습니다: {exc}") from exc
     run_batch_id = args.batch_id or ids.new_batch_id()
     batch_dir = args.out / run_batch_id
     if args.batch_id and not batch_dir.exists():
@@ -286,8 +314,15 @@ def _load_spec():
 
 
 def _select(args, config, items, issues):
-    """실행 대상 문항을 고르고 manifest에 남길 입력 검증 요약을 만든다. 반환: (선정 문항, input_validation dict)."""
-    only_ids = set(args.items.split(",")) if args.items else None
+    """실행 대상 문항을 고르고 manifest에 남길 입력 검증 요약을 만든다. 반환: (선정 문항, input_validation dict).
+
+    --items의 공백은 떼고, 01에 없는 ID는 경고로 알린다(manifest에는 넣지 않는다).
+    """
+    only_ids = {s.strip() for s in args.items.split(",") if s.strip()} if args.items else None
+    if only_ids:
+        missing = sorted(only_ids - {item["item_id"] for item in items})
+        if missing:
+            print(f"경고: --items에 있으나 01_items에 없는 ID {missing}")
     selected, skipped = select_items(items, config, args.protocol, only_ids, args.allow_unverified)
     print(f"실행 대상 {len(selected)}문항" + (f", 제외 {dict(skipped)}" if skipped else ""))
     chosen = {item["item_id"] for item in selected}
@@ -316,7 +351,8 @@ def main(description, default_protocol, conversation_mode, conduct, argv=None):
 
     protocol = config["protocols"].get(args.protocol)
     if protocol is None or protocol["conversation_mode"] != conversation_mode:
-        sys.exit(f"이 실행기는 conversation_mode={conversation_mode} 프로토콜만 실행합니다: {args.protocol}")
+        print(f"이 실행기는 conversation_mode={conversation_mode} 프로토콜만 실행합니다: {args.protocol}")
+        return EXIT_INVALID_INPUT
 
     try:
         tables, input_digests = load_inputs(codebook, args.input)
@@ -342,18 +378,22 @@ def main(description, default_protocol, conversation_mode, conduct, argv=None):
         print(f"한 배치에는 dataset_version이 하나여야 합니다: {versions}")
         return EXIT_INVALID_INPUT
 
+    rollouts = args.rollouts or config["default_rollouts"]          # 0·생략은 기본값
     try:
-        model, adapter, adapter_info = preflight(args, codebook, config)
+        model, adapter, adapter_info = preflight(args, codebook, config, rollouts)
         batch = open_batch(args, codebook, config, model, adapter, adapter_info, versions[0], input_digests, input_validation)
     except PreflightError as exc:
         print(str(exc))
         return EXIT_INVALID_INPUT
-    rollouts = args.rollouts or config["default_rollouts"]
     try:
         new_rows = run_batch(batch, selected, index.turns, rollouts, conduct)
     except KeyboardInterrupt:
         print(f"\n중단됨. 이어서 실행: --batch-id {batch.run_batch_id}")
         return EXIT_INTERRUPTED
+    except csv_io.CsvFormatError as exc:              # 기록 거부(코드북 위반·옛 머리글): 짝 없는 행은 남지 않는다
+        print(f"기록 거부: {exc}")
+        print(f"원인을 고친 뒤 이어서 실행: --batch-id {batch.run_batch_id}")
+        return EXIT_INVALID_INPUT
     judge_io.write_template(batch, index)
     print_summary(batch, new_rows)
     return EXIT_OK
