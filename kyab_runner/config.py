@@ -28,16 +28,27 @@ PARAM_KEYS_FORBIDDEN_IN_OPTIONS = ("max_tokens", "max_completion_tokens", "max_o
                                    "stop_token_ids", "logit_bias", "sampling_params",
                                    "generationConfig", "generation_config",
                                    "reasoning_effort", "thinking", "thinkingConfig")
+# 요청 구조 키: 러너가 직접 만드는 부분(모델·메시지·시스템 프롬프트·도구·저장·스트리밍·후보 수·안전 설정).
+# 어댑터는 옵션 블록을 요청 본문에 마지막으로 합치므로, 여기 있는 키를 옵션에 두면 러너가 만든 값을 덮어쓴다 —
+# 그러면 04 safety_profile·tool_profile, 05 request_messages_json, describe()의 conversation_storage(off)가 사실과 달라진다.
+REQUEST_KEYS_FORBIDDEN_IN_OPTIONS = ("model", "messages", "contents", "system", "systemInstruction", "store", "stream", "stream_options",
+                                     "n", "safetySettings", "tools", "tool_choice", "toolConfig", "functions", "function_call")
 _OPTION_BLOCKS = ("extra_body", "extra_generation_config")
 
 
 def _check_options(model_id, options):
-    """어댑터 추가 설정이 호출 파라미터를 덮어쓰지 않는지. omit_params로 출력 한도를 빼는 것도 막는다."""
+    """어댑터 추가 설정이 호출 파라미터·요청 구조를 덮어쓰지 않는지. omit_params로 출력 한도를 빼는 것도 막는다."""
     for block in _OPTION_BLOCKS:
-        forbidden = sorted(set(options.get(block) or {}) & set(PARAM_KEYS_FORBIDDEN_IN_OPTIONS))
+        keys = set(options.get(block) or {})
+        forbidden = sorted(keys & set(PARAM_KEYS_FORBIDDEN_IN_OPTIONS))
         if forbidden:
             raise ConfigError(f"models.yaml {model_id}.options.{block}에 호출 파라미터 키 {forbidden}가 있습니다. "
                               "temperature·top_p·출력 한도는 runner.yaml run_params에서만 정합니다(04_runs 기록과 일치해야 함)")
+        structural = sorted(keys & set(REQUEST_KEYS_FORBIDDEN_IN_OPTIONS))
+        if structural:
+            raise ConfigError(f"models.yaml {model_id}.options.{block}에 요청 구조 키 {structural}가 있습니다. "
+                              "모델·메시지·도구·저장(store)·안전 설정은 러너가 만들며 옵션으로 덮어쓸 수 없습니다"
+                              "(04 safety_profile·tool_profile, 05 request_messages_json과 일치해야 함)")
     if "max_output_tokens" in (options.get("omit_params") or []):
         raise ConfigError(f"models.yaml {model_id}.options.omit_params에 max_output_tokens를 넣을 수 없습니다. "
                           "출력 한도는 항상 보냅니다(빼면 한도 없이 전송되거나 요청이 깨짐)")

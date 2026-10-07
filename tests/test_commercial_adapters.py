@@ -279,6 +279,17 @@ class OptionGuardTest(unittest.TestCase):
             self.assertIn(key, str(ctx.exception))
             self.assertIn("run_params", str(ctx.exception))
 
+    def test_request_structure_keys_rejected(self):
+        """요청 구조 키(store·n·messages·safetySettings 등)는 러너가 만든 요청을 덮어써 04·05·describe() 기록을 거짓으로 만들므로 거부한다."""
+        for block, key in (("extra_body", "store"), ("extra_body", "n"), ("extra_body", "messages"), ("extra_body", "model"),
+                           ("extra_body", "stream"), ("extra_body", "tools"), ("extra_body", "tool_choice"), ("extra_body", "system"),
+                           ("extra_body", "safetySettings"), ("extra_body", "contents"), ("extra_body", "systemInstruction"),
+                           ("extra_generation_config", "store"), ("extra_generation_config", "toolConfig")):
+            with self.assertRaises(ConfigError) as ctx:
+                _check_options("some-model", {block: {key: True}})
+            self.assertIn(key, str(ctx.exception))
+            self.assertIn("요청 구조", str(ctx.exception))
+
     def test_omit_params_cannot_drop_output_limit(self):
         with self.assertRaises(ConfigError):
             _check_options("m", {"omit_params": ["max_output_tokens"]})

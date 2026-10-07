@@ -464,7 +464,7 @@ OpenAI·Anthropic·Gemini 어댑터가 있지만 **실제로 호출한 적이 �
 - **대화 저장 끔**: 매 호출 전체 메시지를 다시 보냅니다. OpenAI는 `store: false`, Anthropic·Gemini는 호출마다 독립인 API를 씁니다.
 - **파라미터**: `runner.yaml run_params`(0.0 / 1.0 / 8192 — 코드북 04 허용값)를 요청합니다. 공급자가 받지 않거나 함께 지정할 수 없는 값은 `omit_params`에 적어 보내지 않습니다(출력 한도는 뺄 수 없음). 04_runs에는 그 값을 그대로 적고, 실제 전송 설정은 `batch_manifest.json`의 `adapter_info`와 `runner_events.jsonl`에 남습니다. 현재 Anthropic만 `top_p`를 뺍니다(Claude 4.x는 `temperature`와 함께 지정 불가).
 - **재시도**: 러너가 합니다(턴당 최대 3회, 보조 로그 기록). Anthropic SDK의 자체 재시도는 껐습니다. `request_timeout_s`는 600입니다(8,192 토큰 출력 기준. 시간 초과 재시도는 유료 중복 호출).
-- **옵션 가드**: `extra_body`·`extra_generation_config`에 호출 파라미터·샘플링·길이 키(`max_tokens`, `max_completion_tokens`, `maxOutputTokens`, `temperature`, `top_p`, `topP`, `top_k`, `seed`, `stop`, … Gemini의 `generationConfig` 블록 포함)가 있으면 설정 로드에서 거부합니다. `omit_params`로 출력 한도를 빼는 것도 막습니다. 04에 적히는 값과 실제 보내는 값이 어긋나지 않게 하기 위함입니다.
+- **옵션 가드**: `extra_body`·`extra_generation_config`에 호출 파라미터·샘플링·길이 키(`max_tokens`, `max_completion_tokens`, `maxOutputTokens`, `temperature`, `top_p`, `topP`, `top_k`, `seed`, `stop`, … Gemini의 `generationConfig` 블록 포함)가 있으면 설정 로드에서 거부합니다. 요청 구조 키(`model`, `messages`, `contents`, `system`, `store`, `stream`, `n`, `tools`, `tool_choice`, `safetySettings` 등)도 거부합니다 — 옵션 블록은 요청 본문에 마지막으로 합쳐지므로 러너가 만든 메시지·도구·저장 설정을 덮어써 04 `safety_profile`·`tool_profile`, 05 `request_messages_json`, 대화 저장 꺼짐 기록이 사실과 달라지기 때문입니다. `omit_params`로 출력 한도를 빼는 것도 막습니다. 04에 적히는 값과 실제 보내는 값이 어긋나지 않게 하기 위함입니다.
 - **다른 모델로 넘기기 없음**: 평가 대상 모델의 응답만 기록합니다.
 
 응답 정규화
