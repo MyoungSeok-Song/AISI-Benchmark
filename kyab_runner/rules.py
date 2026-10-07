@@ -132,8 +132,8 @@ def _check_cfc_tokens(codebook, raw):
     return spec.none_token
 
 
-def _check_against_codebook(codebook, raw):
-    """규칙 파일이 쓰는 필드 이름·허용값이 코드북에 있는지 확인한다."""
+def _check_field_references(codebook, raw):
+    """규칙 파일이 가리키는 필드 이름·허용값이 코드북에 실제로 있는지 확인한다(코드북이 바뀌었는데 규칙이 옛 이름을 쓰는 일 방지)."""
     _require_columns(codebook, "06_judgments", raw["rubric_dimensions"].values(), "rubric_dimensions")
     _require_columns(codebook, "06_judgments", raw["crri_axes"], "crri_axes")
     for entry in raw["judgment"]["blank_allowed"]:
@@ -162,6 +162,11 @@ def _check_against_codebook(codebook, raw):
         missing = [k for k in keys if k not in item_or_tag]
         if missing:
             raise RulesError(f"aggregation_rules.yaml {where}: 01·02에 없는 필드 {missing}")
+
+
+def _check_supported_options(raw):
+    """코드북과 무관하게 러너가 구현한 선택지만 허용하는 항목(평가 단위·차원 출처·CI 방법·차단 정책)."""
+    aggregation = raw["aggregation"]
     if aggregation["evaluation_unit"] != SUPPORTED_EVALUATION_UNIT:
         raise RulesError(f"지원하지 않는 evaluation_unit {aggregation['evaluation_unit']} (가능: {SUPPORTED_EVALUATION_UNIT})")
     if aggregation["multi_turn_dimension_source"] not in DIMENSION_SOURCES:
@@ -179,7 +184,7 @@ INCONCLUSIVE_REPORT_DEFAULTS = {"warn_rate": None, "report_failure_rate_if_incon
 
 
 def _fill_defaults(raw):
-    """없는 선택 블록을 기본값으로 채운다. 반환: 안내 문구 목록."""
+    """없는 선택 블록을 기본값으로 채우고, 채운 블록의 값 종류를 검사한다(RulesError). 반환: 안내 문구 목록."""
     warnings = []
     aggregation = raw["aggregation"]
     if "substitute_control_target_risk" not in aggregation:
@@ -220,7 +225,8 @@ def load_rules(codebook, rules_yaml=paths.AGGREGATION_RULES_YAML, judges_yaml=pa
     except yaml.YAMLError as exc:
         raise RulesError(f"{rules_yaml.name}: yaml 문법 오류 — {exc}") from exc
     load_warnings = _fill_defaults(raw)
-    _check_against_codebook(codebook, raw)
+    _check_field_references(codebook, raw)
+    _check_supported_options(raw)
     none_token = _check_cfc_tokens(codebook, raw)
     registry = load_yaml(judges_yaml, RulesError)
     judges = {judge_id: JudgeEntry(judge_id=judge_id, **entry) for judge_id, entry in registry["judges"].items()}

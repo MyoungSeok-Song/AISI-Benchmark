@@ -215,31 +215,38 @@ def _field_from_json(table, raw):
     )
 
 
-def _enum_updates(spec, change, taxonomy):
-    """apply·add_field가 함께 쓰는 허용값 갱신."""
+# overlay 항목의 키 가운데 FieldSpec 필드에 그대로 옮기는 것(값 변환 없음)
+_PASSTHROUGH_KEYS = ("enum_kind", "required", "max_items", "format", "none_token", "regex")
+
+
+def _overlay_updates(spec, change, taxonomy):
+    """apply·add_field 항목 1개 -> FieldSpec에 덮어쓸 필드 dict.
+
+    다루는 키(적용 순서대로, 뒤가 앞을 덮는다): enum → enum_add → enum_from → enum_kind·required·max_items·format·none_token·regex.
+    format이 바뀌고 허용값이 없으면 value_type을 새 원문에서 다시 추론한다. 허용값이 생겼는데 종류(scalar·array)가
+    비어 있으면 scalar로 본다(check()는 enum_kind가 비면 허용값을 보지 않는다).
+    """
     updates = {}
     if "enum" in change:
         updates["enum"] = tuple(str(v) for v in change["enum"])
-        updates["enum_kind"] = spec.enum_kind or "scalar"
     if "enum_add" in change:
         updates["enum"] = spec.enum + tuple(str(v) for v in change["enum_add"])
     if "enum_from" in change:
         source = {"taxonomy.major": taxonomy.major_codes, "taxonomy.sub": taxonomy.sub_codes}
         updates["enum"] = tuple(source[change["enum_from"]])
-    for key in ("enum_kind", "required", "max_items", "format", "none_token", "regex"):
+    for key in _PASSTHROUGH_KEYS:
         if key in change:
             updates[key] = change[key]
     if "format" in change and "enum" not in change and not spec.enum:
         updates["value_type"] = _infer_type(change["format"])        # 형식 원문이 바뀌면 값 종류도 다시 읽는다
-    # 허용값이 생겼는데 종류(scalar·array)가 비어 있으면 check()가 허용값을 보지 않는다. 기본은 scalar.
     if updates.get("enum") and not (updates.get("enum_kind") or spec.enum_kind):
         updates["enum_kind"] = "scalar"
     return updates
 
 
 def _apply_change(spec, change, taxonomy):
-    """overlay의 apply 항목 1개를 FieldSpec에 반영한다."""
-    return replace(spec, **_enum_updates(spec, change, taxonomy))
+    """overlay의 apply·add_field 항목 1개를 FieldSpec에 반영한다."""
+    return replace(spec, **_overlay_updates(spec, change, taxonomy))
 
 
 def _find(specs, table, name):
@@ -266,7 +273,7 @@ def _add_field(tables, entry, change, confirmed_ids, taxonomy):
     spec = FieldSpec(table=change["table"], name=change["field"], stage=change["stage"],
                      ai_delivery=change.get("ai_delivery", "×"), format=fmt, value_type=_infer_type(fmt),
                      required=change.get("required", False), added_by=entry["id"])
-    spec = replace(spec, **_enum_updates(spec, change, taxonomy))
+    spec = _apply_change(spec, change, taxonomy)
     specs.insert(_find(specs, change["table"], change["after"]) + 1, spec)
 
 

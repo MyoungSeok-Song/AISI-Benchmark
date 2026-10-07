@@ -161,3 +161,54 @@ class VocabularyTest(unittest.TestCase):
             vocab.check_vocabulary(broken)
         self.assertIn("06_judgments.verdict='fail'", str(caught.exception))
         self.assertIn("SetupError", [c.__name__ for c in type(caught.exception).__mro__])
+
+
+class TagSchemeDispatchTest(unittest.TestCase):
+    """태그 규칙 호출 순서 고정(codebook-08): 이전·새 체계 오류가 섞인 입력의 02 Issue 목록이 분리 전과 같다."""
+
+    EXPECTED = [
+        ("error", "KYAB-900003@1.0.0#rev1", "m_review_status", "허용값 아님: 'pending' (허용: unreviewed, issue_found, no_issue, hold, out_of_list)"),
+        ("error", "KYAB-900101@1.0.0#rev1", "taxonomy_version", "MAJOR.MINOR.PATCH 형식 아님: 'x.0.0'"),
+        ("error", "KYAB-900001@1.0.0#rev1", "primary_risk", "이전 체계 행인데 R 코드가 아님: 'A1'"),
+        ("error", "KYAB-900001@1.0.0#rev1", "secondary_risks", "이전 체계 행의 허용값 아님: ['R9']"),
+        ("error", "KYAB-900001@1.0.0#rev1", "m_review_codes", "이전 체계 행의 허용값 아님: ['M99']"),
+        ("error", "KYAB-900001@1.0.0#rev1", "sub_risk_codes", "이전 체계에서는 세부 코드를 쓰지 않음(v0.2 '추후 확정')"),
+        ("error", "KYAB-900001@1.0.0#rev1", "m_review_status", "이전 체계 행은 필수(v0.2)"),
+        ("error", "KYAB-900003@1.0.0#rev1", "sub_risk_codes", "A2.01는 A1의 소분류가 아님 (소속: A2)"),
+        ("error", "KYAB-900003@1.0.0#rev1", "secondary_risks", "주대분류 A1가 보조 위험에 다시 들어 있음"),
+        ("error", "KYAB-900003@1.0.0#rev1", "m_review_codes", "새 분류체계 행에서는 비워 둠 (M01~M05는 A6~A10으로 편입)"),
+        ("error", "KYAB-900003@1.0.0#rev1", "m_review_status", "새 분류체계 행에서는 비워 둠 (M01~M05는 A6~A10으로 편입)"),
+    ]
+
+    def test_issue_order_is_unchanged(self):
+        import copy
+        from kyab_runner import csv_io, validate
+        from kyab_runner.config import load_config
+        from kyab_runner.records import INPUT_FILES
+        tables = {t: csv_io.read_table(CODEBOOK, t, paths.DEFAULT_INPUT_DIR / f) for t, f in INPUT_FILES.items()}
+        tags = copy.deepcopy(tables["02_item_tags"])
+        legacy = next(r for r in tags if r["item_id"] == "KYAB-900001" and r["tag_status"] == "current")
+        legacy.update(taxonomy_version="0.1.0", primary_risk="A1", secondary_risks='["R9"]', sub_risk_codes='["A1.01"]',
+                      m_review_codes='["M01", "M99"]', m_review_status="", risk_review_status="mapped")
+        new = next(r for r in tags if r["item_id"] == "KYAB-900003" and r["tag_status"] == "current")
+        new.update(primary_risk="A1", sub_risk_codes='["A2.01"]', secondary_risks='["A1"]', m_review_status="pending",
+                   m_review_codes='["M01"]', risk_review_status="mapped")
+        unreadable = next(r for r in tags if r["item_id"] == "KYAB-900101" and r["tag_status"] == "current")
+        unreadable.update(taxonomy_version="x.0.0")
+        issues = validate.validate_inputs(CODEBOOK, TAXONOMY, load_config(), tables["01_items"], tags, tables["03_prompts"])
+        got = [(i.level, i.key, i.field, i.message) for i in issues
+               if i.table == "02_item_tags" and any(k in i.key for k in ("900001", "900003", "900101"))]
+        self.assertEqual(got, self.EXPECTED)
+        self.assertEqual(validate._scheme_of(legacy), validate.SCHEME_LEGACY)
+        self.assertEqual(validate._scheme_of(new), validate.SCHEME_NEW)
+        self.assertIsNone(validate._scheme_of(unreadable))
+
+
+class TaxonomyLoadTest(unittest.TestCase):
+    def test_missing_legacy_codes_is_a_setup_error(self):
+        from kyab_runner.spec import taxonomy_data
+        from kyab_runner.taxonomy import TaxonomyError
+        without_m = [r for r in taxonomy_data.CROSSWALK if r["legacy_scheme"] != "M"]
+        with self.assertRaises(TaxonomyError):
+            load_taxonomy(crosswalk=without_m)
+        self.assertFalse(hasattr(TAXONOMY, "sort_order"))       # 읽는 곳이 없던 필드 제거

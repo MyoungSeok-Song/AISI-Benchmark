@@ -5,9 +5,11 @@
   1. 필드 단위   코드북 허용값·정규식·형식·필수 (codebook.check_row)
   2. 키·연결     PK 중복, FK, 턴 번호 연속
   3. 문항 규칙   대화 방식 ↔ 턴 수 ↔ 프로토콜, 조건부 필수, 등록 코드
-  4. 태그 규칙   current 1개, 분류체계 판본별 코드 검사, 01↔02 교차(대조 문항의 위험군 연결)
+  4. 태그 규칙   current 1개, 분류체계 판본별 코드 검사(_scheme_of: MAJOR 0 = 이전 체계 R/M, 1 이상 = 새 체계 A),
+                 01↔02 교차(대조 문항의 위험군 연결)
 
-조건부 필수 규칙(rule_*)은 overlay_v0.3_confirmed.yaml의 note가 가리키는 함수다.
+조건부 필수 규칙(rule_*)은 overlay_v0.3_confirmed.yaml의 note가 가리키는 함수다. 태그 행마다 호출 순서는
+validate_inputs의 태그 루프에 그대로 적혀 있다(경고 순서가 batch_manifest.json input_validation에 남으므로 바꾸지 않는다).
 """
 import json
 from collections import Counter, defaultdict
@@ -19,9 +21,13 @@ from .vocab import CASE_SAFE_CONTROL, TAG_CURRENT
 # 집계(metrics)·검증이 이 상수를 쓰고, validate_inputs가 코드북 열에 실제로 있는지 확인한다.
 CONTROL_TARGET_FIELD = "control_target_risk"
 
-# 분류체계 판본에 따라 허용값이 달라지는 02_item_tags 필드. 필드 단위 검사에서 빼고
-# _check_risk_codes가 판본에 맞는 목록으로 검사한다.
-TAXONOMY_DEPENDENT_FIELDS = ("primary_risk", "secondary_risks", "sub_risk_codes", "m_review_codes", CONTROL_TARGET_FIELD)
+# 허용값이 위험군 코드인 02 필드(새 체계 A 코드, 이전 체계 R 코드). 납품 스키마가 이전 코드를 덧붙이는 대상이기도 하다.
+RISK_CODE_FIELDS = ("primary_risk", "secondary_risks", "sub_risk_codes", CONTROL_TARGET_FIELD)
+# 분류체계 판본에 따라 허용값이 달라지는 02 필드. 필드 단위 검사에서 빼고 판본에 맞는 목록으로 검사한다(순서는 쓰지 않는다).
+TAXONOMY_DEPENDENT_FIELDS = (*RISK_CODE_FIELDS, "m_review_codes")
+
+# 태그 행의 분류체계(_scheme_of)
+SCHEME_LEGACY, SCHEME_NEW = "legacy", "new"
 
 
 def item_key(row):
@@ -29,8 +35,12 @@ def item_key(row):
     return (row["item_id"], row["item_version"])
 
 
-def label(key):
+def _item_label(key):
     return f"{key[0]}@{key[1]}"
+
+
+def _tag_label(row):
+    return f"{_item_label(item_key(row))}#rev{row['tag_revision']}"
 
 
 def json_list(value):
@@ -53,10 +63,10 @@ def _check_links(out, items, tags, prompts):
     item_keys = {item_key(r) for r in items}
     for row in prompts:
         if item_key(row) not in item_keys:
-            out.error("03_prompts", row["turn_id"], "item_id", f"01_items에 없는 문항 판본 {label(item_key(row))}")
+            out.error("03_prompts", row["turn_id"], "item_id", f"01_items에 없는 문항 판본 {_item_label(item_key(row))}")
     for row in tags:
         if item_key(row) not in item_keys:
-            out.error("02_item_tags", label(item_key(row)), "item_id", "01_items에 없는 문항 판본")
+            out.error("02_item_tags", _item_label(item_key(row)), "item_id", "01_items에 없는 문항 판본")
 
 
 def _check_turns(out, items, prompts):
@@ -71,7 +81,7 @@ def _check_turns(out, items, prompts):
         expected = list(range(1, int(item["planned_round_count"]) + 1))
         actual = sorted(turns.get(item_key(item), []))
         if actual != expected:
-            out.error("03_prompts", label(item_key(item)), "turn_index",
+            out.error("03_prompts", _item_label(item_key(item)), "turn_index",
                       f"턴 번호 {actual} — planned_round_count 기준 {expected}이어야 함")
 
 
@@ -84,23 +94,23 @@ def _check_protocol(out, item, config):
     actual = (item["conversation_mode"], item["planned_round_count"])
     expected = (protocol["conversation_mode"], str(protocol["planned_round_count"]))
     if actual != expected:
-        out.error("01_items", label(item_key(item)), "protocol_id",
+        out.error("01_items", _item_label(item_key(item)), "protocol_id",
                   f"{item['protocol_id']}은 (conversation_mode, planned_round_count)={expected}인데 문항은 {actual}")
 
 
 def rule_original_text(out, item):
     """확정 4: original_text는 외부 원천을 번역·한국화한 문항만 필수."""
     from_source = item["source_benchmark"] != "NEW"
-    key = label(item_key(item))
+    key = _item_label(item_key(item))
     if from_source and not item["original_text"]:
         out.error("01_items", key, "original_text", "외부 원천 문항인데 원문이 없음")
     if from_source and not item["source_item_id"]:
         out.error("01_items", key, "source_item_id", "외부 원천 문항인데 원래 문항 ID가 없음")
 
 
-def _check_registered(out, item, config):
+def _check_rubric_registered(out, item, config):
     if item["rubric_id"] and item["rubric_id"] not in config["registered_rubric_ids"]:
-        out.error("01_items", label(item_key(item)), "rubric_id",
+        out.error("01_items", _item_label(item_key(item)), "rubric_id",
                   f"등록되지 않은 루브릭 {item['rubric_id']!r} (config/runner.yaml registered_rubric_ids)")
 
 
@@ -111,32 +121,28 @@ def _check_current_tag(out, items, tags):
     for item in items:
         count = current.get(item_key(item), 0)
         if count != 1:
-            out.error("02_item_tags", label(item_key(item)), "tag_status", f"current 행이 {count}개 (1개여야 함)")
+            out.error("02_item_tags", _item_label(item_key(item)), "tag_status", f"current 행이 {count}개 (1개여야 함)")
 
 
-def _taxonomy_major(tag):
-    """taxonomy_version의 MAJOR 숫자. 읽을 수 없으면 None."""
+def _scheme_of(tag):
+    """태그 행의 분류체계: taxonomy_version MAJOR 0 → SCHEME_LEGACY(R/M), 1 이상 → SCHEME_NEW(A1~A10), 읽을 수 없으면 None.
+
+    (tag_status의 'current'와 헷갈리지 않도록 'new'라 부른다. 형식 오류는 필드 검사가 따로 보고한다.)
+    """
     head = tag["taxonomy_version"].split(".")[0]
-    return int(head) if head.isdigit() else None
+    if not head.isdigit():
+        return None
+    return SCHEME_LEGACY if int(head) == 0 else SCHEME_NEW
 
 
-def _check_risk_codes(out, codebook, taxonomy, tag, key):
-    """분류 코드 검사. 판본 MAJOR 0은 이전 체계(R/M), 1 이상은 A1~A10."""
-    major = _taxonomy_major(tag)
-    if major is None:
-        return                                        # 형식 오류는 필드 검사가 보고
-    if major == 0:
-        _check_legacy_codes(out, taxonomy, tag, key)
-        return
-    # 새 체계: overlay가 넣어 둔 허용값(A 코드)으로 필드 검사
-    for field in ("primary_risk", "secondary_risks", "sub_risk_codes", CONTROL_TARGET_FIELD):
+def _check_new_codes(out, codebook, tag, key):
+    """새 체계 행: overlay가 넣어 둔 허용값(A 코드)으로 위험군 코드 필드를 검사한다."""
+    for field in RISK_CODE_FIELDS:
         if field not in tag:
             continue                                  # 코드북에 열이 없으면 validate_inputs가 이미 보고했다
         problem = codebook.field("02_item_tags", field).check(tag[field])
         if problem:
             out.error("02_item_tags", key, field, problem)
-    rule_sub_risk(out, taxonomy, tag, key)
-    rule_m_review(out, tag, key, is_legacy=False)
 
 
 def _check_legacy_codes(out, taxonomy, tag, key):
@@ -151,7 +157,6 @@ def _check_legacy_codes(out, taxonomy, tag, key):
             out.error("02_item_tags", key, field, f"이전 체계 행의 허용값 아님: {bad}")
     if json_list(tag["sub_risk_codes"]):
         out.error("02_item_tags", key, "sub_risk_codes", "이전 체계에서는 세부 코드를 쓰지 않음(v0.2 '추후 확정')")
-    rule_m_review(out, tag, key, is_legacy=True)
 
 
 def rule_sub_risk(out, taxonomy, tag, key):
@@ -172,7 +177,7 @@ def rule_primary_risk(out, tag, key):
     status, primary = tag["risk_review_status"], tag["primary_risk"]
     if status == "mapped" and not primary:
         out.error("02_item_tags", key, "primary_risk", "risk_review_status=mapped인데 비어 있음")
-    if status == "mapped" and _taxonomy_major(tag) and not json_list(tag["sub_risk_codes"]):
+    if status == "mapped" and _scheme_of(tag) == SCHEME_NEW and not json_list(tag["sub_risk_codes"]):
         out.error("02_item_tags", key, "sub_risk_codes", "risk_review_status=mapped인데 주소분류가 없음")
     if status == "not_applicable" and primary:
         out.warning("02_item_tags", key, "primary_risk", "risk_review_status=not_applicable인데 값이 있음")
@@ -189,13 +194,13 @@ def rule_m_review(out, tag, key, is_legacy):
             out.error("02_item_tags", key, field, "새 분류체계 행에서는 비워 둠 (M01~M05는 A6~A10으로 편입)")
 
 
-def rule_control_target(out, items, tag, key, config):
+def rule_control_target(out, items_by_key, tag, key, config):
     """대조 위험군 연결(OV-P4 잠정): 값은 대조 문항에만, 대조 문항의 current 행은 값이 있어야 한다.
 
     공란은 경고다(집계에서 그 문항이 위험군 행에 빠질 뿐 실행은 막지 않는다). runner.yaml
     control_link_required가 true면 오류로 바꾼다. 01에 없는 문항은 _check_links가 보고하므로 건너뛴다.
     """
-    item = items.get(item_key(tag))
+    item = items_by_key.get(item_key(tag))
     if item is None or CONTROL_TARGET_FIELD not in tag:
         return
     value, is_control = tag[CONTROL_TARGET_FIELD], item["case_type"] == CASE_SAFE_CONTROL
@@ -222,14 +227,13 @@ def _check_roles(out, tag, key):
 def validate_inputs(codebook, taxonomy, config, items, tags, prompts):
     """입력 3종을 검사해 Issue 목록을 돌려준다(오류가 없으면 빈 목록 또는 경고만)."""
     out = IssueCollector()
-    tag_key = lambda r: f"{label(item_key(r))}#rev{r['tag_revision']}"     # noqa: E731
     if CONTROL_TARGET_FIELD not in codebook.columns("02_item_tags"):
         # 코드북(overlay)이 바뀌어 열 이름이 어긋나면 traceback이 아니라 메시지 있는 오류로 멈춘다.
         out.error("02_item_tags", "(코드북)", CONTROL_TARGET_FIELD,
                   f"코드북 02_item_tags에 {CONTROL_TARGET_FIELD!r} 열이 없음 (validate.CONTROL_TARGET_FIELD ↔ overlay OV-P4 확인)")
 
-    _check_fields(out, codebook, "01_items", items, lambda r: label(item_key(r)))
-    _check_fields(out, codebook, "02_item_tags", tags, tag_key, skip=TAXONOMY_DEPENDENT_FIELDS)
+    _check_fields(out, codebook, "01_items", items, lambda r: _item_label(item_key(r)))
+    _check_fields(out, codebook, "02_item_tags", tags, _tag_label, skip=TAXONOMY_DEPENDENT_FIELDS)
     _check_fields(out, codebook, "03_prompts", prompts, lambda r: r["turn_id"])
 
     check_unique(out, "01_items", items, item_key, "item_id+item_version")
@@ -244,13 +248,20 @@ def validate_inputs(codebook, taxonomy, config, items, tags, prompts):
     for item in items:
         _check_protocol(out, item, config)
         rule_original_text(out, item)
-        _check_registered(out, item, config)
+        _check_rubric_registered(out, item, config)
 
     _check_current_tag(out, items, tags)
     items_by_key = {item_key(i): i for i in items}
-    for tag in tags:
-        key = tag_key(tag)
-        _check_risk_codes(out, codebook, taxonomy, tag, key)
+    for tag in tags:                                  # 호출 순서 = 경고 순서(manifest에 남음). 바꾸지 않는다
+        key = _tag_label(tag)
+        scheme = _scheme_of(tag)
+        if scheme == SCHEME_LEGACY:
+            _check_legacy_codes(out, taxonomy, tag, key)
+            rule_m_review(out, tag, key, is_legacy=True)
+        elif scheme == SCHEME_NEW:
+            _check_new_codes(out, codebook, tag, key)
+            rule_sub_risk(out, taxonomy, tag, key)
+            rule_m_review(out, tag, key, is_legacy=False)
         rule_primary_risk(out, tag, key)
         rule_control_target(out, items_by_key, tag, key, config)
         _check_roles(out, tag, key)

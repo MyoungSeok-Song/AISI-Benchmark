@@ -27,7 +27,7 @@ from .layout import (DELIVERY_ITEMS_FILE, DELIVERY_JUDGMENTS_DIR, DELIVERY_MANIF
                      DELIVERY_RESULTS_DIR, DELIVERY_SCHEMA_DIR, DELIVERY_SOURCES_FILE, RESULTS_FOLDER_FILES)
 from .records import RUN_PARAM_FIELDS
 from .spec import codebook_data
-from .validate import item_key
+from .validate import RISK_CODE_FIELDS, item_key
 from .vocab import TAG_CURRENT
 
 FORMAT_VERSION = "0.1"           # 납품형식_JSONL스키마 문서 판본
@@ -264,9 +264,8 @@ def build_schemas(codebook, rules, taxonomy=None):
     taxonomy를 주면 분류체계 판본에 따라 달라지는 02 필드(primary_risk 등)에 이전 코드(R1~R5)도 허용한다
     (tag_history에 옛 체계 행이 있으므로). 판본별 검사는 validate.py의 몫이다.
     """
-    from .validate import TAXONOMY_DEPENDENT_FIELDS
     legacy = tuple(taxonomy.legacy_risk_codes) if taxonomy else ()
-    extra = {name: legacy for name in TAXONOMY_DEPENDENT_FIELDS if name != "m_review_codes"}
+    extra = {name: legacy for name in RISK_CODE_FIELDS}
     tag_fields = [c for c in codebook.columns("02_item_tags") if c not in (*TAG_KEYS, *TAG_TO_EVALUATION, *TAG_TO_REVIEW)]
     turn_fields = [c for c in codebook.columns("03_prompts") if c not in TURN_KEYS]
     items = _object({
