@@ -16,6 +16,7 @@
 """
 import argparse
 import shutil
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -142,3 +143,7 @@ def main(argv=None):
             backup = apply(env, planned)
             print(f"{planned.view.batch.run_batch_id}: {summary} 기록, 백업 {backup.name}")
     return EXIT_OK
+
+
+if __name__ == "__main__":                            # python -m kyab_runner.apply_judgments 도 형제 진입점처럼 main을 돈다
+    sys.exit(main())

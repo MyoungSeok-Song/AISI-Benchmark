@@ -17,6 +17,18 @@ from kyab_runner.sources import load_sources_registry                  # noqa: E
 VLLM_SERVER = RUNNER_DIR / "tools" / "vllm_server.py"
 
 
+class ApplyJudgmentsEntryTest(RunnerTestCase):
+    """R05/R10: `python -m kyab_runner.apply_judgments`도 tools/apply_judgments.py처럼 main을 돈다(조용한 종료 0 금지)."""
+
+    def test_module_and_wrapper_both_run_main(self):
+        import sys
+        missing = self.tmp / "RBATCH-00000000-000"
+        for entry in (["-m", "kyab_runner.apply_judgments"], [str(RUNNER_DIR / "tools" / "apply_judgments.py")]):
+            proc = subprocess.run([sys.executable, *entry, "--dry-run", str(missing)], cwd=RUNNER_DIR, capture_output=True, text=True)
+            self.assertEqual(proc.returncode, 2, (entry, proc.stdout, proc.stderr))
+            self.assertIn("배치 또는 입력을 읽을 수 없습니다", proc.stdout)
+
+
 def load_tool(path):
     spec = importlib.util.spec_from_file_location(path.stem, path)
     module = importlib.util.module_from_spec(spec)

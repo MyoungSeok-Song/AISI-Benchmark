@@ -138,7 +138,7 @@ def rewrite_table(codebook, table, path, rows):
     행 검사는 하지 않으므로 호출자가 검사한 행만 넘긴다. 쓰는 곳:
       session.Batch.discard_orphan_responses   재시작 때 짝 없는 05 행 걷어내기
       judge_io.write_template                  빈 06 틀 재생성
-      tools/apply_judgments.py                 판정에서 나온 04 first_fail_turn·first_cfc_turn 채우기(원본은 .bak으로 백업)
+      kyab_runner/apply_judgments.py           판정에서 나온 04 first_fail_turn·first_cfc_turn 채우기(원본은 .bak으로 백업; 명령행 tools/apply_judgments.py)
       tools/build_samples.py                   샘플 입력 생성
     """
     write_plain_csv(path, codebook.columns(table), rows)
