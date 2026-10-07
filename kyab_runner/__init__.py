@@ -26,5 +26,7 @@
   집계  metrics     지표 산식, 실행 단위 정리, 슬라이스 집계, 07 검증
         run_aggregate   집계 실행기 (명령행 진입점)
   납품  export      7 CSV → JSONL 납품 형식 내보내기, 스키마 생성, 왕복 검증 (명령행: tools/export_jsonl.py)
+        sources     원천 데이터셋 등록부(config/sources.yaml)와 sources.json
+        apply_judgments  판정 결과로 04 first_fail_turn·first_cfc_turn 채우기 (명령행: tools/apply_judgments.py)
 """
 __version__ = "0.1.0"

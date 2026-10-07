@@ -33,7 +33,7 @@ sys.path.insert(0, str(RUNNER_DIR))
 from kyab_runner import csv_io, paths, validate          # noqa: E402
 from kyab_runner.codebook import load_codebook           # noqa: E402
 from kyab_runner.config import load_config               # noqa: E402
-from kyab_runner.export import load_sources_registry     # noqa: E402
+from kyab_runner.sources import load_sources_registry    # noqa: E402
 from kyab_runner.taxonomy import load_taxonomy           # noqa: E402
 
 DATA_DIR = paths.DEFAULT_DATA_DIR                        # 원천 원본 CSV(프로젝트 폴더, 러너 밖)
