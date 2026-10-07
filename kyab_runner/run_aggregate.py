@@ -146,12 +146,11 @@ def inconclusive_warnings(rules, rows, notes):
 
 
 def output_root(args):
+    """결과 폴더를 만들 출력 루트. --out이 없으면 배치 폴더들의 공통 상위 폴더, 서로 다르면 None(호출자가 종료 2)."""
     if args.out:
         return args.out
     parents = {batch.resolve().parent for batch in args.batches}
-    if len(parents) != 1:
-        sys.exit("배치 폴더들의 상위 폴더가 서로 다릅니다. --out으로 출력 루트를 지정하세요.")
-    return parents.pop()
+    return parents.pop() if len(parents) == 1 else None
 
 
 def print_summary(rows, notes):
@@ -259,6 +258,10 @@ def build_record(args, rules, notes, loaded, judges, mock_used, violations, warn
 def main(argv=None):
     """준비 → 06 검증 → 모의 판정 거부 → 실행 단위 정리 → 조건 검사 → 집계 → 결과 검증 → 쓰기 → 요약. 출력 순서는 그대로다."""
     args = build_parser().parse_args(argv)
+    root = output_root(args)                      # 입력·06을 다 읽은 뒤에 알리면 늦다
+    if root is None:
+        print("배치 폴더들의 상위 폴더가 서로 다릅니다. --out으로 출력 루트를 지정하세요.")
+        return EXIT_INVALID
     prepared = prepare(args.input, args.batches, args.rules)
     if prepared is None:
         return EXIT_INVALID
@@ -293,11 +296,14 @@ def main(argv=None):
 
     stamp = clock.now(env.config)                 # calculated_at과 결과 폴더 날짜는 같은 시각에서 나온다
     calculated_at = clock.iso(stamp)
-    root = output_root(args)
     leftovers = sorted(p.name for p in root.glob("RESULTS-*.tmp-*")) if root.exists() else []
     if leftovers:                               # 강제 종료가 남긴 임시 폴더: 자동으로 지우지 않고 알린다
         print(f"주의: 끝나지 않은 집계의 임시 폴더 {len(leftovers)}개가 있습니다(확인 후 직접 지우세요): {leftovers}")
-    allocator = ids.result_id_allocator(env.codebook, root)
+    try:
+        allocator = ids.result_id_allocator(env.codebook, root)
+    except (csv_io.CsvFormatError, OSError) as exc:   # 기존 RESULTS-*/07_results.csv가 깨져 번호를 이어 셀 수 없다
+        print(f"기존 결과 폴더를 읽을 수 없습니다: {exc}")
+        return EXIT_INVALID
     rows, notes = metrics.aggregate(env.codebook, rules, cases, allocator.new, calculated_at)
     if not validate_outputs(env.codebook, rules, rows, notes):
         return EXIT_INVALID

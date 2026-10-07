@@ -3207,7 +3207,7 @@
             "component": "all",
             "unit": "evaluation_unit",
             "handling": "excluded",
-            "numerator": 0,
+            "numerator": null,
             "denominator": 0,
             "judged_count": 0,
             "inconclusive_count": 0,

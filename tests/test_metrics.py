@@ -14,6 +14,7 @@ import copy
 import dataclasses
 import itertools
 import json
+import shutil
 
 from test_judge_io import ENV, NONE, RULES, JudgedTestCase, bumped
 from test_runner import CODEBOOK, FAILURE_PLAN, RunnerTestCase
@@ -1156,3 +1157,38 @@ class PipelineTest(JudgedTestCase):
         rows = csv_io.read_table(CODEBOOK, "07_results", self.results_dirs()[0] / ids.RESULTS_FILE)
         self.assertEqual({r["aggregation_rule_version"] for r in rows}, {variant})
         self.assertNotEqual(variant, ENV.rules.rule_version)
+
+
+class AggregateErrorPathTest(JudgedTestCase):
+    """집계 진입점의 오류 경로(metrics-06): 상위 폴더 불일치·깨진 결과 폴더는 traceback·종료 1 대신 메시지와 종료 2."""
+
+    def test_batches_from_different_parents_need_out(self):
+        other = self.tmp / "elsewhere"
+        shutil.copytree(self.single_dir, other / self.single_dir.name)
+        code, output = self.capture(run_aggregate.main, ["--allow-mock-judge", str(self.multi_dir), str(other / self.single_dir.name)])
+        self.assertEqual(code, run_aggregate.EXIT_INVALID)
+        self.assertIn("--out", output)
+        self.assertEqual(ids.results_dirs(self.out), [])
+
+    def test_corrupt_previous_results_are_reported(self):
+        bad = self.out / "RESULTS-20260101-001"
+        bad.mkdir()
+        (bad / ids.RESULTS_FILE).write_text("result_id,bogus\r\nRESULT-00000001,x\r\n", encoding="utf-8-sig")
+        code, output = self.capture(run_aggregate.main, ["--allow-mock-judge", *map(str, self.batch_dirs())])
+        self.assertEqual(code, run_aggregate.EXIT_INVALID)
+        self.assertIn("기존 결과 폴더를 읽을 수 없습니다", output)
+
+
+class ValidateResultsZeroUnitsTest(MetricsTestCase):
+    """validate_results(metrics-12): 유효 대상 수 0이거나 기록이 없으면 ZeroDivisionError 대신 Issue."""
+
+    def test_zero_or_missing_units(self):
+        from test_metrics import hand_computed_scenario
+        rows, notes = metrics.aggregate(CODEBOOK, RULES, hand_computed_scenario().cases(), iter(f"RESULT-{i:08d}" for i in range(1, 99)).__next__,
+                                        "2026-10-02T12:30:00.000+09:00")
+        row = next(r for r in rows if r["slice_level"] == "overall")
+        row = {**row, "failure_count": "0", "failure_rate": "0.0"}
+        issues = metrics.validate_results(CODEBOOK, RULES, [row], {row["result_id"]: 0})
+        self.assertTrue(any(i.field == "failure_count" and "0이면" in i.message for i in issues))
+        issues = metrics.validate_results(CODEBOOK, RULES, [row], {})
+        self.assertTrue(any(i.field == "failure_count" and "기록 없음" in i.message for i in issues))
