@@ -31,10 +31,10 @@ from .ids import judgment_ids_by_batch
 from .issues import IssueCollector, check_fields, check_unique
 from .layout import JUDGE_INPUTS_FILE, JUDGMENTS_FILE, JUDGMENTS_TEMPLATE_FILE   # noqa: F401 (재수출)
 from .records import BatchView
+from .rules import TAG_REVISION_CURRENT
 from .validate import item_key, _item_label
 from .vocab import (JUDGE_STATUS_ADJUDICATED, JUDGE_STATUS_COMPLETED, JUDGE_STATUS_FAILED, JUDGE_TYPE_HUMAN, MODE_MULTI,
-                    RESPONSE_SUCCESS, REVIEW_COMPLETED, SCOPE_CONVERSATION, SCOPE_TURN, TAG_CURRENT, VERDICT_FAIL,
-                    VERDICT_INCONCLUSIVE)
+                    RESPONSE_SUCCESS, REVIEW_COMPLETED, SCOPE_CONVERSATION, SCOPE_TURN, VERDICT_FAIL, VERDICT_INCONCLUSIVE)
 
 TABLE = "06_judgments"
 TEMPLATE_FILE = JUDGMENTS_TEMPLATE_FILE             # 이 모듈의 옛 이름(테스트가 쓴다)
@@ -399,7 +399,7 @@ def latest_rows(view, judgments, accept, current_tag_only=True):
 def select_auto(rules, view, judgments):
     """자동 판정 행: 규칙 파일이 정한 판정자 종류·상태(llm + completed)인 행 중 자리마다 가장 늦은 것."""
     spec = rules["aggregation"]["primary_judgment_set"]
-    current_only = spec["tag_revision"] == TAG_CURRENT
+    current_only = spec["tag_revision"] == TAG_REVISION_CURRENT        # 규칙 키워드(02 tag_status 값이 아님)
     return latest_rows(view, judgments, current_tag_only=current_only,
                        accept=lambda r: r["judge_type"] == spec["judge_type"] and r["judge_status"] == spec["judge_status"])
 
@@ -418,13 +418,13 @@ def select_primary(rules, view, judgments):
     primary = select_auto(rules, view, judgments)
     if spec["adjudicated_first"]:
         primary.update(latest_rows(view, judgments, lambda r: r["judge_status"] == JUDGE_STATUS_ADJUDICATED,
-                                   current_tag_only=spec["tag_revision"] == TAG_CURRENT))
+                                   current_tag_only=spec["tag_revision"] == TAG_REVISION_CURRENT))
     return primary
 
 
 def select_human(rules, view, judgments, independent_only):
     """사람 판정 행. independent_only이면 독립 재채점(judge_status=completed)만, 아니면 조정(adjudicated) 행도 포함."""
-    current_only = rules["aggregation"]["primary_judgment_set"]["tag_revision"] == TAG_CURRENT
+    current_only = rules["aggregation"]["primary_judgment_set"]["tag_revision"] == TAG_REVISION_CURRENT
     return latest_rows(view, judgments, current_tag_only=current_only,
                        accept=lambda r: r["judge_type"] == JUDGE_TYPE_HUMAN
                        and (r["judge_status"] == JUDGE_STATUS_COMPLETED or not independent_only))

@@ -14,8 +14,11 @@ class VocabularyError(SetupError):
 # 01_items
 MODE_SINGLE, MODE_MULTI = "single", "multi"                                   # conversation_mode
 CASE_RISK, CASE_SAFE_CONTROL = "risk_case", "safe_control"                    # case_type
+SOURCE_NEW, SOURCE_CAREBENCH, SOURCE_MINORBENCH = "NEW", "CAREBench", "MinorBench"   # source_benchmark (NEW = 원천 없는 신규 작성)
 # 02_item_tags
-TAG_CURRENT = "current"                                                       # tag_status
+TAG_CURRENT = "current"                                                       # tag_status (규칙 키워드 tag_revision과 별개: rules.TAG_REVISION_CURRENT)
+RISK_REVIEW_MAPPED, RISK_REVIEW_NOT_APPLICABLE = "mapped", "not_applicable"   # risk_review_status
+ROLE_AMBIGUOUS = "ambiguous"                                                  # role_tags 원소('역할 불명은 단독으로 사용')
 # 04_runs
 RUN_COMPLETED, RUN_PARTIAL, RUN_FAILED = "completed", "partial", "failed"     # run_status
 STOP_PLANNED_END, STOP_PROVIDER_BLOCK, STOP_ERROR, STOP_MANUAL = "planned_end", "provider_block", "error", "manual_stop"
@@ -35,7 +38,11 @@ REVIEW_NOT_SELECTED, REVIEW_SELECTED_PENDING, REVIEW_COMPLETED = "not_selected",
 USED = (
     ("01_items", "conversation_mode", MODE_SINGLE), ("01_items", "conversation_mode", MODE_MULTI),
     ("01_items", "case_type", CASE_RISK), ("01_items", "case_type", CASE_SAFE_CONTROL),
+    ("01_items", "source_benchmark", SOURCE_NEW), ("01_items", "source_benchmark", SOURCE_CAREBENCH),
+    ("01_items", "source_benchmark", SOURCE_MINORBENCH),
     ("02_item_tags", "tag_status", TAG_CURRENT),
+    ("02_item_tags", "risk_review_status", RISK_REVIEW_MAPPED), ("02_item_tags", "risk_review_status", RISK_REVIEW_NOT_APPLICABLE),
+    ("02_item_tags", "role_tags", ROLE_AMBIGUOUS),
     ("04_runs", "run_status", RUN_COMPLETED), ("04_runs", "run_status", RUN_PARTIAL), ("04_runs", "run_status", RUN_FAILED),
     ("04_runs", "stop_reason", STOP_PLANNED_END), ("04_runs", "stop_reason", STOP_PROVIDER_BLOCK),
     ("04_runs", "stop_reason", STOP_ERROR), ("04_runs", "stop_reason", STOP_MANUAL),

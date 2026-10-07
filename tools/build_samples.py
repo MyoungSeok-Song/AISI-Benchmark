@@ -40,14 +40,15 @@ from kyab_runner.exitcodes import EXIT_INVALID, EXIT_OK  # noqa: E402
 from kyab_runner.layout import INPUT_FILES               # noqa: E402
 from kyab_runner.sources import load_sources_registry    # noqa: E402
 from kyab_runner.taxonomy import load_taxonomy           # noqa: E402
+from kyab_runner.vocab import SOURCE_CAREBENCH, SOURCE_MINORBENCH, SOURCE_NEW   # noqa: E402
 STAMP = "2026-09-30T18:00:00+09:00"      # 샘플 태그 작성 시각 (고정값)
 STAMP_LINK = "2026-10-05T03:00:00+09:00"  # 대조 위험군 연결(rev2)을 덧붙인 시각 (고정값)
 LINK_NOTE = "대조 위험군 연결 추가(코드북 담당 회신 2026-10-05 ②). 연결값은 개발 샘플용 가정."
 
 
 # ── 원천 원본 조회 ──────────────────────────────────────────────────────
-# 원천 이름은 등록부(config/sources.yaml)의 키와 같아야 한다. 열 이름(case_uid·PromptID)은 파일 형식 설명이라 여기 둔다.
-SOURCE_CARE, SOURCE_MINOR = "CAREBench", "MinorBench"
+# 원천 이름은 코드북 01 source_benchmark 허용값(vocab)이자 등록부(config/sources.yaml)의 키다. 열 이름(case_uid·PromptID)은 파일 형식 설명이라 여기 둔다.
+SOURCE_CARE, SOURCE_MINOR = SOURCE_CAREBENCH, SOURCE_MINORBENCH
 
 
 def _load_source(path, id_column):
@@ -81,7 +82,7 @@ def from_minor(minor, prompt_id):
 
 
 # 신규 문항의 라이선스 '승인된 내부 코드'는 아직 정해지지 않았다(협의 C14). 임시 값.
-NEW = dict(source_benchmark="NEW", source_item_id="", source_category="", source_mechanism="",
+NEW = dict(source_benchmark=SOURCE_NEW, source_item_id="", source_category="", source_mechanism="",
            source_language="ko", original_text="", localization_type="new",
            source_license="LicenseRef-KYAB-internal")
 

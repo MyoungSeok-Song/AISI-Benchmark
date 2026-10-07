@@ -9,11 +9,12 @@ from pathlib import Path
 
 from . import fileio, paths
 from .errors import SetupError, load_yaml
+from .vocab import SOURCE_NEW
 
 DEFAULT_DATA_DIR = paths.DEFAULT_DATA_DIR
 DATA_DISPLAY_PREFIX = f"{paths.DEFAULT_DATA_DIR.name}/"        # sources.json에 적는 원본 파일 표기('data/…')
 SOURCE_REGISTRY_KEYS = ("local_file", "hf_repo", "hf_commit", "hf_file", "sha256", "basis")
-SELF_AUTHORED_SOURCE = "NEW"                                   # 원천이 없는 신규 작성 문항의 source_benchmark 값
+SELF_AUTHORED_SOURCE = SOURCE_NEW                              # 원천이 없는 신규 작성 문항의 source_benchmark 값(코드북 enum, vocab)
 
 
 class SourcesRegistryError(SetupError):

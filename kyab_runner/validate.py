@@ -16,7 +16,7 @@ from collections import Counter, defaultdict
 
 from .codebook import parse_json_array
 from .issues import Issue, IssueCollector, check_fields, check_unique, errors_of, report_issues   # noqa: F401 (재수출)
-from .vocab import CASE_SAFE_CONTROL, TAG_CURRENT
+from .vocab import CASE_SAFE_CONTROL, RISK_REVIEW_MAPPED, RISK_REVIEW_NOT_APPLICABLE, ROLE_AMBIGUOUS, SOURCE_NEW, TAG_CURRENT
 
 # 대조 문항이 어느 위험군의 대조인지 잇는 02 열(overlay OV-P4, 잠정). 이름은 여기 한 곳에서만 정한다.
 # 집계(metrics)·검증이 이 상수를 쓰고, validate_inputs가 코드북 열에 실제로 있는지 확인한다.
@@ -104,7 +104,7 @@ def _check_protocol(out, item, config):
 
 def rule_original_text(out, item):
     """확정 4: original_text는 외부 원천을 번역·한국화한 문항만 필수."""
-    from_source = item["source_benchmark"] != "NEW"
+    from_source = item["source_benchmark"] != SOURCE_NEW
     key = _item_label(item_key(item))
     if from_source and not item["original_text"]:
         out.error("01_items", key, "original_text", "외부 원천 문항인데 원문이 없음")
@@ -187,12 +187,12 @@ def rule_sub_risk(out, taxonomy, tag, key):
 def rule_primary_risk(out, tag, key):
     """확정 4: primary_risk는 검토 완료(mapped)된 문항만 필수. 공란이면 상태가 이유를 밝혀야 한다."""
     status, primary = tag["risk_review_status"], tag["primary_risk"]
-    if status == "mapped" and not primary:
-        out.error("02_item_tags", key, "primary_risk", "risk_review_status=mapped인데 비어 있음")
-    if status == "mapped" and _scheme_of(tag) == SCHEME_NEW and not json_list(tag["sub_risk_codes"]):
-        out.error("02_item_tags", key, "sub_risk_codes", "risk_review_status=mapped인데 주소분류가 없음")
-    if status == "not_applicable" and primary:
-        out.warning("02_item_tags", key, "primary_risk", "risk_review_status=not_applicable인데 값이 있음")
+    if status == RISK_REVIEW_MAPPED and not primary:
+        out.error("02_item_tags", key, "primary_risk", f"risk_review_status={RISK_REVIEW_MAPPED}인데 비어 있음")
+    if status == RISK_REVIEW_MAPPED and _scheme_of(tag) == SCHEME_NEW and not json_list(tag["sub_risk_codes"]):
+        out.error("02_item_tags", key, "sub_risk_codes", f"risk_review_status={RISK_REVIEW_MAPPED}인데 주소분류가 없음")
+    if status == RISK_REVIEW_NOT_APPLICABLE and primary:
+        out.warning("02_item_tags", key, "primary_risk", f"risk_review_status={RISK_REVIEW_NOT_APPLICABLE}인데 값이 있음")
 
 
 def rule_m_review(out, tag, key, is_legacy):
@@ -231,8 +231,8 @@ def rule_control_target(out, items_by_key, tag, key, config):
 def _check_roles(out, tag, key):
     """02 role_tags 설명: '역할 불명은 단독으로 사용'."""
     roles = json_list(tag["role_tags"])
-    if "ambiguous" in roles and len(roles) > 1:
-        out.error("02_item_tags", key, "role_tags", f"ambiguous는 다른 역할과 함께 쓸 수 없음: {roles}")
+    if ROLE_AMBIGUOUS in roles and len(roles) > 1:
+        out.error("02_item_tags", key, "role_tags", f"{ROLE_AMBIGUOUS}는 다른 역할과 함께 쓸 수 없음: {roles}")
 
 
 # ── 진입점 ──────────────────────────────────────────────────────────────

@@ -338,6 +338,19 @@ class JudgmentValidationTest(JudgedTestCase):
         self.assertTrue(any(i.level == "warning" and i.field == "tag_revision" for i in issues))
         self.assertEqual(len(judge_io.select_primary(RULES, self.multi, rows)), len(self.multi_rows) - 1)
 
+    def test_tag_revision_keyword_is_a_rules_constant_not_tag_status_vocab(self):
+        """R06: 규칙 키워드 tag_revision='current'는 rules.TAG_REVISION_CURRENT와 비교한다 — 코드북이 02 tag_status 값을 바꿔
+        vocab.TAG_CURRENT가 달라져도 주 판정 집합이 '모든 판본 허용'으로 조용히 풀리지 않는다."""
+        from unittest import mock
+        from kyab_runner import rules as rules_module
+        self.assertEqual(rules_module.SUPPORTED_TAG_REVISION, (rules_module.TAG_REVISION_CURRENT,))
+        rows = self.mutated(self.multi, self.multi_rows, item_id="KYAB-900102", tag_revision="1")
+        with mock.patch.object(judge_io, "TAG_CURRENT", "active", create=True):          # tag_status 값이 바뀐 상황을 흉내
+            self.assertEqual(len(judge_io.select_primary(RULES, self.multi, rows)), len(self.multi_rows) - 1)
+            self.assertEqual(len(judge_io.select_human(RULES, self.multi, rows, independent_only=False)), 0)
+        with mock.patch.object(judge_io, "TAG_REVISION_CURRENT", "other"):                # 한정은 규칙 키워드에만 묶여 있다
+            self.assertEqual(len(judge_io.select_primary(RULES, self.multi, rows)), len(self.multi_rows))
+
     def test_rubric_id_must_match_item(self):
         self.assert_error(self.single, self.mutated(self.single, self.single_rows, rubric_id="RB-OTHER"), "rubric_id")
 

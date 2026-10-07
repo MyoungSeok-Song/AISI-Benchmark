@@ -18,8 +18,11 @@ DIMENSION_SOURCES = ("conversation_then_turn_mean", "conversation_only")
 # 평가 단위는 이 조합만 구현돼 있다: 단일턴은 turn 행, 다중턴은 conversation 행.
 SUPPORTED_EVALUATION_UNIT = {"single": "turn", "multi": "conversation"}
 SUPPORTED_CI_METHODS = ("wilson_95",)
-# primary_judgment_set.tag_revision이 가질 수 있는 값(현재 태그 판본만 구현). 다른 값은 조용히 '모든 판본 허용'이 되므로 막는다
-SUPPORTED_TAG_REVISION = ("current",)
+# primary_judgment_set.tag_revision이 가질 수 있는 값(현재 태그 판본만 구현). 다른 값은 조용히 '모든 판본 허용'이 되므로 막는다.
+# 규칙 파일의 키워드다 — 02 tag_status 값(vocab.TAG_CURRENT)과 철자가 같을 뿐 별개. 코드북이 tag_status 값을 바꿔도
+# 이 키워드는 그대로이며, judge_io는 이 상수와만 비교한다(둘을 한 상수로 묶으면 코드북 변경 때 한정이 조용히 풀린다).
+TAG_REVISION_CURRENT = "current"
+SUPPORTED_TAG_REVISION = (TAG_REVISION_CURRENT,)
 PRIMARY_SET_KEYS = ("judge_type", "judge_status", "adjudicated_first", "tag_revision")
 # judgment.blank_allowed[].when에 쓸 수 있는 조건 키(judge_io.blank_allowed_fields가 보는 사실). 규칙 파일 설명(yaml) 참고
 BLANK_ALLOWED_WHEN_KEYS = ("conversation_mode", "case_type", "evaluation_scope")

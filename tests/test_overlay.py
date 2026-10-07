@@ -161,6 +161,28 @@ class VocabularyTest(unittest.TestCase):
         self.assertIn("06_judgments.verdict='fail'", str(caught.exception))
         self.assertIn("SetupError", [c.__name__ for c in type(caught.exception).__mro__])
 
+    def test_validation_rule_values_are_registered(self):
+        """R09: validate(NEW·mapped·not_applicable·ambiguous)·sources·build_samples(원천 이름)가 비교하는 값도 USED에 있어
+        코드북 판에서 이름이 바뀌면 규칙이 조용히 안 맞는 대신 로드가 멈춘다."""
+        import dataclasses
+        renames = {("01_items", "source_benchmark"): {"NEW": "NEW_ITEM"},
+                   ("02_item_tags", "risk_review_status"): {"mapped": "mapped_v3", "not_applicable": "n_a"},
+                   ("02_item_tags", "role_tags"): {"ambiguous": "unclear"}}
+        tables = {t: list(CODEBOOK.fields(t)) for t in ("01_items", "02_item_tags", "03_prompts", "04_runs",
+                                                        "05_responses", "06_judgments", "07_results")}
+        for (table, field), mapping in renames.items():
+            tables[table] = [dataclasses.replace(f, enum=tuple(mapping.get(v, v) for v in f.enum)) if f.name == field else f
+                             for f in tables[table]]
+        with self.assertRaises(vocab.VocabularyError) as caught:
+            vocab.check_vocabulary(Codebook(tables, CODEBOOK.applied_overlays))
+        for expected in ("01_items.source_benchmark='NEW'", "02_item_tags.risk_review_status='mapped'",
+                         "02_item_tags.risk_review_status='not_applicable'", "02_item_tags.role_tags='ambiguous'"):
+            self.assertIn(expected, str(caught.exception))
+        for value in (vocab.SOURCE_CAREBENCH, vocab.SOURCE_MINORBENCH):   # 원천 이름도 코드북 enum이자 등록부 키
+            self.assertIn(value, CODEBOOK.field("01_items", "source_benchmark").enum)
+        from kyab_runner import sources
+        self.assertEqual(sources.SELF_AUTHORED_SOURCE, vocab.SOURCE_NEW)
+
 
 class TagSchemeDispatchTest(unittest.TestCase):
     """태그 규칙 호출 순서 고정(codebook-08): 이전·새 체계 오류가 섞인 입력의 02 Issue 목록이 분리 전과 같다."""
