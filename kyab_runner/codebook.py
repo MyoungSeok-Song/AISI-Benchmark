@@ -35,6 +35,9 @@ _TYPE_KEYWORDS = [
     ("소수", "number"),          # 07 비율 필드('0.0-1.0 소수'). 맨 뒤에 두어 'JSON 객체'·'정수'가 먼저 잡히게 한다
 ]
 _RE_SEMVER = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
+# int()/float()는 ' 7'·'+7'·'1_000'·'nan'·'inf'·전각 숫자도 받아들여 뒤 단계(isdigit 비교, 키 조립)와 어긋난다. ASCII 표기만 허용
+_RE_INT = re.compile(r"^-?[0-9]+$")
+_RE_NUMBER = re.compile(r"^-?[0-9]+(?:\.[0-9]+)?$")
 _RE_RANGE = re.compile(r"(-?\d+\.\d+)-(-?\d+\.\d+)")      # '0.0-1.0 소수', '-1.0-1.0 소수'
 _RE_MINIMUM = re.compile(r"(\d+) 이상")                    # '0 이상의 정수', '0 이상의 소수'
 _RE_FIXED = re.compile(r"(-?[0-9]+(?:\.[0-9]+)?)\s*(?:으|)로 고정")      # '숫자 0.0으로 고정', '양의 정수 1024로 고정'
@@ -114,12 +117,9 @@ class FieldSpec:
         return None
 
     def _check_array(self, value):
-        try:
-            items = json.loads(value)
-        except ValueError:
-            return f"JSON으로 읽을 수 없음: {value[:40]!r}"
-        if not isinstance(items, list):
-            return "JSON 배열이 아님"
+        items, problem = parse_json_array(value)
+        if problem:
+            return problem
         if self.max_items and len(items) > self.max_items:
             return f"원소가 {len(items)}개 (최대 {self.max_items}개)"
         if self.enum and self.enum_kind == "array":
@@ -129,6 +129,17 @@ class FieldSpec:
             if len(set(items)) != len(items):
                 return f"중복 원소: {items}"
         return None
+
+
+def parse_json_array(value):
+    """JSON 배열 셀 -> (원소 목록, 문제 설명). 배열이 아니거나 읽을 수 없으면 (None, 설명). 필드 검사와 이전 체계 행 검사가 함께 쓴다."""
+    try:
+        items = json.loads(value)
+    except ValueError:
+        return None, f"JSON으로 읽을 수 없음: {value[:40]!r}"
+    if not isinstance(items, list):
+        return None, "JSON 배열이 아님"
+    return items, None
 
 
 def _check_type(value_type, value):
@@ -149,9 +160,11 @@ def _check_type(value_type, value):
             if value not in ("true", "false"):
                 return f"boolean 아님: {value!r}"
         elif value_type == "int":
-            int(value)
+            if not _RE_INT.match(value):
+                return f"int 형식 아님: {value[:40]!r}"
         elif value_type == "number":
-            float(value)
+            if not _RE_NUMBER.match(value):
+                return f"number 형식 아님: {value[:40]!r}"
     except ValueError:
         return f"{value_type} 형식 아님: {value[:40]!r}"
     return None
@@ -162,7 +175,8 @@ class Codebook:
 
     def __init__(self, tables, applied_overlays):
         self._tables = tables                        # {표 이름: [FieldSpec, ...]} 코드북 순서
-        self.applied_overlays = applied_overlays     # [{id, status, basis}, ...] 기록용
+        self._index = {table: {spec.name: spec for spec in specs} for table, specs in tables.items()}   # 이름 조회용
+        self.applied_overlays = applied_overlays     # [{id, status, basis, note}, ...] 매니페스트 기록용
 
     def fields(self, table):
         return self._tables[table]
@@ -176,7 +190,11 @@ class Codebook:
         return [f.name for f in self._tables[table] if f.added_by]
 
     def field(self, table, name):
-        return next(f for f in self._tables[table] if f.name == name)
+        """필드 명세. 없는 표·필드면 메시지 있는 KeyError(규칙 파일·코드가 옛 이름을 쓸 때 traceback 대신 설정 오류로 잡힌다)."""
+        try:
+            return self._index[table][name]
+        except KeyError:
+            raise KeyError(f"코드북 {table}에 없는 필드 {name!r}") from None
 
     def check_row(self, table, row, stages=None, skip=()):
         """행 1개를 검사해 (필드명, 문제) 목록을 돌려준다.
@@ -232,7 +250,7 @@ def _overlay_updates(spec, change, taxonomy):
     if "enum_add" in change:
         updates["enum"] = spec.enum + tuple(str(v) for v in change["enum_add"])
     if "enum_from" in change:
-        source = {"taxonomy.major": taxonomy.major_codes, "taxonomy.sub": taxonomy.sub_codes}
+        source = dict(zip(_ENUM_SOURCES, (taxonomy.major_codes, taxonomy.sub_codes)))
         updates["enum"] = tuple(source[change["enum_from"]])
     for key in _PASSTHROUGH_KEYS:
         if key in change:
@@ -277,6 +295,7 @@ def _add_field(tables, entry, change, confirmed_ids, taxonomy):
     specs.insert(_find(specs, change["table"], change["after"]) + 1, spec)
 
 
+_ENUM_SOURCES = ("taxonomy.major", "taxonomy.sub")     # enum_from이 가리킬 수 있는 분류체계 코드 목록
 _ENTRY_KEYS = {"id", "status", "date", "basis", "note", "apply", "add_field"}
 _APPLY_KEYS = {"table", "field", "enum", "enum_add", "enum_from", "enum_kind", "required", "max_items", "format",
                "none_token", "regex"}
@@ -285,10 +304,14 @@ _ADD_KEYS = {"table", "field", "after", "stage", "ai_delivery", "format", "enum"
 _STATUSES = ("confirmed", "provisional")
 
 
-def _check_overlay_schema(overlay):
-    """overlay 파일의 키·상태값·ID 중복을 검사한다. 오타가 조용히 무시되지 않게."""
+def _check_overlay_schema(overlay, tables):
+    """overlay 파일의 구조·키·상태값·ID 중복·표 이름·enum_from을 검사한다. 오타가 조용히 무시되거나 traceback으로 끝나지 않게."""
+    if not isinstance(overlay, dict) or not isinstance(overlay.get("changes"), list):
+        raise OverlayError("overlay 파일은 'changes' 목록을 가진 매핑이어야 합니다(빈 파일·changes 누락 불가)")
     seen = set()
     for entry in overlay["changes"]:
+        if not isinstance(entry, dict):
+            raise OverlayError(f"overlay 항목이 매핑이 아님: {entry!r}")
         unknown = set(entry) - _ENTRY_KEYS
         if unknown or "id" not in entry or "status" not in entry or "basis" not in entry:
             raise OverlayError(f"overlay 항목 {entry.get('id')!r}: 알 수 없는 키 {sorted(unknown)} 또는 id·status·basis 누락")
@@ -297,6 +320,9 @@ def _check_overlay_schema(overlay):
         if entry["id"] in seen:
             raise OverlayError(f"overlay ID 중복: {entry['id']}")
         seen.add(entry["id"])
+        for kind in ("apply", "add_field"):
+            if entry.get(kind) is not None and not (isinstance(entry[kind], list) and all(isinstance(c, dict) for c in entry[kind])):
+                raise OverlayError(f"overlay {entry['id']} {kind}: 매핑의 목록이어야 함")
         for change in entry.get("apply") or []:
             if set(change) - _APPLY_KEYS or not {"table", "field"} <= set(change):
                 raise OverlayError(f"overlay {entry['id']} apply: 키 확인 {sorted(change)}")
@@ -304,6 +330,11 @@ def _check_overlay_schema(overlay):
             missing = {"table", "field", "after", "stage", "format"} - set(change)
             if set(change) - _ADD_KEYS or missing:
                 raise OverlayError(f"overlay {entry['id']} add_field: 알 수 없는 키 {sorted(set(change) - _ADD_KEYS)} 또는 누락 {sorted(missing)}")
+        for change in [*(entry.get("apply") or []), *(entry.get("add_field") or [])]:
+            if change["table"] not in tables:
+                raise OverlayError(f"overlay {entry['id']}: 코드북에 없는 표 {change['table']!r}")
+            if "enum_from" in change and change["enum_from"] not in _ENUM_SOURCES:
+                raise OverlayError(f"overlay {entry['id']}: enum_from은 {_ENUM_SOURCES} 중 하나여야 함 (현재 {change['enum_from']!r})")
 
 
 def load_codebook(taxonomy, raw=codebook_data.CODEBOOK, overlay_yaml=paths.OVERLAY_YAML):
@@ -319,7 +350,7 @@ def load_codebook(taxonomy, raw=codebook_data.CODEBOOK, overlay_yaml=paths.OVERL
     applied = []
     if overlay_yaml.exists():
         overlay = load_yaml(overlay_yaml, OverlayError)
-        _check_overlay_schema(overlay)
+        _check_overlay_schema(overlay, tables)
         confirmed_ids = {e["id"] for e in overlay["changes"] if e["status"] == "confirmed"}
         for entry in overlay["changes"]:
             for change in entry.get("apply") or []:

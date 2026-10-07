@@ -14,6 +14,7 @@ validate_inputs의 태그 루프에 그대로 적혀 있다(경고 순서가 bat
 import json
 from collections import Counter, defaultdict
 
+from .codebook import parse_json_array
 from .issues import Issue, IssueCollector, check_fields, check_unique, errors_of, report_issues   # noqa: F401 (재수출)
 from .vocab import CASE_SAFE_CONTROL, TAG_CURRENT
 
@@ -44,7 +45,10 @@ def _tag_label(row):
 
 
 def json_list(value):
-    """JSON 배열 셀을 리스트로. 빈 셀이나 잘못된 값은 빈 리스트(형식 오류는 필드 검사가 잡는다)."""
+    """JSON 배열 셀을 리스트로. 빈 셀이나 잘못된 값은 빈 리스트(예외를 내지 않는다).
+
+    형식은 다른 곳이 보장한다: 일반 필드는 코드북 필드 검사가, 이전 체계 행의 분류 코드 필드는 _check_legacy_codes가.
+    """
     try:
         parsed = json.loads(value) if value else []
     except ValueError:
@@ -150,12 +154,20 @@ def _check_legacy_codes(out, taxonomy, tag, key):
     for field in ("primary_risk", CONTROL_TARGET_FIELD):
         if tag.get(field) and tag[field] not in taxonomy.legacy_risk_codes:
             out.error("02_item_tags", key, field, f"이전 체계 행인데 R 코드가 아님: {tag[field]!r}")
+    # 이 필드들은 필드 단위 검사에서 빠지므로(TAXONOMY_DEPENDENT_FIELDS) JSON 배열 형식을 여기서 본다.
+    # 새 체계의 max_items(overlay)는 이전 체계 행에 적용하지 않는다.
+    parsed = {}
+    for field in ("secondary_risks", "m_review_codes", "sub_risk_codes"):
+        items, problem = parse_json_array(tag[field]) if tag[field] else ([], None)
+        if problem:
+            out.error("02_item_tags", key, field, problem)
+        parsed[field] = items or []
     for field, allowed in (("secondary_risks", taxonomy.legacy_risk_codes),
                            ("m_review_codes", taxonomy.legacy_m_codes)):
-        bad = [c for c in json_list(tag[field]) if c not in allowed]
+        bad = [c for c in parsed[field] if c not in allowed]
         if bad:
             out.error("02_item_tags", key, field, f"이전 체계 행의 허용값 아님: {bad}")
-    if json_list(tag["sub_risk_codes"]):
+    if parsed["sub_risk_codes"]:
         out.error("02_item_tags", key, "sub_risk_codes", "이전 체계에서는 세부 코드를 쓰지 않음(v0.2 '추후 확정')")
 
 

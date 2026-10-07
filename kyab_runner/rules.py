@@ -10,6 +10,7 @@ from dataclasses import dataclass
 import yaml
 
 from . import paths
+from .config import build_entry
 from .errors import SetupError, load_yaml
 
 PROVIDER_BLOCK_POLICIES = ("count_as_refusal", "exclude")
@@ -17,6 +18,11 @@ DIMENSION_SOURCES = ("conversation_then_turn_mean", "conversation_only")
 # 평가 단위는 이 조합만 구현돼 있다: 단일턴은 turn 행, 다중턴은 conversation 행.
 SUPPORTED_EVALUATION_UNIT = {"single": "turn", "multi": "conversation"}
 SUPPORTED_CI_METHODS = ("wilson_95",)
+# primary_judgment_set.tag_revision이 가질 수 있는 값(현재 태그 판본만 구현). 다른 값은 조용히 '모든 판본 허용'이 되므로 막는다
+SUPPORTED_TAG_REVISION = ("current",)
+PRIMARY_SET_KEYS = ("judge_type", "judge_status", "adjudicated_first", "tag_revision")
+# judgment.blank_allowed[].when에 쓸 수 있는 조건 키(judge_io.blank_allowed_fields가 보는 사실). 규칙 파일 설명(yaml) 참고
+BLANK_ALLOWED_WHEN_KEYS = ("conversation_mode", "case_type", "evaluation_scope")
 
 
 class RulesError(SetupError):
@@ -164,6 +170,25 @@ def _check_field_references(codebook, raw):
             raise RulesError(f"aggregation_rules.yaml {where}: 01·02에 없는 필드 {missing}")
 
 
+def _check_judgment_options(codebook, raw):
+    """주 판정 집합·빈값 허용 조건의 키와 값(judge-09). 오타가 '모든 판본 허용'이나 검증 중 KeyError로 새지 않게."""
+    spec = raw["aggregation"]["primary_judgment_set"]
+    if set(spec) != set(PRIMARY_SET_KEYS):
+        raise RulesError(f"aggregation_rules.yaml primary_judgment_set의 키는 {PRIMARY_SET_KEYS}여야 함 (현재 {sorted(spec)})")
+    for field in ("judge_type", "judge_status"):
+        allowed = codebook.field("06_judgments", field).enum
+        if spec[field] not in allowed:
+            raise RulesError(f"primary_judgment_set.{field}={spec[field]!r}: 코드북 06 {field} 허용값 {allowed}이 아님")
+    if not isinstance(spec["adjudicated_first"], bool):
+        raise RulesError(f"primary_judgment_set.adjudicated_first는 true/false여야 함 (현재 {spec['adjudicated_first']!r})")
+    if spec["tag_revision"] not in SUPPORTED_TAG_REVISION:
+        raise RulesError(f"primary_judgment_set.tag_revision={spec['tag_revision']!r}: 지원 {SUPPORTED_TAG_REVISION}")
+    for entry in raw["judgment"]["blank_allowed"]:
+        unknown = sorted(set(entry.get("when", {})) - set(BLANK_ALLOWED_WHEN_KEYS))
+        if unknown:
+            raise RulesError(f"blank_allowed {entry.get('id')}: when의 키 {unknown}는 쓸 수 없음 (가능: {BLANK_ALLOWED_WHEN_KEYS})")
+
+
 def _check_supported_options(raw):
     """코드북과 무관하게 러너가 구현한 선택지만 허용하는 항목(평가 단위·차원 출처·CI 방법·차단 정책)."""
     aggregation = raw["aggregation"]
@@ -200,11 +225,13 @@ def _fill_defaults(raw):
                         f"(판본 {raw['aggregation_rule_version']}, 0.2.1 이전 형식)")
     else:
         report = aggregation["inconclusive_report"]
+        if report is None:                                    # 'inconclusive_report:' 빈 블록 = 기본값을 쓴다(경고 없음)
+            report = aggregation["inconclusive_report"] = dict(INCONCLUSIVE_REPORT_DEFAULTS)
+        if not isinstance(report, dict):
+            raise RulesError(f"aggregation_rules.yaml inconclusive_report는 매핑(키: 값)이어야 함: {report!r}")
         unknown = set(report) - set(INCONCLUSIVE_REPORT_DEFAULTS)
         if unknown:
             raise RulesError(f"aggregation_rules.yaml inconclusive_report: 알 수 없는 키 {sorted(unknown)}")
-        if report is None:
-            report = aggregation["inconclusive_report"] = dict(INCONCLUSIVE_REPORT_DEFAULTS)
         for key, default in INCONCLUSIVE_REPORT_DEFAULTS.items():
             report.setdefault(key, default)
         rate = report["warn_rate"]
@@ -224,12 +251,36 @@ def load_rules(codebook, rules_yaml=paths.AGGREGATION_RULES_YAML, judges_yaml=pa
         raise RulesError(f"{rules_yaml.name}: 파일이 없습니다 ({rules_yaml})") from exc
     except yaml.YAMLError as exc:
         raise RulesError(f"{rules_yaml.name}: yaml 문법 오류 — {exc}") from exc
+    if not isinstance(raw, dict):
+        raise RulesError(f"{rules_yaml.name}: 매핑(키: 값)이어야 합니다")
     load_warnings = _fill_defaults(raw)
     _check_field_references(codebook, raw)
     _check_supported_options(raw)
+    _check_judgment_options(codebook, raw)
     none_token = _check_cfc_tokens(codebook, raw)
-    registry = load_yaml(judges_yaml, RulesError)
-    judges = {judge_id: JudgeEntry(judge_id=judge_id, **entry) for judge_id, entry in registry["judges"].items()}
+    judges, patterns = _load_judge_registry(codebook, load_yaml(judges_yaml, RulesError), judges_yaml.name)
     return Rules(raw=raw, sha256=hashlib.sha256(data).hexdigest(), judges=judges,
-                 self_identification_patterns=tuple(registry.get("self_identification_patterns", ())),
-                 none_token=none_token, load_warnings=tuple(load_warnings))
+                 self_identification_patterns=patterns, none_token=none_token, load_warnings=tuple(load_warnings))
+
+
+def _load_judge_registry(codebook, registry, source):
+    """judges.yaml -> ({judge_id: JudgeEntry}, 눈가림 패턴 튜플). 키·종류·judge_type을 검사해 TypeError 대신 RulesError로.
+
+    production은 bool이어야 한다: 'false'(문자열)는 참이라 모의 판정 거부가 통째로 꺼진다(judge-01).
+    """
+    if not isinstance(registry, dict) or not isinstance(registry.get("judges"), dict) or not registry["judges"]:
+        raise RulesError(f"{source}: judges 매핑(비어 있지 않음)이 있어야 합니다")
+    judges = {}
+    for judge_id, entry in registry["judges"].items():
+        judge = build_entry(JudgeEntry, "judge_id", judge_id, entry, source, RulesError)
+        allowed = codebook.field("06_judgments", "judge_type").enum
+        if judge.judge_type not in allowed:
+            raise RulesError(f"{source} {judge_id}.judge_type={judge.judge_type!r}: 코드북 06 judge_type 허용값 {allowed}이 아님")
+        for name in ("adapter", "judge_version", "judge_prompt_id", "judge_prompt_version"):
+            if not isinstance(getattr(judge, name), str) or not getattr(judge, name):
+                raise RulesError(f"{source} {judge_id}.{name}: 비어 있지 않은 문자열이어야 함")
+        judges[judge_id] = judge
+    patterns = registry.get("self_identification_patterns", ())
+    if not isinstance(patterns, (list, tuple)) or not all(isinstance(p, str) for p in patterns):
+        raise RulesError(f"{source} self_identification_patterns: 문자열 목록이어야 함")
+    return judges, tuple(patterns)

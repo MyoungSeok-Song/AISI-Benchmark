@@ -212,3 +212,72 @@ class TaxonomyLoadTest(unittest.TestCase):
         with self.assertRaises(TaxonomyError):
             load_taxonomy(crosswalk=without_m)
         self.assertFalse(hasattr(TAXONOMY, "sort_order"))       # 읽는 곳이 없던 필드 제거
+
+
+class OverlayStructureTest(OverlayTest):
+    """overlay 파일 구조 오류(codebook-03)는 traceback 대신 항목 ID가 든 OverlayError."""
+
+    def load_raw(self, text):
+        path = self.tmp / "overlay_raw.yaml"
+        path.write_text(text, encoding="utf-8")
+        return load_codebook(TAXONOMY, overlay_yaml=path)
+
+    def test_structure_problems(self):
+        for text in ("", "changes:\n", "base: x\n", "changes:\n  - 3\n"):
+            with self.assertRaises(OverlayError):
+                self.load_raw(text)
+        with self.assertRaises(OverlayError) as caught:
+            self.load(CONFIRMED, {"id": "OV-T-BAD", "status": "provisional", "basis": "시험",
+                                  "apply": [{"table": "99_nope", "field": "x", "enum": ["a"]}]})
+        self.assertIn("OV-T-BAD", str(caught.exception))
+        with self.assertRaises(OverlayError) as caught:
+            self.load(CONFIRMED, {"id": "OV-T-BAD2", "status": "provisional", "basis": "시험",
+                                  "apply": [{"table": "02_item_tags", "field": "primary_risk", "enum_from": "taxonomy.bogus"}]})
+        self.assertIn("OV-T-BAD2", str(caught.exception))
+        with self.assertRaises(OverlayError):
+            self.load(CONFIRMED, {"id": "OV-T-BAD3", "status": "provisional", "basis": "시험", "apply": "not-a-list"})
+
+
+class StrictNumberTest(unittest.TestCase):
+    """수 형식(codebook-15): ASCII 숫자 표기만. int()·float()가 받아들이던 공백·밑줄·부호·nan·inf는 거부."""
+
+    def test_int_and_number(self):
+        turn_index = CODEBOOK.field("03_prompts", "turn_index")
+        for bad in (" 7", "1_000", "+7", "７", "nan"):
+            self.assertIn("형식 아님", turn_index.check(bad) or "", bad)
+        for good in ("0", "1", "12"):
+            self.assertIsNone(turn_index.check(good), good)
+        temperature = CODEBOOK.field("04_runs", "temperature")
+        for bad in ("nan", "inf", "1e3", " 0.0"):
+            self.assertIn("형식 아님", temperature.check(bad) or "", bad)
+        for good in ("0.0", "1.0", "0", "-1.5"):
+            self.assertNotIn("형식 아님", temperature.check(good) or "", good)
+
+    def test_unknown_field_is_keyerror_with_message(self):
+        with self.assertRaises(KeyError) as caught:
+            CODEBOOK.field("06_judgments", "no_such_field")
+        self.assertIn("no_such_field", str(caught.exception))
+        with self.assertRaises(KeyError):
+            CODEBOOK.field("99_nope", "x")
+
+
+class LegacyJsonShapeTest(unittest.TestCase):
+    """이전 체계 행(codebook-02): 분류 코드 필드의 깨진 JSON·배열 아닌 값은 오류로 잡힌다."""
+
+    def test_malformed_legacy_cells_are_errors(self):
+        import copy
+        from kyab_runner import csv_io, validate
+        from kyab_runner.config import load_config
+        from kyab_runner.records import INPUT_FILES
+        tables = {t: csv_io.read_table(CODEBOOK, t, paths.DEFAULT_INPUT_DIR / f) for t, f in INPUT_FILES.items()}
+        tags = copy.deepcopy(tables["02_item_tags"])
+        legacy = next(r for r in tags if r["taxonomy_version"].startswith("0."))
+        key = f"{legacy['item_id']}@{legacy['item_version']}#rev{legacy['tag_revision']}"
+        legacy.update(sub_risk_codes="[", secondary_risks="[R2", m_review_codes="{bad")
+        issues = validate.validate_inputs(CODEBOOK, TAXONOMY, load_config(), tables["01_items"], tags, tables["03_prompts"])
+        fields = sorted(i.field for i in issues if i.key == key and i.level == "error")
+        self.assertEqual(fields, ["m_review_codes", "secondary_risks", "sub_risk_codes"])
+        legacy.update(sub_risk_codes='"R2"', secondary_risks='{"a": 1}', m_review_codes="3")
+        issues = validate.validate_inputs(CODEBOOK, TAXONOMY, load_config(), tables["01_items"], tags, tables["03_prompts"])
+        self.assertEqual(sorted(i.field for i in issues if i.key == key and i.level == "error"),
+                         ["m_review_codes", "secondary_risks", "sub_risk_codes"])

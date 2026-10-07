@@ -93,3 +93,14 @@ class ExtractorReproducibilityTest(unittest.TestCase):
             with open(os.devnull, "w") as sink, mock.patch("sys.stdout", sink):
                 extract_taxonomy.main(["--xlsx", TAXONOMY_XLSX, "--out", str(out)])
             self.assertEqual(out.read_bytes(), (RUNNER_DIR / "kyab_runner" / "spec" / "taxonomy_data.py").read_bytes())
+
+
+class ExtractorVerifyTest(unittest.TestCase):
+    """extract_taxonomy.verify(codebook-04): 앞 검산이 실패해도 예외 없이 전체 목록을 찍고 실패 수를 돌려준다."""
+
+    def test_verify_survives_missing_major(self):
+        rows = [{"level_label": "하위", "code": "A1.01", "parent_code": "A1", "parent_name": "x", "name": "n",
+                 "definition": "d", "scope_note": "", "source": "", "legacy_code": "R1.01", "source_cells": {}}]
+        with open(os.devnull, "w") as sink, mock.patch("sys.stdout", sink):
+            failed = extract_taxonomy.verify(rows, [], [])
+        self.assertGreater(failed, 0)

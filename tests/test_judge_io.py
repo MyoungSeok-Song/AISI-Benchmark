@@ -851,3 +851,44 @@ class ApplyPlanTest(JudgedTestCase):
         self.assertEqual(planned.inconclusive_before_fail, counted)
         single, _ = package.plan(ENV, self.single)
         self.assertEqual(single.inconclusive_before_fail, 0)      # 단일턴은 '앞 턴'이 없다
+
+
+class RulesRegistryTest(RunnerTestCase):
+    """규칙·판정기 등록부의 형식 오류(codebook-01, judge-01, judge-09)는 RulesError 한 줄로 끝난다."""
+
+    load = RulesFileTest.load                   # 규칙 파일 일부를 바꿔 읽는 도우미(부모 클래스의 테스트는 다시 돌리지 않는다)
+
+    def judges_with(self, mutate):
+        import yaml
+        raw = yaml.safe_load(paths.JUDGES_YAML.read_text(encoding="utf-8"))
+        mutate(raw)
+        path = self.tmp / "judges.yaml"
+        path.write_text(yaml.safe_dump(raw, allow_unicode=True), encoding="utf-8")
+        return load_rules(CODEBOOK, judges_yaml=path)
+
+    def test_inconclusive_report_null_and_wrong_shape(self):
+        rules = self.load(lambda raw: raw["aggregation"].update(inconclusive_report=None))
+        self.assertEqual(rules["aggregation"]["inconclusive_report"], {"warn_rate": None, "report_failure_rate_if_inconclusive_failed": False})
+        with self.assertRaises(RulesError):
+            self.load(lambda raw: raw["aggregation"].update(inconclusive_report=[1]))
+
+    def test_judges_yaml_checks(self):
+        self.assertEqual(self.judges_with(lambda raw: None).non_production_judges(), {"mock-judge"})
+        with self.assertRaises(RulesError) as caught:                  # 'false' 문자열은 참 → 모의 판정 거부가 꺼지는 사고
+            self.judges_with(lambda raw: raw["judges"]["mock-judge"].update(production="false"))
+        self.assertIn("true/false", str(caught.exception))
+        for mutate in (lambda raw: raw["judges"]["mock-judge"].pop("judge_prompt_version"),
+                       lambda raw: raw["judges"]["mock-judge"].update(extra="x"),
+                       lambda raw: raw["judges"]["mock-judge"].update(judge_type="llmm"),
+                       lambda raw: raw.update(judges={}),
+                       lambda raw: raw.update(self_identification_patterns="x")):
+            with self.assertRaises(RulesError):
+                self.judges_with(mutate)
+
+    def test_primary_set_and_blank_allowed_keys(self):
+        for mutate in (lambda raw: raw["aggregation"]["primary_judgment_set"].update(tag_revision="Current"),
+                       lambda raw: raw["aggregation"]["primary_judgment_set"].update(adjudicated_first="no"),
+                       lambda raw: raw["aggregation"]["primary_judgment_set"].update(judge_status="complete"),
+                       lambda raw: raw["judgment"]["blank_allowed"][0]["when"].update(severity_tag="high")):
+            with self.assertRaises(RulesError):
+                self.load(mutate)

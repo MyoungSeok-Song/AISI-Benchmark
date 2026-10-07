@@ -162,11 +162,15 @@ def read_sub39(ws):
 
 # ── 3. 검산 ─────────────────────────────────────────────────────────────
 def verify(rows, overview, sub39):
-    """코드북49 내부 정합성 + 분류표·하위39와의 일치를 확인한다."""
+    """코드북49 내부 정합성 + 분류표·하위39와의 일치를 확인한다.
+
+    앞 검산이 실패해도(대분류 없는 하위 행 등) 뒤 검산이 예외로 죽지 않고 FAIL로 찍혀 전체 목록이 보여야 한다.
+    """
     ck = Checker()
     majors = [r for r in rows if r["level_label"] == "상위"]
     subs = [r for r in rows if r["level_label"] == "하위"]
     major_codes = [m["code"] for m in majors]
+    major_name = {m["code"]: m["name"] for m in majors}
 
     print("코드북49 내부 검산")
     ck.check("층위 값은 '상위'·'하위'뿐", len(majors) + len(subs) == len(rows),
@@ -180,8 +184,7 @@ def verify(rows, overview, sub39):
     ck.check("하위 코드 접두부 = 대분류 코드",
              all(s["code"].split(".")[0] == s["parent_code"] for s in subs))
     ck.check("하위 행의 대분류 이름 = 상위 행 명칭",
-             all(s["parent_name"] == next(m["name"] for m in majors if m["code"] == s["parent_code"])
-                 for s in subs))
+             all(s["parent_name"] == major_name.get(s["parent_code"]) for s in subs))
     ck.check("명칭·정의 빈칸 없음", all(r["name"] and r["definition"] for r in rows))
 
     print("이전 코드(코드북49 '이전 코드' 열) 검산")
@@ -192,22 +195,22 @@ def verify(rows, overview, sub39):
              all(("." in r["legacy_code"]) == (r["level_label"] == "하위") for r in rows))
     legacy_of = {r["code"]: r["legacy_code"] for r in rows}
     ck.check("하위의 이전 코드 부모 = 대분류의 이전 코드, 하위 번호 보존",
-             all(s["legacy_code"] == f"{legacy_of[s['parent_code']]}.{s['code'].split('.')[1]}"
-                 for s in subs))
+             all(legacy_of.get(s["parent_code"]) is not None and "." in s["code"]
+                 and s["legacy_code"] == f"{legacy_of[s['parent_code']]}.{s['code'].split('.')[1]}" for s in subs))
 
     print("분류표_A1-A10 대조")
     ov = {m["code"]: m for m in overview}
     ck.check("대분류 코드 집합·순서 일치", [m["code"] for m in overview] == major_codes)
-    ck.check("대분류 명칭 일치", all(ov[m["code"]]["name"] == m["name"] for m in majors))
-    ck.check("상위 정의 일치", all(ov[m["code"]]["definition"] == m["definition"] for m in majors))
-    ck.check("대분류 이전 코드 일치", all(ov[m["code"]]["legacy_code"] == m["legacy_code"] for m in majors))
+    ck.check("대분류 명칭 일치", all(ov.get(m["code"], {}).get("name") == m["name"] for m in majors))
+    ck.check("상위 정의 일치", all(ov.get(m["code"], {}).get("definition") == m["definition"] for m in majors))
+    ck.check("대분류 이전 코드 일치", all(ov.get(m["code"], {}).get("legacy_code") == m["legacy_code"] for m in majors))
     subs_by_parent = {c: [(s["code"], s["name"]) for s in subs if s["parent_code"] == c]
                       for c in major_codes}
     ck.check("하위 수(C열) = 실제 하위 개수",
-             all(ov[c]["sub_count"] == len(subs_by_parent[c]) for c in major_codes),
+             all(ov.get(c, {}).get("sub_count") == len(subs_by_parent[c]) for c in major_codes),
              ", ".join(f"{c}:{len(subs_by_parent[c])}" for c in major_codes))
     ck.check("소분류 목록(D열) 코드·이름·순서 일치",
-             all(ov[c]["subs"] == subs_by_parent[c] for c in major_codes))
+             all(ov.get(c, {}).get("subs") == subs_by_parent[c] for c in major_codes))
 
     print("하위39 대조")
     ck.check("소분류 코드·이름·대분류·순서 일치",
