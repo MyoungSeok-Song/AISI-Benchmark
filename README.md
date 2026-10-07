@@ -475,8 +475,9 @@ OpenAI·Anthropic·Gemini 어댑터가 있지만 **실제로 호출한 적이 �
 | 출력 한도에서 잘림 | success | length | |
 | 공급자 안전 차단 | blocked (`block_source=provider`) | content_filter | OpenAI `finish_reason=content_filter`·정책 위반 HTTP 400, Anthropic `stop_reason=refusal`, Gemini `promptFeedback.blockReason`·안전 계열 `finishReason` |
 | 추론 토큰이 한도를 다 써 본문 없음 | empty | length | |
-| 429·5xx·연결 오류 | error (재시도) | | |
-| 그 밖의 4xx (파라미터 거부 등) | error (재시도 안 함) | | 공급자 오류 메시지를 `error_message`에 보존 |
+| 408·409·429·500·502·503·504·529·연결 오류 | error (재시도) | | 재시도 대상은 `adapters/base.py`의 `RETRYABLE_HTTP_COMMERCIAL` 한 곳에서 정합니다(세 어댑터 공통) |
+| 그 밖의 4xx·5xx (400 파라미터 거부, 401, 404, 501, 505 등) | error (재시도 안 함) | | 공급자 오류 메시지를 `error_message`에 보존 |
+| 2xx인데 본문이 JSON 객체가 아님 | error `invalid_response` (재시도 안 함) | | 응답 원문 일부를 `error_message`에 보존 |
 | 시간 초과 | timeout (재시도) | | |
 
 **확인 필요** — 가짜 응답(`tests/fixtures/`)은 공식 문서 형식을 본뜬 것이라, 실제 호출이 허용되면 실응답으로 대조해야 합니다.
@@ -517,7 +518,7 @@ runner/
     build_samples.py        개발 샘플 입력 6건 생성
     vllm_server.py          로컬 vLLM 서버 기동·종료·상태
     check_determinism.py    반복 간 응답 동일 여부 확인
-    apply_judgments.py      판정 결과로 04_runs의 first_fail_turn·first_cfc_turn 채우기
+    apply_judgments.py      kyab_runner/apply_judgments.py의 명령행 껍데기(판정 결과로 04_runs의 first_fail_turn·first_cfc_turn 채우기)
     e2e_judge_aggregate.sh  판정·집계 종단 시험 (모의 배치 4개, 실모델 배치는 인자로). 결과 확인은 e2e_check.py
     e2e_check.py            종단 시험 결과 확인(06·07·분모)
     export_jsonl.py         납품 형식(JSONL) 내보내기 명령행
@@ -555,13 +556,18 @@ runner/
     run_judge.py            판정 실행기
     metrics.py              지표 산식, 실행 단위 정리, 슬라이스 집계, 07 검증
     run_aggregate.py        집계 실행기
-    export.py               납품 형식(JSONL) 내보내기·스키마 생성·왕복 검증
+    export.py               납품 형식(JSONL) 내보내기·스키마 생성·왕복 검증 (명령행: tools/export_jsonl.py)
+    sources.py              원천 데이터셋 등록부(config/sources.yaml)와 납품 sources.json
+    apply_judgments.py      판정 결과로 04_runs의 first_fail_turn·first_cfc_turn 채우기 (명령행: tools/apply_judgments.py)
   samples/
-    input/                  샘플 입력 (900000번대 ID, 실제 문항 아님)
+    input/                  샘플 입력 (900000번대 ID, 실제 문항 아님. 출처·라이선스는 input/README.md)
     output/                 샘플 실행 결과
     mock_plan_failures.yaml 실패 경로 모의 계획
-  tests/                    test_runner.py, test_overlay.py, test_judge_io.py, test_metrics.py(지표 손계산 대조),
-                            test_export.py, test_local_vllm.py, test_commercial_adapters.py, fixtures/(가짜 응답)
+  tests/
+    support.py              공용 기반(sys.path·명세 로드·실행/판정 도우미 클래스)
+    test_runner.py, test_overlay.py, test_judge_io.py, test_metrics.py(지표 손계산 대조), test_export.py,
+    test_local_vllm.py, test_commercial_adapters.py, test_adapters.py, test_spec.py(생성 모듈·추출기), test_tools.py(도구),
+    test_layering.py(모듈 계층), test_golden.py(출력 고정) + golden/(사슬 sha256·지표 골든 파일), fixtures/(가짜 응답)
   var/                      서버 기동 정보·로그 (git 제외)
 ```
 
