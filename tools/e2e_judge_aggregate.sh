@@ -8,12 +8,31 @@
 # 1,024 한도로 기록된 옛 배치(2026-10-02 001~004)는 overlay OV-R1005-1(허용값 8192) 때문에 apply 단계에서 거부되므로
 # 기본값에서 뺐다. GPU 재실행 뒤 8,192 조건의 새 배치를 인자로 넣는다.
 set -euo pipefail
+RUNNER=$(cd "$(dirname "$0")/.." && pwd)
 PY=.venv/bin/python
 E2E=${E2E_DIR:-var/e2e_task6}
+MARKER=.e2e_judge_aggregate                 # 이 스크립트가 만든 폴더 표지. var/ 밖의 폴더는 이 표지가 있어야만 지운다
 SOURCES=("$@")
 if [ ${#SOURCES[@]} -eq 0 ] && [ -n "${E2E_SOURCE_BATCHES:-}" ]; then read -r -a SOURCES <<< "$E2E_SOURCE_BATCHES"; fi
+if [ "$PWD" != "$RUNNER" ]; then                 # 다른 폴더에서 불렸으면 상대 경로를 절대 경로로 바꾼 뒤 runner/로 옮긴다
+  for i in "${!SOURCES[@]}"; do SOURCES[$i]=$(realpath -e "${SOURCES[$i]}"); done
+  [ -n "${E2E_DIR:-}" ] && E2E=$(realpath -m "$E2E") || E2E="$RUNNER/var/e2e_task6"
+  cd "$RUNNER"
+fi
 
-rm -rf "$E2E" && mkdir -p "$E2E"
+# 삭제 가드: rm -rf는 var/ 아래의 하위 폴더이거나 이 스크립트가 만든 폴더(표지 있음)만. samples/output(실모델 배치)·runner/·var/ 자체는 거부
+E2E_ABS=$(realpath -m "$E2E")
+case "$E2E_ABS" in
+  "$RUNNER/var/"?*) ;;
+  *) [ -f "$E2E_ABS/$MARKER" ] || { echo "지울 수 없는 폴더입니다: $E2E (var/ 아래이거나 이 스크립트가 만든 폴더만 지웁니다)"; exit 1; } ;;
+esac
+for src in "${SOURCES[@]}"; do
+  case "$(realpath -e "$src")" in
+    "$E2E_ABS"|"$E2E_ABS/"*) echo "원본 배치가 시험 폴더 안에 있습니다(지워집니다): $src"; exit 1 ;;
+  esac
+done
+
+rm -rf "$E2E" && mkdir -p "$E2E" && touch "$E2E/$MARKER"
 before=""
 for src in "${SOURCES[@]}"; do
   before+=$(cat "$src"/*.csv | md5sum)

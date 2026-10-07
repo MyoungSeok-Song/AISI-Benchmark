@@ -17,10 +17,9 @@
 import argparse
 import shutil
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 
-from . import csv_io, judge_io, paths, validate
+from . import clock, csv_io, judge_io, paths, validate
 from .context import prepare
 from .exitcodes import EXIT_INVALID, EXIT_OK
 from .records import RUNNER_STAGES, RUNS_FILE
@@ -99,7 +98,7 @@ def apply(env, plan):
     """원본을 백업하고 04_runs.csv를 다시 쓴다. 반환: 백업 파일 경로."""
     batch = plan.view.batch
     path = batch.dir / RUNS_FILE
-    backup = path.with_name(f"{RUNS_FILE}.bak-{datetime.now().strftime('%Y%m%dT%H%M%S')}")
+    backup = path.with_name(f"{RUNS_FILE}.bak-{clock.compact_stamp(clock.now(env.config))}")   # 보조 로그 ts와 같은 시간대
     shutil.copy2(path, backup)
     csv_io.rewrite_table(env.codebook, "04_runs", path, plan.rows)
     batch.log_event("judgments_applied", fields=list(TARGET_FIELDS), backup=backup.name,

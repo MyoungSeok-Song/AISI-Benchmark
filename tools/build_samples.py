@@ -252,11 +252,12 @@ def main(argv=None):
         taxonomy = load_taxonomy()
         codebook = load_codebook(taxonomy)
         config = load_config()
-        care, minor = load_sources(args.data_dir)
     except SETUP_ERRORS as exc:
         print(setup_error_message(exc))
         return EXIT_INVALID
-    except (FileNotFoundError, KeyError) as exc:          # 원본 CSV가 없거나 ID 열이 다름
+    try:
+        care, minor = load_sources(args.data_dir)
+    except (FileNotFoundError, KeyError) as exc:          # 원본 CSV가 없거나 ID 열이 다름(명세 오류와 구분해 알린다)
         print(f"원천 원본을 읽을 수 없습니다 ({args.data_dir}): {type(exc).__name__}: {exc}")
         return EXIT_INVALID
     tables = {"01_items": to_cells(codebook, "01_items", build_items(care, minor)),
