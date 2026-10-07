@@ -29,7 +29,7 @@ from collections import Counter
 from pathlib import Path
 
 from . import clock, csv_io, fileio, ids, judge_io, metrics, paths, validate
-from .context import SETUP_ERRORS, RecordsError, load_environment, open_views, setup_error_message
+from .context import READ_ERRORS, prepare, report_read_error
 from .exitcodes import EXIT_INVALID, EXIT_NOTHING, EXIT_OK                   # noqa: F401 (테스트가 이 모듈 이름으로 쓴다)
 from .judge_io import MOCK_WARNING, foreign_judgment_ids
 from .layout import DENOMINATORS_FILE, NOTES_FILE                           # noqa: F401 (테스트가 이 모듈 이름으로 쓴다)
@@ -176,22 +176,16 @@ def print_summary(rows, notes):
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
-    try:
-        env = load_environment(args.rules)
-    except SETUP_ERRORS as exc:
-        print(setup_error_message(exc))
+    prepared = prepare(args.input, args.batches, args.rules)
+    if prepared is None:
         return EXIT_INVALID
+    env, views = prepared
     rules = env.rules
-    for warning in rules.load_warnings:
-        print(f"주의: {warning}")
     try:
-        _, views, notices = open_views(env, args.input, args.batches)
         loaded, judgment_warnings = load_valid_judgments(env, views)
-    except (csv_io.CsvFormatError, FileNotFoundError, RecordsError) as exc:
-        print(f"배치 또는 입력을 읽을 수 없습니다: {exc}")
+    except READ_ERRORS as exc:
+        report_read_error(exc)
         return EXIT_INVALID
-    for notice in notices:
-        print(f"주의: {notice}")
     if loaded is None:
         print("판정 기록에 문제가 있어 집계하지 않습니다.")
         return EXIT_INVALID

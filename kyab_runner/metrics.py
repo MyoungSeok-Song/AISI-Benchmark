@@ -36,7 +36,7 @@ from dataclasses import dataclass
 from statistics import NormalDist
 
 from . import csv_io, judge_io
-from .codebook import value_range                     # 형식 원문의 범위 해석은 codebook이 맡는다(테스트가 metrics.value_range를 쓴다)
+from .codebook import value_range                     # noqa: F401  형식 원문의 범위 해석은 codebook이 맡는다(테스트가 metrics.value_range를 쓴다)
 from .issues import IssueCollector, check_unique
 from .records import RUN_PARAM_FIELDS                 # 집계 섞임 검사는 실행기가 04에 적는 호출 파라미터와 같은 키를 본다
 from .validate import CONTROL_TARGET_FIELD

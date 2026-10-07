@@ -24,7 +24,7 @@ import sys
 from pathlib import Path
 
 from . import csv_io, fileio, ids, judge_io, paths, validate
-from .context import SETUP_ERRORS, RecordsError, load_environment, open_views, setup_error_message
+from .context import prepare
 from .exitcodes import EXIT_INVALID, EXIT_NOTHING, EXIT_OK                   # noqa: F401 (테스트가 이 모듈 이름으로 쓴다)
 from .judge_io import MOCK_WARNING, foreign_judgment_ids                    # noqa: F401 (옛 위치 재수출)
 from .judges import create_judge
@@ -165,18 +165,10 @@ def _record_judge_run(view, entry, judge, rules, rows, new_rows, sample):
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
-    try:
-        env = load_environment()
-    except SETUP_ERRORS as exc:
-        print(setup_error_message(exc))
+    prepared = prepare(args.input, args.batches)
+    if prepared is None:
         return EXIT_INVALID
-    try:
-        _, views, notices = open_views(env, args.input, args.batches)
-    except (csv_io.CsvFormatError, FileNotFoundError, RecordsError) as exc:
-        print(f"배치 또는 입력을 읽을 수 없습니다: {exc}")
-        return EXIT_INVALID
-    for notice in notices:
-        print(f"주의: {notice}")
+    env, views = prepared
 
     if args.inputs_only:
         for view in views:

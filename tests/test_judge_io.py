@@ -309,8 +309,9 @@ class MockJudgeTest(JudgedTestCase):
         from unittest import mock
         from kyab_runner import run_aggregate
         from kyab_runner.rules import RulesError
+        from kyab_runner import context
         for module, main in ((run_judge, run_judge.main), (run_aggregate, run_aggregate.main), (apply_judgments, apply_judgments.main)):
-            with mock.patch.object(module, "load_environment", side_effect=RulesError("시험용 규칙 오류")):
+            with mock.patch.object(context, "load_environment", side_effect=RulesError("시험용 규칙 오류")):
                 code, output = self.capture(main, [str(self.single_dir)])
             self.assertEqual(code, 2, module.__name__)
             self.assertIn("시험용 규칙 오류", output)
@@ -814,3 +815,39 @@ class RulesFileTest(RunnerTestCase):
     def test_unknown_policy_rejected(self):
         with self.assertRaises(RulesError):
             self.load(lambda raw: raw["aggregation"].update(provider_block_policy="ignore"))
+
+
+class InputErrorReportingTest(JudgedTestCase):
+    """실행 뒤 입력(02 등)을 고쳐 검증 오류가 여럿 생기면, 판정·집계·apply가 처음 3건이 아니라 전부 보여 준다(cross-09)."""
+
+    def test_every_input_error_is_printed(self):
+        from kyab_runner import run_aggregate
+        input_dir, tables = self.copy_inputs()
+        broken = [row["item_id"] for row in tables["01_items"][:4]]
+        for row in tables["01_items"][:4]:
+            row["item_version"] = "not-a-version"             # SemVer 형식 오류 4건(+ 02·03 연결 오류)
+        self.save(input_dir, "01_items", tables["01_items"])
+        for main in (run_judge.main, run_aggregate.main, apply_judgments.main):
+            code, output = self.capture(main, ["--input", str(input_dir), str(self.single_dir)])
+            self.assertEqual(code, 2)
+            for item_id in broken:
+                self.assertIn(f"{item_id}@not-a-version item_version", output)
+            self.assertRegex(output, r"입력 검증: 오류 ([4-9]|[1-9][0-9]+)건")
+            self.assertIn("배치 또는 입력을 읽을 수 없습니다", output)
+
+
+class ApplyPlanTest(JudgedTestCase):
+    """apply_judgments.plan은 Plan(행·건수·보류 선행 수)을 돌려주고, 보류 선행 판단은 단위로 부를 수 있다(judge-07)."""
+
+    def test_plan_counts_match_rows(self):
+        from kyab_runner import apply_judgments as package
+        planned, reasons = package.plan(ENV, self.multi)
+        self.assertEqual(reasons, [])
+        self.assertEqual(planned.fail_count, sum(1 for r in planned.rows if r["first_fail_turn"]))
+        self.assertEqual(planned.cfc_count, sum(1 for r in planned.rows if r["first_cfc_turn"]))
+        self.assertEqual(len(planned.rows), len(self.multi.runs))
+        primary = judge_io.select_primary(RULES, self.multi, self.judgments(self.multi_dir))
+        counted = sum(1 for run in planned.rows if package.inconclusive_precedes(self.multi, primary, run, run["first_fail_turn"]))
+        self.assertEqual(planned.inconclusive_before_fail, counted)
+        single, _ = package.plan(ENV, self.single)
+        self.assertEqual(single.inconclusive_before_fail, 0)      # 단일턴은 '앞 턴'이 없다

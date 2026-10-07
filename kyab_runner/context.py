@@ -1,14 +1,15 @@
 """판정·집계 단계 도구가 함께 쓰는 준비 절차.
 
-run_judge, run_aggregate, tools/apply_judgments.py는 모두 같은 것을 읽고 시작한다:
+run_judge, run_aggregate, apply_judgments는 모두 같은 것을 읽고 시작한다(prepare):
 명세(코드북·분류체계) → 설정 → 판정·집계 규칙 → 입력 3종 → 배치 폴더.
+실패하면 한 줄 메시지를 출력하고 None을 돌려주며, 진입점은 종료 코드 2로 끝낸다.
 """
 from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
 
-from . import paths, validate
+from . import csv_io, paths, validate
 from .codebook import Codebook, load_codebook
 from .config import RunnerConfig, load_config
 from .errors import SetupError
@@ -19,7 +20,11 @@ from .vocab import check_vocabulary
 
 
 class RecordsError(Exception):
-    """배치 기록이 입력과 이어지지 않을 때."""
+    """배치 기록이 입력과 이어지지 않거나 입력 3종이 검증을 통과하지 못할 때. issues에 검증 결과 전체가 들어 있다."""
+
+    def __init__(self, message, issues=()):
+        super().__init__(message)
+        self.issues = list(issues)
 
 
 # 명세·설정 파일이 잘못됐을 때 나는 예외. 진입점은 이것을 잡아 한 줄 메시지와 종료 코드 2로 끝낸다(traceback 없이).
@@ -62,7 +67,7 @@ def open_views(env, input_dir, batch_dirs):
     issues = validate.validate_inputs(env.codebook, env.taxonomy, env.config, *index.tables.values())
     errors = validate.errors_of(issues)
     if errors:
-        raise RecordsError(f"입력 검증 오류 {len(errors)}건 — " + "; ".join(str(i) for i in errors[:3]))
+        raise RecordsError(f"입력 검증 오류 {len(errors)}건 — " + "; ".join(str(i) for i in errors[:3]), issues)
     notices, views = [str(i) for i in issues], []        # 입력 검증 경고를 안내 문구로
     for batch_dir in batch_dirs:
         batch = BatchRecords(env.codebook, env.config, Path(batch_dir))
@@ -75,3 +80,36 @@ def open_views(env, input_dir, batch_dirs):
             notices.append(f"{batch.run_batch_id}: 실행 때와 내용이 다른 입력 파일 {changed}")
         views.append(view)
     return index, views, notices
+
+
+READ_ERRORS = (csv_io.CsvFormatError, FileNotFoundError, RecordsError)     # 배치·입력을 읽다 나는 예외(설정 오류와 구분)
+
+
+def report_read_error(exc):
+    """배치·입력 읽기 실패를 출력한다. 입력 검증 결과가 있으면(RecordsError.issues) 처음 3건이 아니라 전부 보인다."""
+    issues = getattr(exc, "issues", [])
+    if issues:
+        validate.report_issues(issues)
+    print(f"배치 또는 입력을 읽을 수 없습니다: {exc}")
+
+
+def prepare(input_dir, batch_dirs, rules_yaml=paths.AGGREGATION_RULES_YAML):
+    """진입점 공통 준비: 명세·설정·규칙 → 입력 3종·배치 폴더. 반환: (Environment, [BatchView]) — 실패하면 출력 뒤 None.
+
+    규칙 파일 로드 경고와 입력 안내 문구는 '주의:'로 출력한다.
+    """
+    try:
+        env = load_environment(rules_yaml)
+    except SETUP_ERRORS as exc:
+        print(setup_error_message(exc))
+        return None
+    for warning in env.rules.load_warnings:
+        print(f"주의: {warning}")
+    try:
+        _, views, notices = open_views(env, input_dir, batch_dirs)
+    except READ_ERRORS as exc:
+        report_read_error(exc)
+        return None
+    for notice in notices:
+        print(f"주의: {notice}")
+    return env, views

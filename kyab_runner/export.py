@@ -700,7 +700,7 @@ def main(argv=None):
     import argparse
     import sys
 
-    from .context import SETUP_ERRORS, RecordsError, load_environment, open_views, setup_error_message
+    from .context import SETUP_ERRORS, RecordsError, load_environment, open_views, report_read_error, setup_error_message
 
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("batches", nargs="*", type=Path, help="배치 폴더 (없으면 items.jsonl만)")
@@ -716,7 +716,7 @@ def main(argv=None):
         print(setup_error_message(exc))
         return EXIT_INVALID
     except (csv_io.CsvFormatError, RecordsError) as exc:
-        print(f"배치 또는 입력을 읽을 수 없습니다: {exc}")
+        report_read_error(exc)
         return EXIT_INVALID
     for notice in notices:
         print(f"주의: {notice}")
