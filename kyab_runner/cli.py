@@ -313,12 +313,22 @@ def _load_spec():
     return taxonomy, codebook, load_config()
 
 
-def _select(args, config, items, issues):
+def parse_items(value):
+    """--items 값 → 문항 ID 집합. 생략(None)·빈 문자열은 None(필터 없음). 공백은 뗀다.
+
+    쉼표·공백뿐인 값(스크립트가 빈 변수를 이어 붙인 "${A},${B}" 등)은 빈 집합으로 돌려주고 호출자가 거부한다 —
+    '필터 없음'으로 읽으면 전체 문항이 실행되어(상용 모델이면 비용) 사용자의 뜻과 어긋난다.
+    """
+    if not value:
+        return None
+    return {s.strip() for s in value.split(",") if s.strip()}
+
+
+def _select(args, config, items, issues, only_ids):
     """실행 대상 문항을 고르고 manifest에 남길 입력 검증 요약을 만든다. 반환: (선정 문항, input_validation dict).
 
-    --items의 공백은 떼고, 01에 없는 ID는 경고로 알린다(manifest에는 넣지 않는다).
+    01에 없는 --items ID는 경고로 알린다(manifest에는 넣지 않는다).
     """
-    only_ids = {s.strip() for s in args.items.split(",") if s.strip()} if args.items else None
     if only_ids:
         missing = sorted(only_ids - {item["item_id"] for item in items})
         if missing:
@@ -359,8 +369,9 @@ def main(description, default_protocol, conversation_mode, conduct, argv=None):
     except (csv_io.CsvFormatError, FileNotFoundError) as exc:
         print(f"입력을 읽을 수 없습니다: {exc}")
         return EXIT_INVALID_INPUT
-    index = InputIndex(tables["01_items"], tables["02_item_tags"], tables["03_prompts"], input_digests)
-    issues = validate.validate_inputs(codebook, taxonomy, config, *index.tables.values())
+    # 색인(InputIndex)보다 검증이 먼저다: 색인은 turn_index를 int로 정렬하므로 형식 오류 입력에서 traceback이 난다.
+    # 검증을 통과한 입력만 색인한다(옛 동작과 같음, 종료 2 + '[error] … int 형식 아님').
+    issues = validate.validate_inputs(codebook, taxonomy, config, *(tables[name] for name in INPUT_FILES))
     if report_issues(issues):
         print("오류가 있어 실행하지 않습니다.")
         return EXIT_INVALID_INPUT
@@ -369,8 +380,13 @@ def main(description, default_protocol, conversation_mode, conduct, argv=None):
         for problem in problems:
             print(f"[error] run_params: {problem}")
         return EXIT_INVALID_INPUT if problems else EXIT_OK
+    index = InputIndex(tables["01_items"], tables["02_item_tags"], tables["03_prompts"], input_digests)
 
-    selected, input_validation = _select(args, config, index.tables["01_items"], issues)
+    only_ids = parse_items(args.items)
+    if only_ids is not None and not only_ids:          # 쉼표·공백뿐: 전체 실행으로 읽지 않고 멈춘다
+        print(f"--items에 문항 ID가 없습니다: {args.items!r}")
+        return EXIT_INVALID_INPUT
+    selected, input_validation = _select(args, config, index.tables["01_items"], issues, only_ids)
     if not selected:
         return EXIT_NOTHING_TO_RUN
     versions = sorted({item["dataset_version"] for item in selected})

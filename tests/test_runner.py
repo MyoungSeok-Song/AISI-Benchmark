@@ -394,6 +394,22 @@ class ValidationTest(RunnerTestCase):
     def current_tag(rows, item_id):
         return next(r for r in rows if r["item_id"] == item_id and r["tag_status"] == "current")
 
+    def test_non_integer_turn_index_is_a_validation_error(self):
+        """R01: 색인(turn_index int 정렬)보다 검증이 먼저 돌아 traceback·종료 1이 아니라 '[error] … int 형식 아님'·종료 2."""
+        def mutate(rows):
+            rows[0]["turn_index"] = "x"
+        self.assert_rejected("03_prompts", mutate, "int 형식 아님: 'x'")
+        input_dir, tables = self.copy_inputs() if not (self.tmp / "input").exists() else (self.tmp / "input", None)
+        for bad, expected in (("", "필수인데 비어 있음"), ("1.0", "int 형식 아님"), ("x", "int 형식 아님: 'x'")):
+            rows = csv_io.read_table(CODEBOOK, "03_prompts", input_dir / cli.INPUT_FILES["03_prompts"])
+            rows[0]["turn_index"] = bad
+            self.save(input_dir, "03_prompts", rows)
+            for runner in (run_single, run_multiturn):
+                code, output = self.run_cli(runner, "--validate-only", input_dir=input_dir)
+                self.assertEqual(code, cli.EXIT_INVALID_INPUT, (bad, output))
+                self.assertIn(expected, output)
+                self.assertNotIn("Traceback", output)
+
     def test_sub_risk_must_be_child_of_primary(self):
         def mutate(rows):
             self.current_tag(rows, "KYAB-900101")["sub_risk_codes"] = '["A4.01"]'
@@ -636,6 +652,18 @@ class PreflightArgsTest(RunnerTestCase):
         self.assertEqual(code, 0, output)
         self.assertIn("경고: --items에 있으나 01_items에 없는 ID ['NOPE']", output)
         self.assertIn("실행 대상 1문항", output)
+
+    def test_items_without_ids_is_an_error_not_a_full_run(self):
+        """R02: 쉼표·공백뿐인 --items는 '필터 없음'이 아니라 종료 2 — 전체 문항이 조용히 실행되지 않는다."""
+        for value in (",", " ", ", ,"):
+            code, output = self.run_cli(run_single, "--items", value, "--rollouts", "1")
+            self.assertEqual(code, cli.EXIT_INVALID_INPUT, (value, output))
+            self.assertIn("--items에 문항 ID가 없습니다", output)
+            self.assertNotIn("실행 대상", output)
+        self.assertFalse(self.out.exists(), "거부했는데 배치가 생김")
+        self.assertIsNone(cli.parse_items(None))
+        self.assertIsNone(cli.parse_items(""))                 # 빈 문자열은 옛 동작대로 필터 없음
+        self.assertEqual(cli.parse_items(" a , b"), {"a", "b"})
 
 
 class RecordGuardTest(RunnerTestCase):
