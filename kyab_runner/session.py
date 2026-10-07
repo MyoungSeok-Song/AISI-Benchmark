@@ -18,9 +18,11 @@ import time
 from . import clock, csv_io, fileio
 from .adapters.base import CallInfo
 from .records import EVENTS_FILE, RESPONSES_FILE, RUN_PARAM_FIELDS, RUNNER_STAGES, RUNS_FILE   # noqa: F401 (재수출)
+from .vocab import (RESPONSE_BLOCKED, RESPONSE_EMPTY, RESPONSE_ERROR, RESPONSE_SUCCESS, RESPONSE_TIMEOUT, RUN_COMPLETED,
+                    RUN_FAILED, RUN_PARTIAL, STOP_ERROR, STOP_MANUAL, STOP_PLANNED_END, STOP_PROVIDER_BLOCK)
 
 # 응답 상태 -> 실행 중단 사유 (04 stop_reason). 차단만 provider_block, 나머지 실패는 error.
-_STOP_REASON = {"blocked": "provider_block", "error": "error", "timeout": "error", "empty": "error"}
+_STOP_REASON = {RESPONSE_BLOCKED: STOP_PROVIDER_BLOCK, RESPONSE_ERROR: STOP_ERROR, RESPONSE_TIMEOUT: STOP_ERROR, RESPONSE_EMPTY: STOP_ERROR}
 
 
 class Batch:
@@ -103,7 +105,7 @@ class RunSession:
                             turn_index=info.turn_index, attempt=attempt,
                             response_status=result.response_status, error_code=result.error_code,
                             latency_ms=int((time.monotonic() - began) * 1000))
-            if result.response_status == "success" or not result.retryable:
+            if result.response_status == RESPONSE_SUCCESS or not result.retryable:
                 break
 
         self._responses.append({
@@ -133,12 +135,12 @@ class RunSession:
         성공한 턴이 하나도 없으면 failed, 하나라도 있으면 partial이다.
         """
         batch = self.batch
-        done = sum(1 for r in self._responses if r["response_status"] == "success")
+        done = sum(1 for r in self._responses if r["response_status"] == RESPONSE_SUCCESS)
         if done == planned_turns:
-            run_status, stop_reason = "completed", "planned_end"
+            run_status, stop_reason = RUN_COMPLETED, STOP_PLANNED_END
         else:
-            run_status = "partial" if done else "failed"
-            stop_reason = "manual_stop" if interrupted else _STOP_REASON.get(self._last_status, "error")
+            run_status = RUN_PARTIAL if done else RUN_FAILED
+            stop_reason = STOP_MANUAL if interrupted else _STOP_REASON.get(self._last_status, STOP_ERROR)
 
         run_row = {
             "run_id": self.run_id,
@@ -192,7 +194,7 @@ class RunSession:
             if row["finish_reason"]:
                 checks.append(("finish_reason", row["finish_reason"], config["finish_reasons"]))
             # 성공 응답에는 본문이 있어야 한다 (overlay OV-P3: 실패 응답만 본문 공란 허용)
-            if row["response_status"] == "success" and not row["response_text"]:
+            if row["response_status"] == RESPONSE_SUCCESS and not row["response_text"]:
                 raise csv_io.CsvFormatError(f"{row['response_id']}: success인데 response_text가 비어 있음")
         for field, value, allowed in checks:
             if value not in allowed:

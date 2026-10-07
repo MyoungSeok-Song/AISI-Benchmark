@@ -13,6 +13,7 @@ import json
 from collections import Counter, defaultdict
 
 from .issues import Issue, IssueCollector, check_fields, check_unique, errors_of, report_issues   # noqa: F401 (재수출)
+from .vocab import CASE_SAFE_CONTROL, TAG_CURRENT
 
 # 대조 문항이 어느 위험군의 대조인지 잇는 02 열(overlay OV-P4, 잠정). 이름은 여기 한 곳에서만 정한다.
 # 집계(metrics)·검증이 이 상수를 쓰고, validate_inputs가 코드북 열에 실제로 있는지 확인한다.
@@ -106,7 +107,7 @@ def _check_registered(out, item, config):
 # ── 4. 태그 규칙 ────────────────────────────────────────────────────────
 def _check_current_tag(out, items, tags):
     """문항 판본마다 tag_status=current인 행이 정확히 1개 (02 tag_status 형식 원문)."""
-    current = Counter(item_key(r) for r in tags if r["tag_status"] == "current")
+    current = Counter(item_key(r) for r in tags if r["tag_status"] == TAG_CURRENT)
     for item in items:
         count = current.get(item_key(item), 0)
         if count != 1:
@@ -197,14 +198,14 @@ def rule_control_target(out, items, tag, key, config):
     item = items.get(item_key(tag))
     if item is None or CONTROL_TARGET_FIELD not in tag:
         return
-    value, is_control = tag[CONTROL_TARGET_FIELD], item["case_type"] == "safe_control"
+    value, is_control = tag[CONTROL_TARGET_FIELD], item["case_type"] == CASE_SAFE_CONTROL
     if is_control and tag["primary_risk"]:
         out.warning("02_item_tags", key, "primary_risk",
                     "대조 문항에 primary_risk 값이 있음 — 집계는 대조 문항을 control_target_risk로만 묶는다(확정 4: 대조군은 공란)")
     if value and not is_control:
         out.error("02_item_tags", key, CONTROL_TARGET_FIELD,
                   f"대조 문항(safe_control)이 아닌데 값이 있음 (case_type={item['case_type']!r})")
-    elif is_control and not value and tag["tag_status"] == "current":
+    elif is_control and not value and tag["tag_status"] == TAG_CURRENT:
         report = out.error if config.get("control_link_required") else out.warning
         report("02_item_tags", key, CONTROL_TARGET_FIELD,
                "대조 문항인데 어느 위험군의 대조인지 비어 있음 — 집계의 위험군 행(ORR)에서 빠진다")

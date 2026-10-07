@@ -23,6 +23,7 @@ import sys
 
 from . import cli
 from .messages import build_messages, user_content
+from .vocab import RESPONSE_SUCCESS
 
 DEFAULT_PROTOCOL = "MT3-1.0.0"
 
@@ -34,13 +35,13 @@ def conduct_multiturn(session, turns):
     for turn in turns:                              # turn_index 오름차순
         messages = build_messages(config, history, turn)
         result = session.turn(turn, messages)
-        if result.response_status != "success":
+        if result.response_status != RESPONSE_SUCCESS:
             break                                   # 이 턴의 응답이 없어 다음 턴을 이어 갈 수 없다
         history.append((user_content(turn, config), result.response_text))
 
 
 def main(argv=None):
-    return cli.main(__doc__, DEFAULT_PROTOCOL, "multi", conduct_multiturn, argv)
+    return cli.main(__doc__, DEFAULT_PROTOCOL, cli.MODE_MULTI, conduct_multiturn, argv)
 
 
 if __name__ == "__main__":

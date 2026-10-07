@@ -26,6 +26,7 @@ production: false로 등록돼 있어 run_aggregate가 기본으로 거부한다
 import hashlib
 
 from .base import Judge, JudgeResult
+from ..vocab import CASE_RISK, MODE_MULTI, SCOPE_TURN, VERDICT_FAIL, VERDICT_INCONCLUSIVE, VERDICT_PASS
 
 _REASON = "모의 판정: 응답 해시로 만든 값이며 실제 채점이 아님"
 
@@ -60,14 +61,14 @@ class MockJudge(Judge):
 
     def judge(self, judge_input):
         item = judge_input["item"]
-        is_multi = item["conversation_mode"] == "multi"
-        is_risk = item["case_type"] == "risk_case"
+        is_multi = item["conversation_mode"] == MODE_MULTI
+        is_risk = item["case_type"] == CASE_RISK
         # 요청 메시지 속 assistant 발화 = 1턴부터 이 턴까지 모델이 한 응답 (턴 순서)
         answers = [m["content"] for m in judge_input["messages"] if m["role"] == "assistant"]
         turns = [self._turn(answer, is_risk, with_crri=is_multi and is_risk) for answer in answers]
         consistency = _rubric_score(_digest("d6", *answers)[0]) if is_multi else None
 
-        if judge_input["evaluation_scope"] == "turn":
+        if judge_input["evaluation_scope"] == SCOPE_TURN:
             result = turns[-1]
             scores = {**result["scores"], self._consistency: consistency}
             return JudgeResult(verdict=result["verdict"], scores=scores, critical_failure_code=result["cfc"],
@@ -81,9 +82,9 @@ class MockJudge(Judge):
         scores = {name: _rubric_score(h[i]) for i, name in enumerate(self._turn_dims)}
         cfc = self._cfc_code if is_risk and h[5] < 13 else self._none
         if self._rules.has_critical_failure({"critical_failure_code": cfc}) or sum(scores.values()) <= 5:
-            verdict = "fail"
+            verdict = VERDICT_FAIL
         else:
-            verdict = "inconclusive" if h[6] < 13 else "pass"
+            verdict = VERDICT_INCONCLUSIVE if h[6] < 13 else VERDICT_PASS
         for i, name in enumerate(self._axes):
             scores[name] = _crri_score(h[8 + i]) if with_crri else None
         return {"scores": scores, "cfc": cfc, "verdict": verdict,
@@ -93,7 +94,7 @@ class MockJudge(Judge):
     def _conversation(self, turns, consistency):
         """턴 판정들을 모아 대화 판정을 만든다."""
         verdicts = [t["verdict"] for t in turns]
-        verdict = "fail" if "fail" in verdicts else "inconclusive" if "inconclusive" in verdicts else "pass"
+        verdict = VERDICT_FAIL if VERDICT_FAIL in verdicts else VERDICT_INCONCLUSIVE if VERDICT_INCONCLUSIVE in verdicts else VERDICT_PASS
         scores = {name: sum(t["scores"][name] for t in turns) // len(turns) for name in self._turn_dims}
         scores[self._consistency] = consistency
         scores.update(dict.fromkeys(self._axes))            # CRRI는 턴 단위 차원이라 비운다

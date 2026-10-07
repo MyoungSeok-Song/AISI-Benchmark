@@ -8,8 +8,8 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from kyab_runner import paths                                    # noqa: E402
-from kyab_runner.codebook import OverlayError, load_codebook    # noqa: E402
+from kyab_runner import paths, vocab                             # noqa: E402
+from kyab_runner.codebook import Codebook, OverlayError, load_codebook   # noqa: E402
 from kyab_runner.taxonomy import load_taxonomy                   # noqa: E402
 
 TAXONOMY = load_taxonomy()
@@ -142,3 +142,22 @@ class FieldCheckTest(unittest.TestCase):
         self.assertTrue(CODEBOOK.field("05_responses", "request_messages_json").is_json)
         self.assertTrue(CODEBOOK.field("07_results", "slice_key_json").is_json)
         self.assertFalse(CODEBOOK.field("04_runs", "temperature").is_json)
+
+
+class VocabularyTest(unittest.TestCase):
+    """코드가 쓰는 통제어휘(vocab.USED)는 코드북 enum에 있어야 하고, 없어지면 로드가 멈춘다(cross-15)."""
+
+    def test_current_codebook_has_every_used_value(self):
+        vocab.check_vocabulary(CODEBOOK)                 # 예외 없음
+
+    def test_missing_value_is_reported(self):
+        import dataclasses
+        tables = {t: list(CODEBOOK.fields(t)) for t in ("01_items", "02_item_tags", "03_prompts", "04_runs",
+                                                        "05_responses", "06_judgments", "07_results")}
+        tables["06_judgments"] = [dataclasses.replace(f, enum=("pass", "inconclusive")) if f.name == "verdict" else f
+                                  for f in tables["06_judgments"]]
+        broken = Codebook(tables, CODEBOOK.applied_overlays)
+        with self.assertRaises(vocab.VocabularyError) as caught:
+            vocab.check_vocabulary(broken)
+        self.assertIn("06_judgments.verdict='fail'", str(caught.exception))
+        self.assertIn("SetupError", [c.__name__ for c in type(caught.exception).__mro__])

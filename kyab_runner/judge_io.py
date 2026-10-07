@@ -30,6 +30,9 @@ from .ids import judgment_ids_by_batch
 from .issues import IssueCollector, check_fields, check_unique
 from .layout import JUDGE_INPUTS_FILE, JUDGMENTS_FILE, JUDGMENTS_TEMPLATE_FILE   # noqa: F401 (재수출)
 from .records import BatchView
+from .vocab import (JUDGE_STATUS_ADJUDICATED, JUDGE_STATUS_COMPLETED, JUDGE_STATUS_FAILED, JUDGE_TYPE_HUMAN, MODE_MULTI,
+                    RESPONSE_SUCCESS, REVIEW_COMPLETED, SCOPE_CONVERSATION, SCOPE_TURN, TAG_CURRENT, VERDICT_FAIL,
+                    VERDICT_INCONCLUSIVE)
 
 TABLE = "06_judgments"
 TEMPLATE_FILE = JUDGMENTS_TEMPLATE_FILE             # 이 모듈의 옛 이름(테스트가 쓴다)
@@ -59,14 +62,14 @@ def template_rows(view):
 
     rows, last_success = [], {}
     for response in view.responses.values():            # 파일 순서 = 기록 순서
-        if response["response_status"] != "success":
+        if response["response_status"] != RESPONSE_SUCCESS:
             continue
-        rows.append(blank_row("turn", response))
+        rows.append(blank_row(SCOPE_TURN, response))
     for run_id in view.runs:
         successes = view.successes(run_id)
-        if successes and view.item_of(view.runs[run_id])["conversation_mode"] == "multi":
+        if successes and view.item_of(view.runs[run_id])["conversation_mode"] == MODE_MULTI:
             last_success[run_id] = successes[-1]         # 대화 범위 행의 대표 응답
-    rows += [blank_row("conversation", response) for response in last_success.values()]
+    rows += [blank_row(SCOPE_CONVERSATION, response) for response in last_success.values()]
     return rows
 
 
@@ -155,7 +158,7 @@ def self_identifying_responses(view, rules):
     patterns = rules.self_identification_patterns
     found = {}
     for response in view.responses.values():
-        if response["response_status"] != "success":
+        if response["response_status"] != RESPONSE_SUCCESS:
             continue
         text = response["response_text"].casefold()
         hits = [p for p in patterns if p.casefold() in text]
@@ -223,7 +226,7 @@ def rule_cfc(out, rules, row):
     code, status = row["critical_failure_code"], row["judge_status"]
     if not code:
         return
-    if status == "failed":
+    if status == JUDGE_STATUS_FAILED:
         out.error(TABLE, _row_label(row), "critical_failure_code",
                   f"judge_status=failed 행은 CFC를 비워 둬야 함 (현재 {code!r}) — 판정이 실패했으면 실패 없음도 주장할 수 없다")
         return
@@ -232,21 +235,21 @@ def rule_cfc(out, rules, row):
     if code not in rules["judgment"]["registered_cfc_codes"]:
         out.error(TABLE, _row_label(row), "critical_failure_code",
                   f"등록되지 않은 CFC 코드 {code!r} (치명적 실패가 없으면 {rules.none_token})")
-    if not rules.is_unfinished(row) and row["verdict"] != "fail":
+    if not rules.is_unfinished(row) and row["verdict"] != VERDICT_FAIL:
         out.error(TABLE, _row_label(row), "verdict",
                   f"NONE이 아닌 critical_failure_code가 있으면 fail이어야 함 (현재 {row['verdict']!r})")
 
 
 def rule_verdict(out, rules, row):
     """가정 J2: inconclusive 허용 여부는 규칙 파일이 정한다."""
-    if row["verdict"] == "inconclusive" and not rules["judgment"]["allow_inconclusive"]:
+    if row["verdict"] == VERDICT_INCONCLUSIVE and not rules["judgment"]["allow_inconclusive"]:
         out.error(TABLE, _row_label(row), "verdict", "inconclusive는 허용되지 않음 (aggregation_rules.yaml)")
 
 
 def rule_judge(out, rules, row):
     """사람 판정 행은 human_review_status=completed만 (코드북 형식). LLM 판정기는 등록된 것만."""
-    if row["judge_type"] == "human":
-        if row["human_review_status"] != "completed":
+    if row["judge_type"] == JUDGE_TYPE_HUMAN:
+        if row["human_review_status"] != REVIEW_COMPLETED:
             out.error(TABLE, _row_label(row), "human_review_status",
                       f"사람 판정 행은 completed만 허용 (현재 {row['human_review_status']!r})")
         return
@@ -257,12 +260,12 @@ def rule_judge(out, rules, row):
 
 def rule_scope(out, view, row, response, run):
     """conversation 범위는 다중턴 실행에만 있고, 그 실행의 마지막 성공 응답을 참조해야 한다(S2)."""
-    if response["response_status"] != "success":
+    if response["response_status"] != RESPONSE_SUCCESS:
         out.warning(TABLE, _row_label(row), "response_id",
                     f"성공하지 않은 응답({response['response_status']})에 대한 판정")
-    if row["evaluation_scope"] != "conversation":
+    if row["evaluation_scope"] != SCOPE_CONVERSATION:
         return
-    if view.item_of(run)["conversation_mode"] != "multi":
+    if view.item_of(run)["conversation_mode"] != MODE_MULTI:
         out.error(TABLE, _row_label(row), "evaluation_scope", "conversation 범위는 다중턴 실행에만 쓸 수 있음")
         return
     successes = view.successes(run["run_id"])
@@ -388,7 +391,7 @@ def latest_rows(view, judgments, accept, current_tag_only=True):
 def select_auto(rules, view, judgments):
     """자동 판정 행: 규칙 파일이 정한 판정자 종류·상태(llm + completed)인 행 중 자리마다 가장 늦은 것."""
     spec = rules["aggregation"]["primary_judgment_set"]
-    current_only = spec["tag_revision"] == "current"
+    current_only = spec["tag_revision"] == TAG_CURRENT
     return latest_rows(view, judgments, current_tag_only=current_only,
                        accept=lambda r: r["judge_type"] == spec["judge_type"] and r["judge_status"] == spec["judge_status"])
 
@@ -406,17 +409,17 @@ def select_primary(rules, view, judgments):
     spec = rules["aggregation"]["primary_judgment_set"]
     primary = select_auto(rules, view, judgments)
     if spec["adjudicated_first"]:
-        primary.update(latest_rows(view, judgments, lambda r: r["judge_status"] == "adjudicated",
-                                   current_tag_only=spec["tag_revision"] == "current"))
+        primary.update(latest_rows(view, judgments, lambda r: r["judge_status"] == JUDGE_STATUS_ADJUDICATED,
+                                   current_tag_only=spec["tag_revision"] == TAG_CURRENT))
     return primary
 
 
 def select_human(rules, view, judgments, independent_only):
     """사람 판정 행. independent_only이면 독립 재채점(judge_status=completed)만, 아니면 조정(adjudicated) 행도 포함."""
-    current_only = rules["aggregation"]["primary_judgment_set"]["tag_revision"] == "current"
+    current_only = rules["aggregation"]["primary_judgment_set"]["tag_revision"] == TAG_CURRENT
     return latest_rows(view, judgments, current_tag_only=current_only,
-                       accept=lambda r: r["judge_type"] == "human"
-                       and (r["judge_status"] == "completed" or not independent_only))
+                       accept=lambda r: r["judge_type"] == JUDGE_TYPE_HUMAN
+                       and (r["judge_status"] == JUDGE_STATUS_COMPLETED or not independent_only))
 
 
 # ── 6. 사후 산출 (구조 검토 S1) ─────────────────────────────────────────
@@ -434,11 +437,11 @@ def first_turns(rules, view, primary):
     """
     values, incomplete = {}, []
     for run_id in view.runs:
-        judged = [(view.turn_index(r), primary.get(("turn", r["response_id"]))) for r in view.successes(run_id)]
+        judged = [(view.turn_index(r), primary.get((SCOPE_TURN, r["response_id"]))) for r in view.successes(run_id)]
         if any(row is None for _, row in judged):
             incomplete.append(run_id)
             continue
-        fail = min((turn for turn, row in judged if row["verdict"] == "fail"), default="")
+        fail = min((turn for turn, row in judged if row["verdict"] == VERDICT_FAIL), default="")
         cfc = min((turn for turn, row in judged if rules.has_critical_failure(row)), default="")
         values[run_id] = (str(fail), str(cfc))
     return values, incomplete

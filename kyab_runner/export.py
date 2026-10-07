@@ -28,6 +28,7 @@ from .layout import (DELIVERY_ITEMS_FILE, DELIVERY_JUDGMENTS_DIR, DELIVERY_MANIF
 from .records import RUN_PARAM_FIELDS
 from .spec import codebook_data
 from .validate import item_key
+from .vocab import TAG_CURRENT
 
 FORMAT_VERSION = "0.1"           # 납품형식_JSONL스키마 문서 판본
 ITEMS_FILE, MANIFEST_FILE, SOURCES_FILE = DELIVERY_ITEMS_FILE, DELIVERY_MANIFEST_FILE, DELIVERY_SOURCES_FILE
@@ -145,7 +146,7 @@ def _check_layout(codebook):
 # ── 레코드 만들기 ───────────────────────────────────────────────────────
 def item_record(codebook, item, tags, turns):
     """items.jsonl 한 줄. tags는 그 문항 판본의 02 행 전체(tag_revision 순), turns는 03 행(turn_index 순)."""
-    current = next(t for t in tags if t["tag_status"] == "current")
+    current = next(t for t in tags if t["tag_status"] == TAG_CURRENT)
     tag_fields = [c for c in codebook.columns("02_item_tags") if c not in (*TAG_KEYS, *TAG_TO_EVALUATION, *TAG_TO_REVIEW)]
     turn_fields = [c for c in codebook.columns("03_prompts") if c not in TURN_KEYS]
     record = typed(codebook, "01_items", item, ITEM_TOP)

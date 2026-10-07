@@ -15,6 +15,7 @@ from .errors import SetupError
 from .records import BatchRecords, BatchView, InputIndex
 from .rules import Rules, load_rules
 from .taxonomy import load_taxonomy
+from .vocab import check_vocabulary
 
 
 class RecordsError(Exception):
@@ -44,6 +45,7 @@ def load_environment(rules_yaml=paths.AGGREGATION_RULES_YAML):
     """명세·설정·규칙을 읽는다. rules_yaml로 다른 규칙 파일을 줄 수 있다(규칙을 바꿔 비교할 때)."""
     taxonomy = load_taxonomy()
     codebook = load_codebook(taxonomy)
+    check_vocabulary(codebook)                       # 코드가 쓰는 통제어휘가 이 코드북에 있는지(vocab)
     return Environment(codebook=codebook, config=load_config(), rules=load_rules(codebook, rules_yaml=Path(rules_yaml)),
                        taxonomy=taxonomy)
 

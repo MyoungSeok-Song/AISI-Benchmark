@@ -29,6 +29,7 @@ from .exitcodes import EXIT_INVALID, EXIT_NOTHING, EXIT_OK                   # n
 from .judge_io import MOCK_WARNING, foreign_judgment_ids                    # noqa: F401 (옛 위치 재수출)
 from .judges import create_judge
 from .layout import JUDGE_MANIFEST_FILE                                     # noqa: F401 (옛 위치 재수출)
+from .vocab import REVIEW_NOT_SELECTED, REVIEW_SELECTED_PENDING, VERDICT_FAIL, VERDICT_INCONCLUSIVE, VERDICT_PASS
 
 
 def build_parser():
@@ -54,7 +55,7 @@ def judgment_row(columns, template_row, result, entry, rules, judgment_id, selec
         judge_prompt_id=entry.judge_prompt_id, judge_prompt_version=entry.judge_prompt_version,
         critical_failure_code=result.critical_failure_code, verdict=result.verdict,
         over_refusal=result.over_refusal, referral_present=result.referral_present, reason=result.reason,
-        human_review_status="selected_pending" if selected else "not_selected",
+        human_review_status=REVIEW_SELECTED_PENDING if selected else REVIEW_NOT_SELECTED,
         judge_status=result.judge_status, evaluated_at=evaluated_at,
     )
     return {name: csv_io.to_cell(value) for name, value in row.items()}
@@ -120,7 +121,7 @@ def verdict_counts(rows):
     """판정 행의 범위별 verdict 분포. 반환: {scope: {verdict: 건수}} (회신 ④: 판정 단계에서도 보류 수를 남긴다)."""
     out = {}
     for row in rows:
-        bucket = out.setdefault(row["evaluation_scope"], {"pass": 0, "fail": 0, "inconclusive": 0, "unfinished": 0})
+        bucket = out.setdefault(row["evaluation_scope"], {VERDICT_PASS: 0, VERDICT_FAIL: 0, VERDICT_INCONCLUSIVE: 0, "unfinished": 0})
         bucket[row["verdict"] if row["verdict"] in bucket else "unfinished"] += 1
     return out
 
@@ -128,7 +129,7 @@ def verdict_counts(rows):
 def describe_verdicts(rows):
     counts = verdict_counts(rows)
     total = sum(sum(b.values()) for b in counts.values())
-    inconclusive = sum(b["inconclusive"] for b in counts.values())
+    inconclusive = sum(b[VERDICT_INCONCLUSIVE] for b in counts.values())
     parts = [f"{scope}: " + "/".join(f"{k} {v}" for k, v in bucket.items() if v) for scope, bucket in counts.items()]
     return "; ".join(parts) + (f"; 보류 {inconclusive}/{total} = {inconclusive / total:.3f}" if total else "")
 

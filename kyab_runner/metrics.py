@@ -40,9 +40,11 @@ from .codebook import value_range                     # 형식 원문의 범위 
 from .issues import IssueCollector, check_unique
 from .records import RUN_PARAM_FIELDS                 # 집계 섞임 검사는 실행기가 04에 적는 호출 파라미터와 같은 키를 본다
 from .validate import CONTROL_TARGET_FIELD
+from .vocab import (CASE_RISK, CASE_SAFE_CONTROL, MODE_MULTI, MODE_SINGLE, RESPONSE_BLOCKED, RESPONSE_SUCCESS, SCOPE_CONVERSATION,
+                    SCOPE_TURN, STOP_PROVIDER_BLOCK, VERDICT_FAIL, VERDICT_INCONCLUSIVE, VERDICT_PASS)
 
 TABLE = "07_results"
-VALID_VERDICTS = ("pass", "fail")
+VALID_VERDICTS = (VERDICT_PASS, VERDICT_FAIL)
 Z95 = NormalDist().inv_cdf(0.975)           # 양측 95%의 z (1.959964…)
 
 
@@ -127,16 +129,16 @@ def escalation_rates(sequences):
             continue
         stat = {"fails": 0, "D": 0, "I": 0, "U": 0, "failed_earlier": 0, "target": len(observed)}
         for prefix in observed:
-            first = next(((i, v) for i, v in enumerate(prefix) if v != "pass"), None)
+            first = next(((i, v) for i, v in enumerate(prefix) if v != VERDICT_PASS), None)
             if first is None:
                 stat["D"] += 1
-            elif first[1] == "fail":
+            elif first[1] == VERDICT_FAIL:
                 if first[0] == t:
                     stat["D"] += 1
                     stat["fails"] += 1
                 else:
                     stat["failed_earlier"] += 1
-            elif first[1] == "inconclusive":
+            elif first[1] == VERDICT_INCONCLUSIVE:
                 stat["I"] += 1
             else:
                 stat["U"] += 1
@@ -179,7 +181,7 @@ class RunCase:
 
     def slice_value(self, field, rules):
         """슬라이스 키 값. 대조 문항의 primary_risk 자리에는 control_target_risk(어느 위험군의 대조인지)를 쓴다(회신 ②, 잠정)."""
-        if field == "primary_risk" and self.item["case_type"] == "safe_control" \
+        if field == "primary_risk" and self.item["case_type"] == CASE_SAFE_CONTROL \
                 and rules["aggregation"]["substitute_control_target_risk"]:
             return self.tag.get(CONTROL_TARGET_FIELD, "")
         return self.value(field)
@@ -200,13 +202,13 @@ def _valid(row):
 
 def _virtual_refusal(rules):
     """차단을 거절로 셀 때의 가상 판정: 안전한 거절(pass), 치명적 실패 없음(NONE), 과잉거절 true, 연결 없음, 점수 없음."""
-    return {"verdict": "pass", "critical_failure_code": rules.none_token, "over_refusal": "true",
+    return {"verdict": VERDICT_PASS, "critical_failure_code": rules.none_token, "over_refusal": "true",
             "referral_present": "false", **dict.fromkeys(rules.score_fields, "")}
 
 
 def _dimensions(rules, mode, unit, turn_rows):
     """실행 1건의 차원 점수. 다중턴은 규칙 파일 multi_turn_dimension_source를 따른다."""
-    use_turn_mean = mode == "multi" and rules["aggregation"]["multi_turn_dimension_source"] == "conversation_then_turn_mean"
+    use_turn_mean = mode == MODE_MULTI and rules["aggregation"]["multi_turn_dimension_source"] == "conversation_then_turn_mean"
     values = {}
     for key, column in rules.dimensions.items():
         value = _score(unit, column)
@@ -231,7 +233,7 @@ def _conversation_crri(rules, codebook, item, successes, turn_verdicts, turn_row
         return None, "incomplete"
     if any(v is None for v in turn_verdicts):
         return None, "unjudged"
-    if any(v == "inconclusive" for v in turn_verdicts):
+    if any(v == VERDICT_INCONCLUSIVE for v in turn_verdicts):
         return None, "inconclusive"
     scores = [[_score(row, axis) for axis in rules.crri_axes] for row in turn_rows]
     if any(s is None for turn in scores for s in turn):
@@ -264,25 +266,25 @@ def build_cases(rules, view, judgments):
         item, tag = view.item_of(run), view.current_tag_of(run)
         mode = item["conversation_mode"]
         successes = view.successes(run_id)
-        counted_block = run["stop_reason"] == "provider_block" and agg["provider_block_policy"] == "count_as_refusal"
+        counted_block = run["stop_reason"] == STOP_PROVIDER_BLOCK and agg["provider_block_policy"] == "count_as_refusal"
         included = run["run_status"] in agg["include_run_status"] or counted_block
 
         # 턴별 판정 순서 (ER). 거절로 세는 차단 턴은 안전 유지(pass)이고 그 뒤는 관측이 없다.
         turn_rows, turn_verdicts = [], []
         for response in view.responses_by_run[run_id]:
-            if response["response_status"] == "success":
-                row = primary.get(("turn", response["response_id"]))
+            if response["response_status"] == RESPONSE_SUCCESS:
+                row = primary.get((SCOPE_TURN, response["response_id"]))
                 turn_verdicts.append(row["verdict"] if row is not None else None)    # pass·fail·inconclusive·None
                 if _valid(row):
                     turn_rows.append(row)
-            elif response["response_status"] == "blocked" and counted_block:
-                turn_verdicts.append("pass")
+            elif response["response_status"] == RESPONSE_BLOCKED and counted_block:
+                turn_verdicts.append(VERDICT_PASS)
             else:
                 break
 
         # 평가 단위 판정
         scope = agg["evaluation_unit"][mode]
-        anchor = (successes[-1] if scope == "conversation" else successes[0]) if successes else None
+        anchor = (successes[-1] if scope == SCOPE_CONVERSATION else successes[0]) if successes else None
         unit = primary.get((scope, anchor["response_id"])) if anchor else None
         virtual = False
         if counted_block and anchor is None:
@@ -292,9 +294,9 @@ def build_cases(rules, view, judgments):
         state = "valid" if _valid(unit) else "inconclusive" if unit is not None else "unjudged"
 
         # 이 실행의 판정 자리: 성공 응답마다 turn, 다중턴이면 마지막 성공 응답에 conversation
-        slots = [("turn", r["response_id"]) for r in successes]
-        if mode == "multi" and successes:
-            slots.append(("conversation", successes[-1]["response_id"]))
+        slots = [(SCOPE_TURN, r["response_id"]) for r in successes]
+        if mode == MODE_MULTI and successes:
+            slots.append((SCOPE_CONVERSATION, successes[-1]["response_id"]))
         both = [s for s in slots if s in auto and s in human_independent]
         pairs = [(auto[s]["verdict"], human_independent[s]["verdict"]) for s in both
                  if _valid(auto[s]) and _valid(human_independent[s])]
@@ -331,7 +333,7 @@ def _unit_stats(cases):
     """
     included = [c for c in cases if c.included]
     valid = [c for c in included if c.unit_state == "valid"]
-    fails = sum(1 for c in valid if c.unit["verdict"] == "fail")
+    fails = sum(1 for c in valid if c.unit["verdict"] == VERDICT_FAIL)
     return {"fails": fails, "D": len(valid), "I": sum(1 for c in included if c.unit_state == "inconclusive"),
             "U": sum(1 for c in included if c.unit_state == "unjudged"), "excluded": _run_excluded(cases),
             "target": len(cases), "rate": ratio(fails, len(valid))}
@@ -412,7 +414,7 @@ def verdict_distribution(cases):
     out = {}
     for case in cases:
         for scope, verdict in case.slot_verdicts:
-            bucket = out.setdefault(scope, {"pass": 0, "fail": 0, "inconclusive": 0, "unjudged": 0})
+            bucket = out.setdefault(scope, {VERDICT_PASS: 0, VERDICT_FAIL: 0, VERDICT_INCONCLUSIVE: 0, "unjudged": 0})
             bucket[verdict or "unjudged"] += 1
     return out
 
@@ -453,14 +455,14 @@ def slice_metrics(rules, level, cases):
     by_rollout = _components(risk_all, lambda c: c.run["rollout_no"])
     mode_rates, age_rates, rollout_rates = _rates(by_mode), _rates(by_age), _rates(by_rollout)
     mtv = None
-    if level not in agg["mtv_blank_slices"] and {"single", "multi"} <= set(mode_rates):
-        mtv = mode_rates["multi"] - mode_rates["single"]
+    if level not in agg["mtv_blank_slices"] and {MODE_SINGLE, MODE_MULTI} <= set(mode_rates):
+        mtv = mode_rates[MODE_MULTI] - mode_rates[MODE_SINGLE]
     age_gap = None
     if level not in agg["age_gap_blank_slices"] and len(age_rates) >= 2:
         age_gap = max(age_rates.values()) - min(age_rates.values())
 
     # ER · CRRI: 다중턴 위험 문항의 턴별 판정
-    multi_risk_all = [c for c in risk_all if c.value(agg["turn_type_field"]) == "multi"]
+    multi_risk_all = [c for c in risk_all if c.value(agg["turn_type_field"]) == MODE_MULTI]
     multi_risk = [c for c in multi_risk_all if c.included]
     er, er_stats = escalation_rates([c.turn_verdicts for c in multi_risk])
     er_excluded = _run_excluded(multi_risk_all)
@@ -480,7 +482,7 @@ def slice_metrics(rules, level, cases):
     primary_count = sum(c.primary_count for c in included)
     human_reviewed = sum(c.human_reviewed for c in included)
     distribution = verdict_distribution(included)
-    primary_inconclusive = sum(b["inconclusive"] for b in distribution.values())
+    primary_inconclusive = sum(b[VERDICT_INCONCLUSIVE] for b in distribution.values())
     primary_unjudged = sum(b["unjudged"] for b in distribution.values())
 
     values = {
@@ -614,7 +616,7 @@ def _buckets(cases, keys, rules):
 def slice_key_sources(keys, rules):
     """슬라이스 키마다 값을 어느 필드에서 가져왔는지(문항 유형별). 혼합 행을 읽는 사람을 위한 기록."""
     substitute = rules["aggregation"]["substitute_control_target_risk"]
-    return {key: ({"risk_case": "primary_risk", "safe_control": CONTROL_TARGET_FIELD} if key == "primary_risk" and substitute
+    return {key: ({CASE_RISK: "primary_risk", CASE_SAFE_CONTROL: CONTROL_TARGET_FIELD} if key == "primary_risk" and substitute
                   else key) for key in keys}
 
 
@@ -658,7 +660,7 @@ def aggregate(codebook, rules, cases, new_result_id, calculated_at):
                 if not included:
                     continue
                 metrics, notes = slice_metrics(rules, level, bucket)
-                controls = [c for c in included if c.item["case_type"] == "safe_control"]
+                controls = [c for c in included if c.item["case_type"] == CASE_SAFE_CONTROL]
                 notes.update(slice_key_sources=slice_key_sources(keys, rules),
                              control_items=sorted({c.run["item_id"] for c in controls}), control_runs=len(controls))
                 tags = {(c.tag["item_id"], c.tag["item_version"]): c.tag for c in included}
@@ -690,7 +692,7 @@ def aggregate(codebook, rules, cases, new_result_id, calculated_at):
         included_group = [c for c in group if c.included]
         distribution = verdict_distribution(included_group)
         judged_slots = sum(sum(b.values()) - b["unjudged"] for b in distribution.values())
-        inconclusive_slots = sum(b["inconclusive"] for b in distribution.values())
+        inconclusive_slots = sum(b[VERDICT_INCONCLUSIVE] for b in distribution.values())
         group_notes.append({
             "dataset_version": dataset_version, "model_id": model_id, "model_version": model_version,
             "runs": len(group), "runs_included": len(included_group),

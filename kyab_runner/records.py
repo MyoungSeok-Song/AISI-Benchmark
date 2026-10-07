@@ -17,6 +17,7 @@ from pathlib import Path
 from . import clock, csv_io, fileio
 from .layout import BATCH_MANIFEST_FILE, EVENTS_FILE, INPUT_FILES, RESPONSES_FILE, RUNS_FILE   # noqa: F401 (재수출)
 from .validate import item_key
+from .vocab import RESPONSE_SUCCESS, TAG_CURRENT
 
 MANIFEST_FILE = BATCH_MANIFEST_FILE                 # 옛 이름(cli·테스트가 쓴다)
 
@@ -42,7 +43,7 @@ class InputIndex:
     def __init__(self, items, tags, prompts, digests=None):
         self.digests = digests or {}
         self.items = {item_key(r): r for r in items}
-        self.current_tag = {item_key(r): r for r in tags if r["tag_status"] == "current"}
+        self.current_tag = {item_key(r): r for r in tags if r["tag_status"] == TAG_CURRENT}
         self.tag_revisions = defaultdict(dict)          # 문항 판본 -> {tag_revision: 태그 행}
         for row in tags:
             self.tag_revisions[item_key(row)][row["tag_revision"]] = row
@@ -123,7 +124,7 @@ class BatchView:
 
     def successes(self, run_id):
         """그 실행의 성공 응답 (턴 순서)."""
-        return [r for r in self.responses_by_run[run_id] if r["response_status"] == "success"]
+        return [r for r in self.responses_by_run[run_id] if r["response_status"] == RESPONSE_SUCCESS]
 
     def dangling(self):
         """입력에서 찾을 수 없는 연결. 반환: 설명 문자열 목록(없으면 빈 목록)."""

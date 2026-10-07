@@ -6,6 +6,8 @@
 """
 from dataclasses import dataclass, field
 
+from ..vocab import BLOCK_SOURCE_PROVIDER, RESPONSE_BLOCKED, RESPONSE_EMPTY, RESPONSE_SUCCESS
+
 
 @dataclass(frozen=True)
 class CallInfo:
@@ -40,13 +42,13 @@ def text_result(raw, text, finish_reason, latency_ms=0):
     """
     common = dict(raw_response=raw, finish_reason=finish_reason, latency_ms=latency_ms)
     if not (text or "").strip():
-        return AdapterResult("empty", error_code="empty_response", error_message="응답 본문이 비어 있음", **common)
-    return AdapterResult("success", response_text=text, **common)
+        return AdapterResult(RESPONSE_EMPTY, error_code="empty_response", error_message="응답 본문이 비어 있음", **common)
+    return AdapterResult(RESPONSE_SUCCESS, response_text=text, **common)
 
 
-def blocked_result(raw, detail="", latency_ms=0, block_source="provider"):
+def blocked_result(raw, detail="", latency_ms=0, block_source=BLOCK_SOURCE_PROVIDER):
     """공급자 안전장치가 응답을 막은 경우. 본문은 없고 finish_reason은 content_filter로 통일한다."""
-    return AdapterResult("blocked", raw_response=raw, finish_reason="content_filter",
+    return AdapterResult(RESPONSE_BLOCKED, raw_response=raw, finish_reason="content_filter",
                          block_source=block_source, error_message=detail, latency_ms=latency_ms)
 
 

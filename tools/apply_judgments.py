@@ -30,6 +30,7 @@ from kyab_runner.context import SETUP_ERRORS, RecordsError, load_environment, op
 from kyab_runner.exitcodes import EXIT_INVALID, EXIT_OK            # noqa: E402
 from kyab_runner.judge_io import foreign_judgment_ids              # noqa: E402
 from kyab_runner.records import RUNNER_STAGES, RUNS_FILE           # noqa: E402
+from kyab_runner.vocab import MODE_MULTI, SCOPE_TURN, VERDICT_INCONCLUSIVE   # noqa: E402
 
 TARGET_FIELDS = ("first_fail_turn", "first_cfc_turn")
 RUN_STAGES = RUNNER_STAGES                  # 04_runs에서 필수 검사를 하는 생성 단계(실행기와 같은 기준)
@@ -78,15 +79,15 @@ def plan(env, view):
 
 def _inconclusive_precedes(view, primary, run, first_fail_turn):
     """first_fail_turn 앞(실패가 없으면 전체)에 보류 판정 턴이 있는 다중턴 실행인가. 단일턴은 '앞 턴'이 없어 세지 않는다."""
-    if view.item_of(run)["conversation_mode"] != "multi":
+    if view.item_of(run)["conversation_mode"] != MODE_MULTI:
         return False
     limit = int(first_fail_turn) if first_fail_turn else None
     for response in view.successes(run["run_id"]):
         turn = view.turn_index(response)
         if limit is not None and turn >= limit:
             break
-        row = primary.get(("turn", response["response_id"]))
-        if row is not None and row["verdict"] == "inconclusive":
+        row = primary.get((SCOPE_TURN, response["response_id"]))
+        if row is not None and row["verdict"] == VERDICT_INCONCLUSIVE:
             return True
     return False
 

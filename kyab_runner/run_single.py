@@ -24,7 +24,7 @@ def conduct_single(session, turns):
 
 
 def main(argv=None):
-    return cli.main(__doc__, DEFAULT_PROTOCOL, "single", conduct_single, argv)
+    return cli.main(__doc__, DEFAULT_PROTOCOL, cli.MODE_SINGLE, conduct_single, argv)
 
 
 if __name__ == "__main__":

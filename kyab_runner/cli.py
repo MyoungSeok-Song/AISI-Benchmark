@@ -23,6 +23,7 @@ from .provenance import git_state, library_version                          # no
 from .records import INPUT_FILES, MANIFEST_FILE, RUN_PARAM_FIELDS, InputIndex, load_inputs   # noqa: F401  (INPUT_FILES는 테스트가 쓴다)
 from .session import Batch, RunSession
 from .taxonomy import load_taxonomy
+from .vocab import MODE_MULTI, MODE_SINGLE, check_vocabulary                 # noqa: F401 (실행기가 conversation_mode 값을 가져다 쓴다)
 
 # 재시작할 때 처음 실행과 같아야 하는 값. 하나라도 다르면 같은 배치로 이어 쓸 수 없다.
 _MANIFEST_LOCKED = ("protocol_id", "model_id", "dataset_version", "system_prompt_hash", "input_sha256", "run_params")
@@ -277,6 +278,7 @@ def main(description, default_protocol, conversation_mode, conduct, argv=None):
     try:
         taxonomy = load_taxonomy()
         codebook = load_codebook(taxonomy)
+        check_vocabulary(codebook)
         config = load_config()
     except SETUP_ERRORS as exc:                      # overlay·설정 파일 문제: traceback 대신 한 줄 + 종료 2
         print(setup_error_message(exc))
