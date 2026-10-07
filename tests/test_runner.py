@@ -620,3 +620,17 @@ class ValidationTest(RunnerTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ManifestLockTest(RunnerTestCase):
+    """이어 쓰기 잠금: manifest에서 잠금 키가 빠져 있어도 KeyError가 아니라 불일치 메시지와 종료 2(core-10)."""
+
+    def test_missing_locked_key_is_reported_not_crash(self):
+        self.assertEqual(self.run_cli(run_single)[0], 0)
+        batch_dir = self.batch_dirs()[0]
+        manifest = json.loads((batch_dir / cli.MANIFEST_FILE).read_text(encoding="utf-8"))
+        del manifest["model_id"]
+        (batch_dir / cli.MANIFEST_FILE).write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+        code, output = self.run_cli(run_single, "--batch-id", batch_dir.name)
+        self.assertEqual(code, cli.EXIT_INVALID_INPUT)
+        self.assertIn("model_id: 저장 None", output)

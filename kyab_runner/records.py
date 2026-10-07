@@ -4,7 +4,8 @@
 
   load_inputs    입력 3종(01·02·03) 읽기 + 파일 해시
   InputIndex     입력 3종을 문항 판본 키·턴 ID로 찾는 색인
-  BatchRecords   배치 폴더 1개 (manifest, 04_runs, 05_responses)
+  BatchFolder    배치 폴더 1개의 공통 조회·보조 로그(실행 중인 session.Batch와 끝난 BatchRecords의 기반)
+  BatchRecords   끝난 배치 폴더 1개 (manifest, 04_runs, 05_responses)
   BatchView      배치 기록과 입력을 이어 붙인 조회 (응답 → 실행 → 문항 → 현재 태그)
 
 코드북의 연결 경로는 responses.run_id → runs.(item_id, item_version) → items / item_tags,
@@ -42,6 +43,7 @@ class InputIndex:
 
     def __init__(self, items, tags, prompts, digests=None):
         self.digests = digests or {}
+        self.tables = {"01_items": items, "02_item_tags": tags, "03_prompts": prompts}   # INPUT_FILES 순서(검증기에 넘긴다)
         self.items = {item_key(r): r for r in items}
         self.current_tag = {item_key(r): r for r in tags if r["tag_status"] == TAG_CURRENT}
         self.tag_revisions = defaultdict(dict)          # 문항 판본 -> {tag_revision: 태그 행}
@@ -55,21 +57,19 @@ class InputIndex:
     @classmethod
     def load(cls, codebook, input_dir):
         tables, digests = load_inputs(codebook, input_dir)
-        index = cls(tables["01_items"], tables["02_item_tags"], tables["03_prompts"], digests)
-        index.tables = tables                           # 검증기에 넘길 원본 행 목록
-        return index
+        return cls(tables["01_items"], tables["02_item_tags"], tables["03_prompts"], digests)
 
 
-class BatchRecords:
-    """끝난 배치 폴더 1개. session.Batch와 같은 조회 메서드를 갖는다(judge_io가 둘 다 받는다)."""
+class BatchFolder:
+    """배치 폴더 1개의 공통 조회·보조 로그. 실행 중(session.Batch)과 끝난 배치(BatchRecords)가 함께 쓴다.
+
+    judge_io·run_judge·apply_judgments는 둘 중 어느 쪽이든 받으므로 조회·시각·로그 표기가 같아야 한다.
+    """
 
     def __init__(self, codebook, config, batch_dir):
         self.codebook = codebook
         self.config = config
         self.dir = Path(batch_dir)
-        self.manifest = fileio.read_json(self.dir / BATCH_MANIFEST_FILE)
-        self.run_batch_id = self.manifest["run_batch_id"]
-        self.protocol_id = self.manifest["protocol_id"]
 
     def recorded_runs(self):
         return csv_io.read_if_exists(self.codebook, "04_runs", self.dir / RUNS_FILE)
@@ -78,12 +78,22 @@ class BatchRecords:
         return csv_io.read_if_exists(self.codebook, "05_responses", self.dir / RESPONSES_FILE)
 
     def now(self):
-        """ISO 8601 타임스탬프 (시간대 포함, 밀리초). session.Batch.now와 같은 표기."""
+        """ISO 8601 타임스탬프 (시간대 포함, 밀리초)."""
         return clock.iso(clock.now(self.config))
 
     def log_event(self, event, **fields):
-        """배치의 보조 로그(runner_events.jsonl)에 한 줄 추가한다."""
+        """7 CSV 밖의 보조 로그(runner_events.jsonl)에 한 줄 추가한다."""
         fileio.append_jsonl(self.dir / EVENTS_FILE, {"ts": self.now(), "event": event, **fields})
+
+
+class BatchRecords(BatchFolder):
+    """끝난 배치 폴더 1개. manifest에서 배치 ID·프로토콜을 읽는다."""
+
+    def __init__(self, codebook, config, batch_dir):
+        super().__init__(codebook, config, batch_dir)
+        self.manifest = fileio.read_json(self.dir / BATCH_MANIFEST_FILE)
+        self.run_batch_id = self.manifest["run_batch_id"]
+        self.protocol_id = self.manifest["protocol_id"]
 
     def changed_inputs(self, index):
         """실행 때와 내용이 달라진 입력 파일 이름 목록.

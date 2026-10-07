@@ -28,20 +28,32 @@ _RE_RESULT = re.compile(r"^RESULT-([0-9]{8})$")
 _RE_RESULTS_DIR = re.compile(r"^RESULTS-([0-9]{8})-([0-9]{3})$")
 
 
-def batch_dirs(out_root):
-    """출력 루트 아래의 배치 폴더(RBATCH-…)를 이름순으로."""
+def _dirs_matching(out_root, pattern):
+    """출력 루트 아래에서 이름이 pattern에 맞는 폴더를 이름순으로. 루트가 없으면 빈 목록."""
     out_root = Path(out_root)
     if not out_root.exists():
         return []
-    return sorted(p for p in out_root.iterdir() if p.is_dir() and _RE_BATCH.match(p.name))
+    return sorted(p for p in out_root.iterdir() if p.is_dir() and pattern.match(p.name))
+
+
+def _next_dir_name(out_root, pattern, prefix, today):
+    """오늘 날짜의 다음 폴더 이름 '<prefix>-<today>-###'. 같은 날짜로 쓰인 번호 다음부터 센다."""
+    used = []
+    for path in _dirs_matching(out_root, pattern):
+        match = pattern.match(path.name)
+        if match.group(1) == today:
+            used.append(int(match.group(2)))
+    return f"{prefix}-{today}-{max(used, default=0) + 1:03d}"
+
+
+def batch_dirs(out_root):
+    """출력 루트 아래의 배치 폴더(RBATCH-…)를 이름순으로."""
+    return _dirs_matching(out_root, _RE_BATCH)
 
 
 def results_dirs(out_root):
     """출력 루트 아래의 집계 결과 폴더(RESULTS-…)를 이름순으로."""
-    out_root = Path(out_root)
-    if not out_root.exists():
-        return []
-    return sorted(p for p in out_root.iterdir() if p.is_dir() and _RE_RESULTS_DIR.match(p.name))
+    return _dirs_matching(out_root, _RE_RESULTS_DIR)
 
 
 class SerialIds:
@@ -75,38 +87,33 @@ def result_id_allocator(codebook, out_root):
 
 def new_results_dir_name(out_root, today):
     """오늘 날짜의 다음 집계 결과 폴더 이름."""
-    used = [int(_RE_RESULTS_DIR.match(p.name).group(2)) for p in results_dirs(out_root)
-            if _RE_RESULTS_DIR.match(p.name).group(1) == today]
-    return f"RESULTS-{today}-{max(used, default=0) + 1:03d}"
+    return _next_dir_name(out_root, _RE_RESULTS_DIR, "RESULTS", today)
 
 
 class IdAllocator:
+    """실행기의 run_batch_id·run_id·response_id 발급기. 출력 루트의 기존 배치를 훑어 다음 번호부터 센다."""
+
     def __init__(self, codebook, out_root, today):
         """today: 'YYYYMMDD'. 배치·실행 ID의 날짜 부분."""
         self._today = today
         self._out_root = Path(out_root)
-        self._run_seq = 0       # 오늘 날짜로 발급된 run_id의 최대 순번
-        self._resp_seq = 0      # 전체 response_id의 최대 순번
+        self._run_seq = 0       # 오늘 날짜로 발급된 run_id의 최대 순번(날짜별 일련번호라 SerialIds를 쓰지 않는다)
+        used_responses = []
         for batch_dir in batch_dirs(self._out_root):
             for row in csv_io.read_if_exists(codebook, "04_runs", batch_dir / RUNS_FILE):
                 m = _RE_RUN.match(row["run_id"])
                 if m and m.group(1) == today:
                     self._run_seq = max(self._run_seq, int(m.group(2)))
-            for row in csv_io.read_if_exists(codebook, "05_responses", batch_dir / RESPONSES_FILE):
-                m = _RE_RESP.match(row["response_id"])
-                if m:
-                    self._resp_seq = max(self._resp_seq, int(m.group(1)))
+            used_responses += [row["response_id"] for row in csv_io.read_if_exists(codebook, "05_responses", batch_dir / RESPONSES_FILE)]
+        self._responses = SerialIds(_RE_RESP, "RESP", used_responses)
 
     def new_batch_id(self):
         """오늘 날짜의 다음 배치 번호. 폴더 이름이 곧 배치 ID다."""
-        used = [int(_RE_BATCH.match(p.name).group(2)) for p in batch_dirs(self._out_root)
-                if _RE_BATCH.match(p.name).group(1) == self._today]
-        return f"RBATCH-{self._today}-{max(used, default=0) + 1:03d}"
+        return _next_dir_name(self._out_root, _RE_BATCH, "RBATCH", self._today)
 
     def new_run_id(self):
         self._run_seq += 1
         return f"RUN-{self._today}-{self._run_seq:06d}"
 
     def new_response_id(self):
-        self._resp_seq += 1
-        return f"RESP-{self._resp_seq:08d}"
+        return self._responses.new()

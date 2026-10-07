@@ -6,7 +6,7 @@ run_single.py와 run_multiturn.py는 '대화 1건을 어떻게 진행하는가'(
 import argparse
 import json
 import sys
-from collections import Counter, defaultdict
+from collections import Counter
 from pathlib import Path
 
 import yaml
@@ -118,15 +118,15 @@ def check_run_params(codebook, config):
     return problems
 
 
-def check_context_budget(config, adapter, protocol_id):
+def check_context_budget(config, adapter_info, protocol_id):
     """실행 전 점검 2: 로컬 서버 길이가 이 프로토콜의 최악 입력을 받을 수 있는지. 반환: 문제 설명 또는 None.
 
     vLLM 0.30은 입력 상한을 max_model_len − max_tokens로 잡는다. 마지막 턴 입력은 앞 턴 응답(각 최대 한도)과
     프롬프트 몫(context_reserve_tokens)을 더한 것이다.
       max_model_len − max_output_tokens ≥ (planned_round_count − 1) × max_output_tokens + context_reserve_tokens
-    describe()에 max_model_len이 없는 어댑터(상용·모의)는 점검하지 않는다.
+    adapter_info(어댑터 describe())에 max_model_len이 없으면(상용·모의) 점검하지 않는다.
     """
-    max_model_len = adapter.describe().get("max_model_len")
+    max_model_len = adapter_info.get("max_model_len")
     if max_model_len is None:
         return None
     limit = config["run_params"]["max_output_tokens"]
@@ -140,13 +140,11 @@ def check_context_budget(config, adapter, protocol_id):
     return None
 
 
-def open_batch(args, codebook, config, dataset_version, input_digests, input_validation=None):
-    """배치 폴더를 새로 만들거나(--batch-id 없음) 기존 배치를 이어 연다.
+def preflight(args, codebook, config):
+    """실행 전 점검: 모델 등록·run_params 허용값·어댑터 생성·서버 길이. 반환: (model, adapter, adapter_info).
 
-    input_validation: 입력 검증 요약(오류·경고 건수, 제외 사유별 건수·문항). manifest에 남긴다(잠금 대상 아님).
-
-    사전 점검(run_params 허용값, 서버 길이)과 어댑터 생성을 폴더를 만들기 전에 끝낸다. 실패하면 빈 폴더가
-    남지 않고 다음 배치 번호도 건너뛰지 않는다.
+    모두 폴더를 만들기 전에 끝낸다. 실패하면 PreflightError(빈 폴더가 남지 않고 다음 배치 번호도 건너뛰지 않는다).
+    adapter.describe()는 한 번만 부른다(로컬 서버는 HTTP 호출이다) — 길이 점검과 manifest가 같은 값을 쓴다.
     """
     model = config.models.get(args.model)
     if model is None or not model.enabled:
@@ -155,10 +153,18 @@ def open_batch(args, codebook, config, dataset_version, input_digests, input_val
     if problems:
         raise PreflightError("실행 전 점검 실패 — 모델을 호출하지 않았습니다:\n  " + "\n  ".join(problems))
     adapter = create_adapter(model, load_mock_plan(args))
-    problem = check_context_budget(config, adapter, args.protocol)
+    adapter_info = adapter.describe()
+    problem = check_context_budget(config, adapter_info, args.protocol)
     if problem:
         raise PreflightError(f"실행 전 점검 실패 — 모델을 호출하지 않았습니다: {problem}")
+    return model, adapter, adapter_info
 
+
+def open_batch(args, codebook, config, model, adapter, adapter_info, dataset_version, input_digests, input_validation=None):
+    """배치 폴더를 새로 만들거나(--batch-id 없음) 기존 배치를 이어 연다. preflight를 통과한 뒤에 부른다.
+
+    input_validation: 입력 검증 요약(오류·경고 건수, 제외 사유별 건수·문항). manifest에 남긴다(잠금 대상 아님).
+    """
     today = clock.compact_date(clock.now(config))
     ids = IdAllocator(codebook, args.out, today)
     run_batch_id = args.batch_id or ids.new_batch_id()
@@ -170,11 +176,11 @@ def open_batch(args, codebook, config, dataset_version, input_digests, input_val
     batch = Batch(codebook=codebook, config=config, model=model, adapter=adapter, ids=ids,
                   batch_dir=batch_dir, run_batch_id=run_batch_id, dataset_version=dataset_version,
                   protocol_id=args.protocol, library_version=library_version())
-    _write_or_check_manifest(batch, input_digests, codebook, input_validation or {})
+    _write_or_check_manifest(batch, input_digests, adapter_info, input_validation or {})
     return batch
 
 
-def _write_or_check_manifest(batch, input_digests, codebook, input_validation):
+def _write_or_check_manifest(batch, input_digests, adapter_info, input_validation):
     """배치의 고정 조건을 manifest에 남기고, 재시작이면 처음과 같은지 확인한다.
 
     input_validation은 실행 때 화면에만 나오던 검증 결과(건수·제외 문항)를 기록으로 남기는 것이다. 코드북 CSV는 바꾸지 않고,
@@ -189,8 +195,8 @@ def _write_or_check_manifest(batch, input_digests, codebook, input_validation):
         "input_sha256": input_digests,
         "run_params": {k: csv_io.to_cell(v) for k, v in batch.call_params().items()},   # 04 기록과 같은 문자열
         "execution_library_version": batch.library_version,
-        "codebook_overlays": codebook.applied_overlays,
-        "adapter_info": batch.adapter.describe(),
+        "codebook_overlays": batch.codebook.applied_overlays,
+        "adapter_info": adapter_info,
         "input_validation": input_validation,
         "created_at": batch.now(),
     }
@@ -199,12 +205,11 @@ def _write_or_check_manifest(batch, input_digests, codebook, input_validation):
         saved = fileio.read_json(path)
         if "run_params" not in saved:                   # 2026-10-05 전 manifest: 기록된 04 행의 값을 기준으로 삼는다
             saved["run_params"] = _recorded_run_params(batch) or current["run_params"]
-        changed = [k for k in _MANIFEST_LOCKED if saved[k] != current[k]]
+        changed = [k for k in _MANIFEST_LOCKED if saved.get(k) != current[k]]       # 키가 없어도 KeyError가 아니라 불일치로
         if changed:
-            detail = "; ".join(f"{k}: 저장 {saved[k]!r} ↔ 현재 {current[k]!r}" for k in changed)
+            detail = "; ".join(f"{k}: 저장 {saved.get(k)!r} ↔ 현재 {current[k]!r}" for k in changed)
             raise PreflightError(f"{batch.run_batch_id}에 이어 쓸 수 없습니다. 처음 실행과 다른 값 — {detail}")
         saved["input_validation"] = input_validation    # 재시작 때의 검증 결과로 갱신(잠금 대상 아님)
-        saved["run_params"] = saved.get("run_params") or current["run_params"]     # 옛 manifest 보강
         fileio.write_json(path, saved)
         batch.log_event("batch_resumed", execution_library_version=batch.library_version,
                         adapter_info=current["adapter_info"])
@@ -226,6 +231,7 @@ def run_batch(batch, items, turns_by_item, rollouts, conduct):
     """선정 문항 × 반복 횟수만큼 실행한다.
 
     conduct(session, turns): 대화 1건을 진행하는 함수. 실행기마다 다르다.
+    turns_by_item: InputIndex.turns (문항 판본 → 턴 행, turn_index 오름차순).
     이미 기록된 (문항, 판본, 모델, 반복 번호)는 건너뛰므로 재시작해도 행이 겹치지 않는다.
     반환: 이번 호출에서 새로 기록한 실행 행 목록.
     """
@@ -268,18 +274,42 @@ def print_summary(batch, new_rows):
 
 
 # ── 진입점 공통부 ───────────────────────────────────────────────────────
+def _load_spec():
+    """명세·설정 로드(순서 고정: 분류체계 → 코드북 → 통제어휘 검사 → 설정).
+
+    모듈 전역 이름으로 부른다 — 테스트가 cli.load_codebook·cli.load_config를 치환한다.
+    """
+    taxonomy = load_taxonomy()
+    codebook = load_codebook(taxonomy)
+    check_vocabulary(codebook)
+    return taxonomy, codebook, load_config()
+
+
+def _select(args, config, items, issues):
+    """실행 대상 문항을 고르고 manifest에 남길 입력 검증 요약을 만든다. 반환: (선정 문항, input_validation dict)."""
+    only_ids = set(args.items.split(",")) if args.items else None
+    selected, skipped = select_items(items, config, args.protocol, only_ids, args.allow_unverified)
+    print(f"실행 대상 {len(selected)}문항" + (f", 제외 {dict(skipped)}" if skipped else ""))
+    chosen = {item["item_id"] for item in selected}
+    input_validation = {
+        "errors": 0, "warnings": len(issues),
+        "warning_messages": [str(i) for i in issues],
+        "excluded": dict(skipped),
+        "excluded_items": sorted(item["item_id"] for item in items if item["item_id"] not in chosen),
+        "selected_items": sorted(chosen),
+    }
+    return selected, input_validation
+
+
 def main(description, default_protocol, conversation_mode, conduct, argv=None):
-    """실행기 공통 진입점.
+    """실행기 공통 진입점: 명세·설정 → 프로토콜 확인 → 입력 읽기·검증 → 문항 선정 → 사전 점검·배치 열기 → 실행 → 틀·요약.
 
     conversation_mode: 이 실행기가 맡는 대화 방식('single' | 'multi').
                        --protocol이 다른 방식의 프로토콜이면 실행하지 않는다.
     """
     args = build_parser(description, default_protocol).parse_args(argv)
     try:
-        taxonomy = load_taxonomy()
-        codebook = load_codebook(taxonomy)
-        check_vocabulary(codebook)
-        config = load_config()
+        taxonomy, codebook, config = _load_spec()
     except SETUP_ERRORS as exc:                      # overlay·설정 파일 문제: traceback 대신 한 줄 + 종료 2
         print(setup_error_message(exc))
         return EXIT_INVALID_INPUT
@@ -293,8 +323,8 @@ def main(description, default_protocol, conversation_mode, conduct, argv=None):
     except (csv_io.CsvFormatError, FileNotFoundError) as exc:
         print(f"입력을 읽을 수 없습니다: {exc}")
         return EXIT_INVALID_INPUT
-    items, tags, prompts = tables["01_items"], tables["02_item_tags"], tables["03_prompts"]
-    issues = validate.validate_inputs(codebook, taxonomy, config, items, tags, prompts)
+    index = InputIndex(tables["01_items"], tables["02_item_tags"], tables["03_prompts"], input_digests)
+    issues = validate.validate_inputs(codebook, taxonomy, config, *index.tables.values())
     if report_issues(issues):
         print("오류가 있어 실행하지 않습니다.")
         return EXIT_INVALID_INPUT
@@ -304,17 +334,7 @@ def main(description, default_protocol, conversation_mode, conduct, argv=None):
             print(f"[error] run_params: {problem}")
         return EXIT_INVALID_INPUT if problems else EXIT_OK
 
-    only_ids = set(args.items.split(",")) if args.items else None
-    selected, skipped = select_items(items, config, args.protocol, only_ids, args.allow_unverified)
-    print(f"실행 대상 {len(selected)}문항" + (f", 제외 {dict(skipped)}" if skipped else ""))
-    chosen = {item["item_id"] for item in selected}
-    input_validation = {
-        "errors": 0, "warnings": len(issues),
-        "warning_messages": [str(i) for i in issues],
-        "excluded": dict(skipped),
-        "excluded_items": sorted(item["item_id"] for item in items if item["item_id"] not in chosen),
-        "selected_items": sorted(chosen),
-    }
+    selected, input_validation = _select(args, config, index.tables["01_items"], issues)
     if not selected:
         return EXIT_NOTHING_TO_RUN
     versions = sorted({item["dataset_version"] for item in selected})
@@ -322,21 +342,18 @@ def main(description, default_protocol, conversation_mode, conduct, argv=None):
         print(f"한 배치에는 dataset_version이 하나여야 합니다: {versions}")
         return EXIT_INVALID_INPUT
 
-    turns_by_item = defaultdict(list)
-    for row in sorted(prompts, key=lambda r: int(r["turn_index"])):
-        turns_by_item[validate.item_key(row)].append(row)
-
     try:
-        batch = open_batch(args, codebook, config, versions[0], input_digests, input_validation)
+        model, adapter, adapter_info = preflight(args, codebook, config)
+        batch = open_batch(args, codebook, config, model, adapter, adapter_info, versions[0], input_digests, input_validation)
     except PreflightError as exc:
         print(str(exc))
         return EXIT_INVALID_INPUT
     rollouts = args.rollouts or config["default_rollouts"]
     try:
-        new_rows = run_batch(batch, selected, turns_by_item, rollouts, conduct)
+        new_rows = run_batch(batch, selected, index.turns, rollouts, conduct)
     except KeyboardInterrupt:
         print(f"\n중단됨. 이어서 실행: --batch-id {batch.run_batch_id}")
         return EXIT_INTERRUPTED
-    judge_io.write_template(batch, InputIndex(items, tags, prompts, input_digests))
+    judge_io.write_template(batch, index)
     print_summary(batch, new_rows)
     return EXIT_OK

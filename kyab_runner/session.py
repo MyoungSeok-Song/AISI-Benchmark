@@ -15,9 +15,9 @@
 """
 import time
 
-from . import clock, csv_io, fileio
+from . import csv_io
 from .adapters.base import CallInfo
-from .records import EVENTS_FILE, RESPONSES_FILE, RUN_PARAM_FIELDS, RUNNER_STAGES, RUNS_FILE   # noqa: F401 (재수출)
+from .records import RESPONSES_FILE, RUN_PARAM_FIELDS, RUNNER_STAGES, RUNS_FILE, BatchFolder   # noqa: F401 (재수출)
 from .vocab import (RESPONSE_BLOCKED, RESPONSE_EMPTY, RESPONSE_ERROR, RESPONSE_SUCCESS, RESPONSE_TIMEOUT, RUN_COMPLETED,
                     RUN_FAILED, RUN_PARTIAL, STOP_ERROR, STOP_MANUAL, STOP_PLANNED_END, STOP_PROVIDER_BLOCK)
 
@@ -25,38 +25,21 @@ from .vocab import (RESPONSE_BLOCKED, RESPONSE_EMPTY, RESPONSE_ERROR, RESPONSE_S
 _STOP_REASON = {RESPONSE_BLOCKED: STOP_PROVIDER_BLOCK, RESPONSE_ERROR: STOP_ERROR, RESPONSE_TIMEOUT: STOP_ERROR, RESPONSE_EMPTY: STOP_ERROR}
 
 
-class Batch:
-    """실행 명령 1회(= run_batch_id 1개)의 공통 값과 출력 위치."""
+class Batch(BatchFolder):
+    """실행 명령 1회(= run_batch_id 1개)의 공통 값과 출력 위치. 조회·시각·보조 로그는 BatchFolder가 맡는다."""
 
     def __init__(self, *, codebook, config, model, adapter, ids, batch_dir, run_batch_id,
                  dataset_version, protocol_id, library_version):
-        self.codebook = codebook
-        self.config = config
+        super().__init__(codebook, config, batch_dir)
         self.model = model                  # config.ModelEntry
         self.adapter = adapter
         self.ids = ids
-        self.dir = batch_dir
         self.run_batch_id = run_batch_id
         self.dataset_version = dataset_version
         self.protocol_id = protocol_id
         self.library_version = library_version
 
-    # ── 시각·보조 로그 ──────────────────────────────────────────────────
-    def now(self):
-        """ISO 8601 타임스탬프 (시간대 포함, 밀리초). records.BatchRecords.now와 같은 표기."""
-        return clock.iso(clock.now(self.config))
-
-    def log_event(self, event, **fields):
-        """7 CSV 밖의 보조 로그에 한 줄 추가한다."""
-        fileio.append_jsonl(self.dir / EVENTS_FILE, {"ts": self.now(), "event": event, **fields})
-
-    # ── 기록된 실행 조회·정리 (재시작용) ────────────────────────────────
-    def recorded_runs(self):
-        return csv_io.read_if_exists(self.codebook, "04_runs", self.dir / RUNS_FILE)
-
-    def recorded_responses(self):
-        return csv_io.read_if_exists(self.codebook, "05_responses", self.dir / RESPONSES_FILE)
-
+    # ── 기록된 실행 정리 (재시작용) ─────────────────────────────────────
     def discard_orphan_responses(self):
         """실행 행 없이 남은 응답 행을 걷어낸다.
 
@@ -101,6 +84,7 @@ class RunSession:
             info = CallInfo(self.item["item_id"], int(turn["turn_index"]), self.rollout_no, attempt)
             began = time.monotonic()
             result = batch.adapter.complete(messages, batch.call_params(), info)
+            # 턴 지연은 여기서 잰 벽시계 값(재시도 포함 시도별)만 runner_events.jsonl turn_attempt에 남긴다
             batch.log_event("turn_attempt", run_id=self.run_id, turn_id=turn["turn_id"],
                             turn_index=info.turn_index, attempt=attempt,
                             response_status=result.response_status, error_code=result.error_code,
