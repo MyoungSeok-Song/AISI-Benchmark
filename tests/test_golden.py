@@ -20,19 +20,16 @@ import itertools
 import json
 import os
 import re
-import shutil
-import sys
 from pathlib import Path
 from unittest import mock
 
-from test_judge_io import ENV, RULES, JudgedTestCase
+from test_judge_io import RULES, JudgedTestCase
 from test_metrics import hand_computed_scenario, provider_block_scenario, rules_with
-from test_runner import CODEBOOK, FAILURE_PLAN, RUNNER_DIR, RunnerTestCase
+from test_runner import CODEBOOK, FAILURE_PLAN, RunnerTestCase
 
 from kyab_runner import csv_io, export, ids, metrics, run_aggregate, run_judge, run_multiturn, run_single   # noqa: E402
 from kyab_runner import paths                                                                              # noqa: E402
 
-sys.path.insert(0, str(RUNNER_DIR / "tools"))
 import apply_judgments                                                                                     # noqa: E402
 
 GOLDEN_DIR = Path(__file__).resolve().parent / "golden"

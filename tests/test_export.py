@@ -1,6 +1,5 @@
 """납품 형식(JSONL) 내보내기 검사: 구조, 왕복 무손실, 스키마, 연계 키, 안전장치."""
 import json
-import shutil
 
 from test_judge_io import ENV, RULES, JudgedTestCase
 

@@ -27,6 +27,7 @@
 #     max_items    JSON 배열의 최대 원소 수
 #     format       '들어갈 수 있는 값·형식' 원문 덮어쓰기
 #     none_token   '해당 없음'을 뜻하는 기록값 (예: critical_failure_code의 NONE)
+#     regex        형식 정규식 덮어쓰기
 #   add_field    새 필드 목록. table, field, after(이 필드 바로 뒤에 넣음), stage, format (필수),
 #                ai_delivery, enum/enum_from/enum_kind, required, regex (선택),
 #                authorized_by (필수: 열 추가를 확정한 confirmed 항목의 ID. 없으면 로드가 거부된다 —

@@ -8,7 +8,6 @@ OpenAI·Gemini는 전송 함수를 바꿔 끼우고, Anthropic은 SDK에 가짜 
 """
 import json
 import os
-import sys
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -16,8 +15,7 @@ from unittest import mock
 import httpx2
 from anthropic import DefaultHttpxClient
 
-RUNNER_DIR = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(RUNNER_DIR))
+import support                                                         # noqa: F401 (sys.path 설정)
 
 from kyab_runner.adapters import create_adapter                        # noqa: E402
 from kyab_runner.adapters.anthropic import AnthropicAdapter            # noqa: E402

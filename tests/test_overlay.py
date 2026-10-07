@@ -1,12 +1,11 @@
 """overlay 로더 검사: apply·add_field 연산, 열 추가 가드, 적용 기록(note 포함)."""
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 import yaml
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import support                                                   # noqa: F401 (sys.path 설정)
 
 from kyab_runner import paths, vocab                             # noqa: E402
 from kyab_runner.codebook import Codebook, OverlayError, load_codebook   # noqa: E402

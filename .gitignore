@@ -1,4 +1,5 @@
-# 로컬 전용 저장소. 원격 추가·push 금지 (평가 문항·산출물은 ETRI 귀속, 외부 반출 금지)
+# 비공개 공유 저장소(사용자 결정 2026-10-07). data/·samples/output/·var/ 등 평가 산출물과 모델 가중치는 넣지 않는다
+# (평가 문항·산출물은 ETRI 귀속). 저장소에 들어가는 입력은 samples/input의 개발 샘플 6문항뿐이다(samples/input/README.md).
 
 # 가상환경
 .venv/

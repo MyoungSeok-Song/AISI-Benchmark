@@ -3,3 +3,6 @@ PyYAML==6.0.3
 # Anthropic 어댑터용 공식 SDK. 모의·로컬 실행에는 쓰이지 않는다(상용 어댑터를 만들 때만 불러옴).
 anthropic==1.9.0
 jsonschema==4.25.1   # 납품 JSONL 스키마 검증(kyab_runner.export)
+# anthropic을 통해 들어오는 HTTP 클라이언트. 오프라인 어댑터 테스트(tests/test_commercial_adapters.py)가 직접 import한다.
+httpx2==2.13.1
+# 전체 고정본(간접 의존 포함)은 requirements-lock.txt. 새 환경은 lock으로 설치하면 테스트를 통과한 조합과 같아진다.

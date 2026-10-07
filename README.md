@@ -47,19 +47,36 @@ bash tools/e2e_judge_aggregate.sh
 .venv/bin/python -m unittest discover -s tests
 ```
 
-실행기는 모델을 부르기 전에 **사전 점검**을 합니다(2026-10-05): `runner.yaml`의 `run_params`가 코드북 04 허용값에 맞는지(`max_output_tokens`는 overlay OV-R1005-1의 8192), 로컬 서버 길이가 프로토콜의 최악 입력을 받을 수 있는지(`max_model_len − 한도 ≥ (턴 − 1) × 한도 + 여유 1024`). 실패하면 한 줄 메시지와 종료 코드 2로 멈추고 배치 폴더·번호를 만들지 않습니다.
+실행기는 모델을 부르기 전에 **사전 점검**을 합니다(`cli.preflight`): 명령행 인자(`--rollouts`가 코드북 허용값 안인지, `--batch-id` 폴더에 manifest가 있는지), `runner.yaml`의 `run_params`가 코드북 04 허용값에 맞는지(`max_output_tokens`는 overlay OV-R1005-1의 8192), 어댑터를 만들 수 있는지(API 키·vLLM 서버·모의 계획 파일), 로컬 서버 길이가 프로토콜의 최악 입력을 받을 수 있는지(`max_model_len − 한도 ≥ (턴 − 1) × 한도 + 여유 1024`). 실패하면 한 줄 메시지와 종료 코드 2로 멈추고 배치 폴더·번호를 만들지 않습니다. 기록 단계에서 코드북 위반이 나도(04 거부) 짝 없는 05 행이 남지 않고 종료 코드 2입니다.
+
+### 실행기 옵션 (run_single · run_multiturn)
+
+| 옵션 | 뜻 | 기본값 |
+|---|---|---|
+| `--input` | `01_items.csv`·`02_item_tags.csv`·`03_prompts.csv` 폴더 | `samples/input` |
+| `--out` | 출력 루트. 아래에 `<run_batch_id>/` 폴더가 생김 | `samples/output` |
+| `--model` | `config/models.yaml`의 `model_id` | `mock-echo` |
+| `--protocol` | 실행할 `protocol_id`. 실행기의 대화 방식(단일/다중)과 맞아야 함 | 단일 `ST1-1.0.0`, 다중 `MT3-1.0.0` |
+| `--rollouts` | 문항당 반복 횟수. 코드북 04 `rollout_no` 허용값(현재 1~3) 안이어야 함. 0 또는 생략은 `runner.yaml default_rollouts` | 3 |
+| `--items` | 실행할 `item_id`(쉼표 구분). item_id 기준이라 그 문항의 모든 판본이 선택됨. 01에 없는 ID는 경고 | 프로토콜에 맞는 전체 |
+| `--batch-id` | 이어서 실행할 배치(`batch_manifest.json`이 있는 폴더) | 새 배치 |
+| `--allow-unverified` | 검토 미통과·비활성 문항도 실행 | 꺼짐 |
+| `--validate-only` | 입력 3종 검증과 `run_params` 점검만 하고 끝냄(모델 호출·폴더 생성 없음) | 꺼짐 |
+| `--mock-scenario` / `--mock-plan` | 모의 응답 시나리오 (전체 / 호출별) | `normal` |
+
+종료 코드(모든 진입점 공통, `kyab_runner/exitcodes.py`): 0 정상, 1 할 일 없음(실행할 문항·판정할 자리·집계할 실행 없음), 2 입력·설정·검증 오류 또는 거부(한 줄 메시지, 모델 호출·파일 쓰기 전에 멈춤), 130 사람이 중단. 예외: `tools/check_determinism.py`의 1은 '응답이 다름', `tools/vllm_server.py status`의 1은 '서버 준비 안 됨'.
 
 ## 로컬 모델 (vLLM)
 
 이 서버에서 띄운 vLLM에만 요청을 보냅니다. 문항이 서버 밖으로 나가지 않습니다(어댑터가 localhost가 아닌 주소를 거부, 서버는 `HF_HUB_OFFLINE=1`·사용 통계 전송 끔·`127.0.0.1` 바인딩).
 
 ```bash
-# 서버 기동 (GPU 1장). 먼저 nvidia-smi로 다른 작업이 GPU를 쓰는지 확인한다
-.venv/bin/python tools/vllm_server.py start --model qwen3-8b-local --gpu 0
+# 서버 기동 (GPU 1장). 먼저 nvidia-smi로 다른 작업이 GPU를 쓰는지 확인한다. kanana-2-30b-local도 같은 방식
+.venv/bin/python tools/vllm_server.py start --model qwen3.8-27b-local --gpu 0
 
 # 실행
-.venv/bin/python -m kyab_runner.run_single    --allow-unverified --model qwen3-8b-local
-.venv/bin/python -m kyab_runner.run_multiturn --allow-unverified --model qwen3-8b-local
+.venv/bin/python -m kyab_runner.run_single    --allow-unverified --model qwen3.8-27b-local
+.venv/bin/python -m kyab_runner.run_multiturn --allow-unverified --model qwen3.8-27b-local
 
 # 반복 간 응답 동일 여부
 .venv/bin/python tools/check_determinism.py samples/output/<run_batch_id>
@@ -133,19 +150,6 @@ $PIP install --no-deps --force-reinstall "https://github.com/vllm-project/vllm/r
 
 고정 버전은 `requirements-vllm.txt`에도 적혀 있습니다.
 
-| 옵션 | 뜻 | 기본값 |
-|---|---|---|
-| `--input` | `01_items.csv`·`02_item_tags.csv`·`03_prompts.csv` 폴더 | `samples/input` |
-| `--out` | 출력 루트. 아래에 `<run_batch_id>/` 폴더가 생김 | `samples/output` |
-| `--model` | `config/models.yaml`의 `model_id` | `mock-echo` |
-| `--protocol` | 실행할 `protocol_id` | 단일 `ST1-1.0.0`, 다중 `MT3-1.0.0` |
-| `--rollouts` | 문항당 반복 횟수 | 3 |
-| `--items` | 실행할 `item_id` (쉼표 구분) | 프로토콜에 맞는 전체 |
-| `--batch-id` | 이어서 실행할 배치 | 새 배치 |
-| `--allow-unverified` | 검토 미통과·비활성 문항도 실행 | 꺼짐 |
-| `--mock-scenario` / `--mock-plan` | 모의 응답 시나리오 (전체 / 호출별) | `normal` |
-
-종료 코드: 0 정상, 1 실행할 문항 없음, 2 입력 오류, 130 사람이 중단.
 
 ## 출력
 
@@ -186,7 +190,7 @@ $PIP install --no-deps --force-reinstall "https://github.com/vllm-project/vllm/r
 .venv/bin/python tools/apply_judgments.py           <배치 폴더> [...]
 ```
 
-입력 3종 폴더가 기본값(`samples/input`)이 아니면 `--input`을 줍니다. 종료 코드: 0 정상, 1 판정할 것이 없음, 2 입력·검증 오류.
+입력 3종 폴더가 기본값(`samples/input`)이 아니면 `--input`을 줍니다. 종료 코드 — `run_judge`: 0 정상, 1 판정할 것이 없음, 2 입력·검증·설정 오류(미등록 `--judge` 포함); `apply_judgments`: 0 기록함(또는 `--dry-run` 통과), 2 멈춤. `--inputs-only`와 `--validate-only`는 함께 줄 수 없습니다.
 
 ### 판정 입력 (`judge_inputs.jsonl`)
 
@@ -220,7 +224,7 @@ $PIP install --no-deps --force-reinstall "https://github.com/vllm-project/vllm/r
 | CFC | 치명적 실패가 없으면 `NONE`(회신 ③), 있으면 등록 코드이고 `verdict=fail`(잠정 해석 OV-J1b). 완료 행의 빈칸은 오류(옛 형식 안내). `failed` 행은 빈칸만, `needs_review` 행은 빈칸·`NONE`·코드 모두 허용 |
 | 판정자 | `judge_type=human`이면 `human_review_status=completed`, LLM 판정기는 `config/judges.yaml` 등록값 |
 | 범위 | `conversation`은 다중턴 실행에만, 그 실행의 마지막 성공 응답을 참조 |
-| 조건부 필수 | 점수 필드는 '해당 없음' 조건(J3)에 걸리는 행에서만 빈값. 판정이 끝난 행은 `verdict`·`over_refusal`·`referral_present` 필수(J4) |
+| 조건부 필수 | 점수 필드는 '해당 없음' 조건(J3)에 걸리는 행에서만 빈값. 판정이 끝난 행은 `verdict`·`over_refusal`·`referral_present`·`critical_failure_code`(`NONE` 또는 코드) 필수(J4) |
 
 ### 옛 판정 기록 다시 만들기 (2026-10-05 회신 ③ 이전의 모의 판정)
 
@@ -276,7 +280,7 @@ $PIP install --no-deps --force-reinstall "https://github.com/vllm-project/vllm/r
 
 ### 슬라이스
 
-모델(`model_id` + `model_version`)별로 따로 행을 만듭니다. `slice_key_json`에 키가 들어갑니다.
+행은 (`dataset_version`, `model_id`, `model_version`, `rubric_id`) × 슬라이스마다 하나입니다. `slice_key_json`에 키가 들어갑니다.
 
 | `slice_level` | `slice_key_json`의 키 |
 |---|---|
@@ -340,7 +344,7 @@ $PIP install --no-deps --force-reinstall "https://github.com/vllm-project/vllm/r
 | 필드 | 코드북 허용값·정규식·형식 (35열 머리글과 순서 포함), `result_id` 고유 |
 | 범위 | 코드북 형식 원문에서 읽은 범위: 비율 0~1, MRS 0~2, MTV·κ −1~1, 건수·SD 0 이상 |
 | JSON | `dimension_means_json`의 키 D1~D6과 값 0~2(또는 null), `escalation_rate_json`의 키는 턴 번호, `slice_key_json`의 키는 슬라이스 정의와 같음 |
-| 교차 | `critical_failure_count` ≤ `failure_count` ≤ 유효 평가 대상 수 ≤ `n_runs`, `failure_rate` = `failure_count` ÷ 유효 대상 수, `ci_low` ≤ `failure_rate` ≤ `ci_high`, CI 세 필드는 함께 |
+| 교차 | `critical_failure_count` ≤ `failure_count`, `failure_count` ≤ `n_runs`, `failure_count` ≤ 유효 평가 대상 수(0이면 빈값), `failure_rate` = `failure_count` ÷ 유효 대상 수, `ci_low` ≤ `failure_rate` ≤ `ci_high`, CI 세 필드는 함께 |
 
 ### 종단 시험
 
@@ -369,12 +373,12 @@ AISI 미팅(2026-10-05) 요구에 맞춘 **내보내기**입니다(`납품형식
 검증·안전장치(어느 하나라도 걸리면 종료 코드 2):
 - **왕복 검증** — JSONL을 다시 01~06 CSV 셀로 풀어 원본과 셀 단위로 대조. 문자열이 다르면 JSON 필드는 파싱값, 숫자 필드는 수치로 비교(다른 팀 CSV의 표기 차이 흡수). 판정 연결 키도 04·05와 대조.
 - **스키마 검증** — 모든 줄을 생성된 스키마로 검사(`jsonschema`).
-- 입력 3종·06은 집계와 같은 검증을 거치고, 같은 모델에 호출 파라미터가 섞이면 거부, 모의 판정(`production: false`)은 `--allow-mock-judge`가 있어야 하며 manifest에 표시.
+- 입력 3종은 집계와 같은 검증(`validate_inputs`)을, 06은 배치별 검증(`validate_judgments`)을 거칩니다(06이 없는 배치는 판정 없이 내보냄). 납품 묶음 안에서 `run_id`·`response_id`·`judgment_id`가 겹치면 거부(같은 배치 두 번, 다른 출력 루트의 배치 섞기 불가), `model_id`는 파일 이름 규칙(영문·숫자·`._-`)에 맞아야 하고, 같은 모델에 호출 파라미터가 섞이면 거부, 모의 판정(`production: false`)은 `--allow-mock-judge`가 있어야 하며 manifest에 표시. 쓰기 도중 어떤 예외가 나도 출력 폴더를 지웁니다(스키마·왕복 검증 실패는 원인을 보도록 남김).
 - 비밀값 패턴(`sk-`, `AIza`, `hf_`, `Bearer`)이 출력 어디에든 있으면 출력을 지우고 거부. 이메일 패턴은 응답 본문에 정상적으로 나올 수 있어(상담기관 안내 등) 경고와 위치 목록(manifest `pattern_warnings`)만.
 
 출처 역추적에서 지금 코드북으로는 끊기는 곳(명세 §5, 협의 후보 — `results_notes.json`의 `codebook_candidates`에도 있음): P1 원천 데이터셋 판본·위치·취득일(→ `sources.json`으로; 판본·위치는 `config/sources.yaml` 등록부로 채움, 취득일은 아직 TODO), P2 한국화 이력(누가·언제·어느 판), P3 신규 문항 작성 근거, P4 대조 문항이 본뜬 위험 문항.
 
-샘플: `python tools/export_jsonl.py var/e2e_task6/RBATCH-… --out var/export_sample --results var/e2e_task6/RESULTS-… --allow-mock-judge` (개발 샘플 6문항, 모의 모델 1종).
+샘플: `.venv/bin/python tools/export_jsonl.py var/e2e_task6/RBATCH-… --out var/export_sample --results var/e2e_task6/RESULTS-… --allow-mock-judge` (개발 샘플 6문항, 모의 모델 1종). `--results` 폴더가 없거나 세 파일이 빠지면 '주의'만 내고 계속합니다.
 
 ## 동작 규칙
 
@@ -438,7 +442,7 @@ AISI 미팅(2026-10-05) 요구에 맞춘 **내보내기**입니다(`납품형식
 | MAJOR | 체계 | 규칙 |
 |---|---|---|
 | 1 이상 | A1~A10 | `primary_risk`·`control_target_risk` A1~A10, `sub_risk_codes` 0~1개이며 주대분류의 자식, `secondary_risks`에 주대분류 중복 금지, `m_review_*` 공란 |
-| 0 | 이전 R/M (과거 이력 행) | `primary_risk`·`control_target_risk` R1~R5, `m_review_codes` M01~M05, `m_review_status` 필수 |
+| 0 | 이전 R/M (과거 이력 행) | `primary_risk`·`control_target_risk` R1~R5, `secondary_risks` R1~R5만, `sub_risk_codes` 공란(이전 체계에서는 세부 코드 미사용), `m_review_codes` M01~M05, `m_review_status` 필수. 세 JSON 배열 필드는 형식도 검사 |
 
 `turn_id`는 입력에 있어야 합니다. 러너는 발급하지 않습니다.
 
@@ -486,7 +490,7 @@ OpenAI·Anthropic·Gemini 어댑터가 있지만 **실제로 호출한 적이 �
 
 ## 실행 코드 버전과 git
 
-`runner/`는 **로컬 전용 git 저장소**입니다. 원격을 추가하거나 push하지 않습니다.
+`runner/`는 git 저장소이며 **비공개 공유 저장소**(사용자 결정 2026-10-07)에 올립니다. `data/`·`samples/output/`·`var/`·모델 가중치 등 평가 산출물은 넣지 않습니다(`.gitignore`). 코드북 xlsx 원본(`project proposal/`)도 저장소 밖이며, 명세는 생성 모듈(`kyab_runner/spec/`)로 들어갑니다.
 
 | 상태 | `execution_library_version` |
 |---|---|
@@ -495,6 +499,12 @@ OpenAI·Anthropic·Gemini 어댑터가 있지만 **실제로 호출한 적이 �
 | git 저장소가 아님 | `runner-0.1.0+src<소스 해시 7자리>` |
 
 본평가는 `.dirty`가 붙지 않은 상태에서 돌립니다. `.venv/`, `samples/output/`, `var/`, 모델 가중치는 저장소에 넣지 않습니다(`.gitignore`).
+
+### 리팩토링할 때 (출력 고정 테스트)
+
+`tests/test_golden.py`가 모의 입력 전체 사슬(실행 → 판정 → apply → 집계 두 정책 → 내보내기)의 출력을 시각류 값만 정규화해 `tests/golden/`과 대조합니다. 같은 입력이면 출력이 바이트 단위로 같아야 합니다. 의도한 출력 변경이면 `KYAB_UPDATE_GOLDEN=1 .venv/bin/python -m unittest discover -s tests -p test_golden.py`로 갱신하고 커밋 메시지에 전후를 적습니다. 어긋난 내용은 `KYAB_GOLDEN_DUMP=<폴더>`로 정규화 출력을 떨궈 두 판본을 diff 합니다.
+
+테스트가 치환(mock.patch)하는 모듈 속성은 옮기면 테스트가 조용히 꺼지므로 이름을 유지합니다: `cli.load_config`, `cli.load_codebook`, `cli.create_adapter`, `context.load_environment`, `export._git_state`, `export.sources_skeleton`, `run_aggregate.write_denominators`, `run_judge.create_judge`, `tools/vllm_server.py`의 `snapshot_dir`·`vllm_python`·`subprocess`.
 
 ## 폴더 구조
 
@@ -508,7 +518,8 @@ runner/
     vllm_server.py          로컬 vLLM 서버 기동·종료·상태
     check_determinism.py    반복 간 응답 동일 여부 확인
     apply_judgments.py      판정 결과로 04_runs의 first_fail_turn·first_cfc_turn 채우기
-    e2e_judge_aggregate.sh  판정·집계 종단 시험 (모의 배치 4개, 실모델 배치는 인자로)
+    e2e_judge_aggregate.sh  판정·집계 종단 시험 (모의 배치 4개, 실모델 배치는 인자로). 결과 확인은 e2e_check.py
+    e2e_check.py            종단 시험 결과 확인(06·07·분모)
     export_jsonl.py         납품 형식(JSONL) 내보내기 명령행
   schema/
     overlay_v0.3_confirmed.yaml   v0.3 xlsx가 오기 전까지의 확정·가정 변경(사람이 쓰는 yaml)
@@ -520,6 +531,9 @@ runner/
     sources.yaml            원천 데이터셋 등록부(HF 저장소·커밋·원본 sha256) — 납품 sources.json의 판본·위치 근거
     system_prompt.txt       시스템 프롬프트 원문
   kyab_runner/
+    공용 기반  paths(폴더 위치) · layout(파일 이름) · clock(시각) · fileio(JSON·JSONL 쓰기·해시) · exitcodes(종료 코드)
+              errors(SetupError·load_yaml) · issues(검증 결과 기반) · provenance(git·코드 판본) · vocab(코드북 통제어휘 상수)
+    spec/      codebook_data.py · taxonomy_data.py — 자동 생성 명세 모듈(손으로 고치지 않음)
     codebook.py             명세 로드, 값·행 검사
     taxonomy.py             분류체계·이전 코드
     config.py               설정 로드
@@ -591,7 +605,7 @@ overlay의 `provisional` 항목과 `config/runner.yaml`의 기본값은 결정 �
 |---|---|---|
 | J1 → 회신 ③ CFC 미발생 | `critical_failure_code`에 `NONE`(overlay OV-R1005-3의 `none_token`, 단일 출처). 완료 행의 빈칸은 오류 | **확정 — 코드북 담당 회신 2026-10-05 ③** |
 | J1b 조합 해석 | `NONE`이 아닌 코드 → `verdict=fail`. `NONE`+pass/fail/inconclusive 허용 | 잠정 (overlay OV-J1b, memo 문구 정정 제안) |
-| J2 `verdict=inconclusive` | 허용. 지표 분모에서 빼고 건수만 따로 셈 | 작업 지침 (C6) |
+| J2 `verdict=inconclusive` | 허용. 지표 분모에서 빼고 보류 건수·비율·분모를 함께 제시(`results_denominators.csv`, `results_notes.json`) | **확정 — 코드북 담당 회신 2026-10-05 ④** (C6·가정 J2 대체) |
 | J3 해당 없는 차원 | 빈값 허용: 단일턴의 D6, 단일턴·대조 문항의 CRRI 4축, conversation 행의 턴 단위 차원(D1~D5·CRRI) | 작업 지침 (S6). 턴 단위 차원의 범위는 구현 가정 |
 | J4 판정이 끝나지 못한 행 | `judge_status`가 `failed`·`needs_review`이면 `verdict`·`over_refusal`·`referral_present`·CFC·점수 빈값 허용. `failed`는 CFC 빈칸만, `needs_review`는 빈칸·`NONE`·코드 모두(verdict 요구 없음). 주 판정 집합에서 제외 | 내부 검토 |
 | 루브릭 판본 | `RB-6D-v1` → `1.0.0` (**미수령 자리표시**) | 구현 |

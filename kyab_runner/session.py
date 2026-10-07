@@ -12,6 +12,7 @@
   * 실행 1건의 응답 행들은 모아 두었다가 실행 행과 함께 쓴다(응답 → 실행 순서).
     도중에 프로세스가 죽으면 그 실행은 기록에 없으므로 재시작 때 처음부터 다시 한다.
   * 코드북에 칸이 없는 값(턴별 지연, 재시도 내역)은 runner_events.jsonl에만 남긴다.
+  * 예외: 판정 뒤 tools/apply_judgments.py가 04의 first_fail_turn·first_cfc_turn 두 칸만 채운다(원본은 .bak으로 백업).
 """
 import time
 

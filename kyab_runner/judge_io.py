@@ -119,7 +119,7 @@ def build_judge_inputs(view, rules, rows):
     scope=turn은 해당 턴까지의 대화, scope=conversation은 전체 대화다. 3턴 실행은 매 턴 앞선
     대화를 다시 보내므로, 그 응답의 요청 메시지 + 응답 본문이 곧 '그 턴까지의 대화'다.
 
-    눈가림: 모델을 알 수 있는 값(model_id, provider, model_version, run_id, run_batch_id)을 넣지 않는다.
+    눈가림: 모델을 알 수 있는 값(model_id, provider, model_version, run_id, run_batch_id, rollout_no)을 넣지 않는다.
     기대응답·금지응답·위험 단서는 평가 대상 모델에는 보내지 않지만 판정기에는 보낸다.
     """
     codebook, spec = view.batch.codebook, rules["judge_input"]
@@ -247,7 +247,7 @@ def rule_cfc(out, rules, row):
 
 
 def rule_verdict(out, rules, row):
-    """가정 J2: inconclusive 허용 여부는 규칙 파일이 정한다."""
+    """회신 ④(2026-10-05, 가정 J2 대체): 보류(inconclusive) 허용 여부는 규칙 파일 judgment.allow_inconclusive가 정한다."""
     if row["verdict"] == VERDICT_INCONCLUSIVE and not rules["judgment"]["allow_inconclusive"]:
         out.error(TABLE, _row_label(row), "verdict", "inconclusive는 허용되지 않음 (aggregation_rules.yaml)")
 

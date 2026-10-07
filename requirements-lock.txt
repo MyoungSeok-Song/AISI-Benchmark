@@ -1,0 +1,26 @@
+# 러너 venv 전체 고정본 (python3 -m pip --isolated --python .venv/bin/python freeze, 2026-10-07, Python 3.10.12).
+# 직접 의존은 requirements.txt. 새 환경: python3 -m pip --isolated --python .venv/bin/python install -r requirements-lock.txt
+annotated-types==0.8.0
+anthropic==1.9.0
+anyio==4.15.1
+attrs==26.1.0
+docstring_parser==0.18.0
+et_xmlfile==2.0.0
+exceptiongroup==1.3.1
+h11==0.16.0
+httpcore2==2.13.1
+httpx2==2.13.1
+idna==3.20
+jiter==0.17.0
+jsonschema==4.25.1
+jsonschema-specifications==2025.9.1
+openpyxl==3.1.5
+pydantic==2.13.5
+pydantic_core==2.46.5
+PyYAML==6.0.3
+referencing==0.37.0
+rpds-py==0.30.0
+sniffio==1.3.1
+truststore==0.10.4
+typing-inspection==0.4.4
+typing_extensions==4.16.0

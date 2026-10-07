@@ -1,15 +1,13 @@
 """어댑터 공통부 검사(과제 8 adapters-03·04·05·09): 재시도 표, 결과 도우미, HTTP 공통 틀, 모의 어댑터 규칙. 네트워크 없음."""
 import socket
-import sys
 import unittest
 import urllib.error
-from pathlib import Path
 from unittest import mock
 
 import httpx2
 from anthropic import DefaultHttpxClient
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import support                                                              # noqa: F401 (sys.path 설정)
 
 from kyab_runner.adapters import base, mock as mock_adapter                     # noqa: E402
 from kyab_runner.adapters.anthropic import AnthropicAdapter                   # noqa: E402

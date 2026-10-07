@@ -3,9 +3,9 @@
 # adapter        kyab_runner/adapters/ 의 어댑터 이름
 # model_version  공급자가 밝힌 공식 버전·체크포인트 문자열 그대로 (로컬 모델은 HF revision)
 #
-# 지금은 모의 모델만 실행할 수 있다. 상용 API는 키·D06(유료 집행)·D08(외부 전송 조건)
-# 확인 전까지 호출하지 않는다. 아래 상용·공개 모델 항목은 등록 코드만 잡아 둔 자리이며
-# enabled: false 인 모델은 러너가 실행을 거부한다.
+# 지금 실행할 수 있는 모델: 모의(mock-echo)와 로컬 vLLM 두 종(qwen3.8-27b-local, kanana-2-30b-local, 2026-10-05 실기동 확인).
+# 상용 API 3종은 키·D06(유료 집행)·D08(외부 전송 조건) 확인 전까지 enabled: false로 두며, 러너가 실행을 거부한다.
+# qwen3-8b-local은 경로 검증용이었고 가중치가 사라져 비활성이다.
 models:
   mock-echo:
     adapter: mock

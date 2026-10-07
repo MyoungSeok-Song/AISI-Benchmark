@@ -3,68 +3,18 @@
 모의 어댑터만 쓰며 외부 호출이 없다. 출력은 임시 폴더에 쓴다.
 실행 (runner/ 폴더에서):  .venv/bin/python -m unittest discover -s tests -v
 """
-import contextlib
-import io
 import json
 import shutil
-import sys
 import tempfile
 import unittest
 from collections import Counter
 from pathlib import Path
 
-RUNNER_DIR = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(RUNNER_DIR))
+from support import CODEBOOK, CONFIG, FAILURE_PLAN, RUNNER_DIR, TAXONOMY, RunnerTestCase   # noqa: F401 (다른 테스트가 이 이름들을 가져간다)
 
 from kyab_runner import cli, csv_io, paths, run_multiturn, run_single, validate    # noqa: E402
 from kyab_runner.adapters.mock import MockAdapter                        # noqa: E402
-from kyab_runner.codebook import load_codebook                           # noqa: E402
-from kyab_runner.config import load_config                               # noqa: E402
 from kyab_runner.session import RUNNER_STAGES                            # noqa: E402
-from kyab_runner.taxonomy import load_taxonomy                           # noqa: E402
-
-TAXONOMY = load_taxonomy()
-CODEBOOK = load_codebook(TAXONOMY)
-CONFIG = load_config()
-FAILURE_PLAN = paths.SAMPLES_DIR / "mock_plan_failures.yaml"
-
-
-class RunnerTestCase(unittest.TestCase):
-    """임시 출력 폴더와 실행·조회 도우미."""
-
-    def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp(prefix="kyab_test_"))
-        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
-        self.out = self.tmp / "out"
-
-    def run_cli(self, runner, *extra, input_dir=None):
-        """실행기를 돌리고 (종료 코드, 화면 출력)을 돌려준다."""
-        argv = ["--out", str(self.out), "--allow-unverified", *extra]
-        if input_dir:
-            argv += ["--input", str(input_dir)]
-        buffer = io.StringIO()
-        with contextlib.redirect_stdout(buffer):
-            try:
-                code = runner.main(argv)
-            except SystemExit as exc:               # sys.exit(메시지)로 끝난 경우
-                code, _ = 99, buffer.write(str(exc.code))
-        return code, buffer.getvalue()
-
-    def batch_dirs(self):
-        return sorted(p for p in self.out.iterdir() if p.is_dir())
-
-    def table(self, batch_dir, table, filename=None):
-        return csv_io.read_table(CODEBOOK, table, batch_dir / (filename or f"{table}.csv"))
-
-    def copy_inputs(self):
-        """샘플 입력을 임시 폴더에 복사해 고쳐 쓸 수 있게 한다. 반환: (폴더, {표: 행 목록})."""
-        target = self.tmp / "input"
-        shutil.copytree(paths.DEFAULT_INPUT_DIR, target)
-        tables = {t: csv_io.read_table(CODEBOOK, t, target / f) for t, f in cli.INPUT_FILES.items()}
-        return target, tables
-
-    def save(self, input_dir, table, rows):
-        csv_io.rewrite_table(CODEBOOK, table, input_dir / cli.INPUT_FILES[table], rows)
 
 
 class NormalRunTest(RunnerTestCase):
@@ -591,9 +541,7 @@ class ValidationTest(RunnerTestCase):
 
     def test_unverified_items_need_flag(self):
         """검토 미통과 문항은 --allow-unverified 없이는 실행되지 않는다."""
-        buffer = io.StringIO()
-        with contextlib.redirect_stdout(buffer):
-            code = run_single.main(["--out", str(self.out)])
+        code, _ = self.capture(run_single.main, ["--out", str(self.out)])
         self.assertEqual(code, cli.EXIT_NOTHING_TO_RUN)
         self.assertFalse(self.out.exists())
 

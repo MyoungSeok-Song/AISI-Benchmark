@@ -6,7 +6,6 @@
 """
 import importlib.util
 import os
-import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -14,7 +13,6 @@ from pathlib import Path
 
 from test_runner import CODEBOOK, RUNNER_DIR, TAXONOMY
 
-sys.path.insert(0, str(RUNNER_DIR / "tools"))
 import _xlsx_common                                                        # noqa: E402
 import extract_codebook                                                    # noqa: E402
 import extract_taxonomy                                                    # noqa: E402

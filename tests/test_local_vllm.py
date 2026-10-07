@@ -1,9 +1,8 @@
 """로컬 vLLM 어댑터의 응답 정규화 검사. 서버 없이 돈다(원본 응답 객체만 넣어 본다)."""
-import sys
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import support                                                              # noqa: F401 (sys.path 설정)
 
 from kyab_runner.adapters.local_vllm import LocalVllmAdapter, _to_result    # noqa: E402
 from kyab_runner.config import ModelEntry, load_config                      # noqa: E402

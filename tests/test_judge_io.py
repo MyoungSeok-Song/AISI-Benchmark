@@ -3,90 +3,20 @@
 모의 어댑터·모의 판정기만 쓰며 외부 호출이 없다. 출력은 임시 폴더에 쓴다.
 실행 (runner/ 폴더에서):  .venv/bin/python -m unittest discover -s tests -v
 """
-import contextlib
 import copy
 import dataclasses
-import io
 import json
-import sys
 from collections import Counter
 
-from test_runner import CODEBOOK, FAILURE_PLAN, RUNNER_DIR, RunnerTestCase
+from support import CRRI, ENV, NONE, RULES, SCORE_FIELDS, JudgedTestCase, bumped   # noqa: F401 (다른 테스트가 가져간다)
+from test_runner import CODEBOOK, FAILURE_PLAN, RUNNER_DIR, RunnerTestCase          # noqa: F401
 
 from kyab_runner import csv_io, ids, judge_io, paths, run_judge, run_multiturn, run_single, validate   # noqa: E402
 from kyab_runner.context import load_environment, open_views                                    # noqa: E402
 from kyab_runner.judges import create_judge                                                     # noqa: E402
 from kyab_runner.rules import RulesError, load_rules                                            # noqa: E402
 
-sys.path.insert(0, str(RUNNER_DIR / "tools"))
-import apply_judgments                                                                          # noqa: E402
-
-ENV = load_environment()
-RULES = ENV.rules
-SCORE_FIELDS = RULES.score_fields
-CRRI = RULES.crri_axes
-NONE = RULES.none_token                         # 치명적 실패 없음의 기록값(회신 ③)
-
-
-def bumped(version):
-    """비교용 규칙 파일에 쓸 다음 PATCH 판본 (현재 판본 리터럴을 테스트에 적지 않기 위해)."""
-    major, minor, patch = version.split(".")
-    return f"{major}.{minor}.{int(patch) + 1}"
-
-
-class JudgedTestCase(RunnerTestCase):
-    """정상 배치 2개(단일 9실행, 3턴 9실행)를 만들고 모의 판정기로 판정해 둔다."""
-
-    def setUp(self):
-        super().setUp()
-        self.assertEqual(self.run_cli(run_single)[0], 0)
-        self.assertEqual(self.run_cli(run_multiturn)[0], 0)
-        self.single_dir, self.multi_dir = self.batch_dirs()
-        self.assertEqual(self.judge()[0], 0)
-        _, (self.single, self.multi), _ = open_views(ENV, paths.DEFAULT_INPUT_DIR, [self.single_dir, self.multi_dir])
-
-    def batch_dirs(self):
-        """배치 폴더만 (출력 루트에는 집계 결과 폴더 RESULTS-…도 생긴다)."""
-        return ids.batch_dirs(self.out)
-
-    def judge(self, *extra, batches=None):
-        """run_judge를 돌리고 (종료 코드, 화면 출력)을 돌려준다."""
-        return self.capture(run_judge.main, [*extra, *map(str, batches or self.batch_dirs())])
-
-    def capture(self, main, argv):
-        buffer = io.StringIO()
-        with contextlib.redirect_stdout(buffer):
-            try:
-                code = main(argv)
-            except SystemExit as exc:
-                code, _ = 99, buffer.write(str(exc.code))
-        return code, buffer.getvalue()
-
-    def judgments(self, batch_dir):
-        return judge_io.load_judgments(CODEBOOK, batch_dir)
-
-    def errors(self, view, rows, **kwargs):
-        """검증 오류를 (필드, 메시지) 목록으로."""
-        issues = judge_io.validate_judgments(CODEBOOK, RULES, view, rows, **kwargs)
-        return [(i.field, i.message) for i in validate.errors_of(issues)]
-
-    def assert_error(self, view, rows, field, fragment=""):
-        found = [(f, m) for f, m in self.errors(view, rows) if f == field and fragment in m]
-        self.assertTrue(found, f"{field} 오류가 없음: {self.errors(view, rows)}")
-
-    def pick(self, view, rows, scope="turn", item_id=None):
-        """조건에 맞는 첫 판정 행의 (위치, 복사본)."""
-        for position, row in enumerate(rows):
-            run = view.run_of(view.responses[row["response_id"]])
-            if row["evaluation_scope"] == scope and item_id in (None, run["item_id"]):
-                return position, dict(row)
-        raise AssertionError("조건에 맞는 판정 행이 없음")
-
-    def mutated(self, view, rows, scope="turn", item_id=None, **changes):
-        """한 행만 바꾼 판정 목록."""
-        position, row = self.pick(view, rows, scope, item_id)
-        row.update(changes)
-        return rows[:position] + [row] + rows[position + 1:]
+import apply_judgments                                                                          # noqa: E402  (tools/, support가 경로를 넣는다)
 
 
 class JudgeInputsTest(JudgedTestCase):

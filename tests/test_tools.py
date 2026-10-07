@@ -1,17 +1,14 @@
 """도구 검사(tooling-08): check_determinism, build_samples, e2e_check, vllm_server(서버 없이)."""
 import importlib.util
-import io
 import contextlib
-import os
+import io
 import subprocess
-import sys
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from test_runner import CODEBOOK, CONFIG, RUNNER_DIR, RunnerTestCase, run_single, run_multiturn
+from test_runner import CODEBOOK, CONFIG, RUNNER_DIR, RunnerTestCase, run_single
 
-sys.path.insert(0, str(RUNNER_DIR / "tools"))
 import build_samples                                                   # noqa: E402
 import check_determinism                                               # noqa: E402
 from kyab_runner import paths                                          # noqa: E402
