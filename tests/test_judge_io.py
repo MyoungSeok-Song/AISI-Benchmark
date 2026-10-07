@@ -5,6 +5,7 @@
 """
 import contextlib
 import copy
+import dataclasses
 import io
 import json
 import sys
@@ -15,7 +16,7 @@ from test_runner import CODEBOOK, FAILURE_PLAN, RUNNER_DIR, RunnerTestCase
 from kyab_runner import csv_io, ids, judge_io, paths, run_judge, run_multiturn, run_single, validate   # noqa: E402
 from kyab_runner.context import load_environment, open_views                                    # noqa: E402
 from kyab_runner.judges import create_judge                                                     # noqa: E402
-from kyab_runner.rules import Rules, RulesError, load_rules                                     # noqa: E402
+from kyab_runner.rules import RulesError, load_rules                                            # noqa: E402
 
 sys.path.insert(0, str(RUNNER_DIR / "tools"))
 import apply_judgments                                                                          # noqa: E402
@@ -482,7 +483,7 @@ class JudgmentValidationTest(JudgedTestCase):
         self.assertEqual(self.errors(self.single, rows), [])
         raw = copy.deepcopy(RULES.raw)
         raw["judgment"]["allow_inconclusive"] = False
-        strict = Rules(raw=raw, sha256="", judges=RULES.judges)
+        strict = dataclasses.replace(RULES, raw=raw, sha256="")
         issues = judge_io.validate_judgments(CODEBOOK, strict, self.single, rows)
         self.assertTrue(any(i.field == "verdict" and "허용되지 않음" in i.message for i in issues))
 

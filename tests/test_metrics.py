@@ -11,6 +11,7 @@
 실행 (runner/ 폴더에서):  .venv/bin/python -m unittest discover -s tests -v
 """
 import copy
+import dataclasses
 import itertools
 import json
 
@@ -19,7 +20,6 @@ from test_runner import CODEBOOK, FAILURE_PLAN, RunnerTestCase
 
 from kyab_runner import csv_io, ids, judge_io, metrics, run_aggregate, run_judge, run_multiturn, run_single, validate   # noqa: E402
 from kyab_runner.records import BatchView, InputIndex                                                          # noqa: E402
-from kyab_runner.rules import Rules                                                                            # noqa: E402
 
 DIMS = list(RULES.dimensions.values())          # d1..d6의 06 열 이름
 AXES = list(RULES.crri_axes)
@@ -141,10 +141,10 @@ class Scenario:
 
 
 def rules_with(**aggregation):
-    """집계 규칙 일부만 바꾼 Rules."""
+    """집계 규칙 일부만 바꾼 Rules. none_token·판정기 등록부 등 나머지 필드는 그대로 둔다(replace)."""
     raw = copy.deepcopy(RULES.raw)
     raw["aggregation"].update(aggregation)
-    return Rules(raw=raw, sha256="", judges=RULES.judges)
+    return dataclasses.replace(RULES, raw=raw, sha256="")
 
 
 class MetricsTestCase(RunnerTestCase):
@@ -238,6 +238,54 @@ class PureFormulaTest(MetricsTestCase):
                          ["", "3", "0.25", "1.0", "0.0", "0.333333", "0.0", "0.0"])
 
 
+def hand_computed_scenario():
+    """HandComputedTest의 가상 배치(설명은 그 클래스 docstring). 골든 테스트도 같은 자료를 쓴다."""
+    s = Scenario()
+    s.item("S1", age="mid_13_15", risk="A1", severity="moderate")
+    s.item("S2", age="late_16_18", risk="A2", severity="high")
+    s.item("C1", case="safe_control", age="mid_13_15", control_of="A1")              # A1의 대조
+    s.item("M1", mode="multi", age="mid_13_15", risk="A1", severity="critical")
+    s.item("M2", mode="multi", age="late_16_18", risk="A2", severity="moderate")
+    s.item("C2", case="safe_control", mode="multi", age="late_16_18", control_of="A2")  # A2의 대조
+
+    s.run("S1", 1, [J("pass", (2, 2, 2, 2, 2))])
+    s.run("S1", 2, [J("fail", (0, 1, 0, 1, 0))])
+    s.run("S1", 3, [J("pass", (2, 1, 2, 1, 2))])
+    s.run("S2", 1, [J("fail", (0, 0, 0, 0, 0), cfc="CFC-MOCK-01")])
+    s.run("S2", 2, [J("pass", (2, 2, 2, 2, 1), ref=True)])
+    s.run("S2", 3, [J("inconclusive", (1, 1, 1, 1, 1))])
+    s.run("C1", 1, [J("pass", (2, 2, 2, 2, 2))])
+    s.run("C1", 2, [J("pass", (1, 1, 1, 1, 1), over=True)])
+    s.run("C1", 3, [J("pass", (2, 2, 2, 2, 2))])
+
+    def turns(verdicts, crri, dims=((1, 1, 1, 1, 1),) * 3):
+        return [J(v, d, d6=1, crri=c) for v, d, c in zip(verdicts, dims, crri)]
+    zero = (0, 0, 0, 0)
+    s.run("M1", 1, turns(("pass", "pass", "fail"), (zero, (1, 0, 1, 0), (2, 1, 1, 0))),
+          conversation=J("fail", (1, 1, 1, 1, 1), d6=0, ref=True))
+    s.run("M1", 2, turns(("pass", "pass", "pass"), (zero, zero, zero)),
+          conversation=J("pass", (2, 2, 2, 2, 2), d6=2, ref=True))
+    s.run("M1", 3, turns(("pass", "fail", "fail"), (zero, (2, 2, 2, 2), (1, 1, 1, 1))),
+          conversation=J("fail", (0, 0, 0, 0, 0), d6=1, cfc="CFC-MOCK-01"))
+    s.run("M2", 1, turns(("pass", "pass", "pass"), (zero, zero, (0, 1, 0, 0)),
+                         dims=((2, 2, 2, 2, 2), (2, 2, 2, 2, 2), (1, 1, 1, 1, 1))),
+          conversation=J("pass", None, d6=2))                 # D1~D5 빈값 → turn 행 평균 5/3
+    s.run("M2", 2, turns(("fail", "pass", "pass"), (zero, zero, zero)),
+          conversation=J("fail", (1, 0, 1, 0, 1), d6=0))
+    s.run("M2", 3, turns(("pass", "inconclusive", "pass"), (zero, zero, zero)),
+          conversation=J("pass", (2, 2, 1, 1, 2), d6=1))
+    s.run("C2", 1, turns(("pass",) * 3, (None,) * 3), conversation=J("pass", (2, 2, 2, 2, 2), d6=2))
+    s.run("C2", 2, turns(("pass",) * 3, (None,) * 3), conversation=J("pass", (1, 1, 1, 1, 1), d6=2, over=True))
+    s.run("C2", 3, turns(("pass",) * 3, (None,) * 3), conversation=J("fail", (0, 0, 0, 0, 0), d6=0))
+
+    # 사람 재채점 6자리 (자동 → 사람): pass→pass, fail→fail, fail→pass, fail→fail, pass→fail, pass→pass
+    for item_id, rollout, slot, verdict in (("S1", 1, "turn1", "pass"), ("S1", 2, "turn1", "fail"),
+                                            ("S2", 1, "turn1", "pass"), ("M1", 1, "conversation", "fail"),
+                                            ("C1", 2, "turn1", "fail"), ("M1", 2, "turn2", "pass")):
+        s.human(item_id, rollout, slot, verdict)
+    return s
+
+
 class HandComputedTest(MetricsTestCase):
     """가상 배치 1개(모델 m1, 문항 6개 × 반복 3회 = 18실행)의 전 지표를 손계산과 대조한다.
 
@@ -265,49 +313,7 @@ class HandComputedTest(MetricsTestCase):
 
     @classmethod
     def setUpClass(cls):
-        s = Scenario()
-        s.item("S1", age="mid_13_15", risk="A1", severity="moderate")
-        s.item("S2", age="late_16_18", risk="A2", severity="high")
-        s.item("C1", case="safe_control", age="mid_13_15", control_of="A1")              # A1의 대조
-        s.item("M1", mode="multi", age="mid_13_15", risk="A1", severity="critical")
-        s.item("M2", mode="multi", age="late_16_18", risk="A2", severity="moderate")
-        s.item("C2", case="safe_control", mode="multi", age="late_16_18", control_of="A2")  # A2의 대조
-
-        s.run("S1", 1, [J("pass", (2, 2, 2, 2, 2))])
-        s.run("S1", 2, [J("fail", (0, 1, 0, 1, 0))])
-        s.run("S1", 3, [J("pass", (2, 1, 2, 1, 2))])
-        s.run("S2", 1, [J("fail", (0, 0, 0, 0, 0), cfc="CFC-MOCK-01")])
-        s.run("S2", 2, [J("pass", (2, 2, 2, 2, 1), ref=True)])
-        s.run("S2", 3, [J("inconclusive", (1, 1, 1, 1, 1))])
-        s.run("C1", 1, [J("pass", (2, 2, 2, 2, 2))])
-        s.run("C1", 2, [J("pass", (1, 1, 1, 1, 1), over=True)])
-        s.run("C1", 3, [J("pass", (2, 2, 2, 2, 2))])
-
-        def turns(verdicts, crri, dims=((1, 1, 1, 1, 1),) * 3):
-            return [J(v, d, d6=1, crri=c) for v, d, c in zip(verdicts, dims, crri)]
-        zero = (0, 0, 0, 0)
-        s.run("M1", 1, turns(("pass", "pass", "fail"), (zero, (1, 0, 1, 0), (2, 1, 1, 0))),
-              conversation=J("fail", (1, 1, 1, 1, 1), d6=0, ref=True))
-        s.run("M1", 2, turns(("pass", "pass", "pass"), (zero, zero, zero)),
-              conversation=J("pass", (2, 2, 2, 2, 2), d6=2, ref=True))
-        s.run("M1", 3, turns(("pass", "fail", "fail"), (zero, (2, 2, 2, 2), (1, 1, 1, 1))),
-              conversation=J("fail", (0, 0, 0, 0, 0), d6=1, cfc="CFC-MOCK-01"))
-        s.run("M2", 1, turns(("pass", "pass", "pass"), (zero, zero, (0, 1, 0, 0)),
-                             dims=((2, 2, 2, 2, 2), (2, 2, 2, 2, 2), (1, 1, 1, 1, 1))),
-              conversation=J("pass", None, d6=2))                 # D1~D5 빈값 → turn 행 평균 5/3
-        s.run("M2", 2, turns(("fail", "pass", "pass"), (zero, zero, zero)),
-              conversation=J("fail", (1, 0, 1, 0, 1), d6=0))
-        s.run("M2", 3, turns(("pass", "inconclusive", "pass"), (zero, zero, zero)),
-              conversation=J("pass", (2, 2, 1, 1, 2), d6=1))
-        s.run("C2", 1, turns(("pass",) * 3, (None,) * 3), conversation=J("pass", (2, 2, 2, 2, 2), d6=2))
-        s.run("C2", 2, turns(("pass",) * 3, (None,) * 3), conversation=J("pass", (1, 1, 1, 1, 1), d6=2, over=True))
-        s.run("C2", 3, turns(("pass",) * 3, (None,) * 3), conversation=J("fail", (0, 0, 0, 0, 0), d6=0))
-
-        # 사람 재채점 6자리 (자동 → 사람): pass→pass, fail→fail, fail→pass, fail→fail, pass→fail, pass→pass
-        for item_id, rollout, slot, verdict in (("S1", 1, "turn1", "pass"), ("S1", 2, "turn1", "fail"),
-                                                ("S2", 1, "turn1", "pass"), ("M1", 1, "conversation", "fail"),
-                                                ("C1", 2, "turn1", "fail"), ("M1", 2, "turn2", "pass")):
-            s.human(item_id, rollout, slot, verdict)
+        s = hand_computed_scenario()
         cls.scenario = s
         cls.values, cls.notes = s.metrics()
 
@@ -630,6 +636,32 @@ class HandComputedTest(MetricsTestCase):
         self.assertEqual(overall["m2"]["repeat_failure_sd"], "")           # 반복 1회뿐이면 SD는 빈값
 
 
+def provider_block_scenario():
+    """ProviderBlockTest의 가상 배치(설명은 그 클래스 docstring). 골든 테스트도 같은 자료를 쓴다."""
+    s = Scenario()
+    s.item("S1", severity="high")
+    s.item("M1", mode="multi", severity="critical")
+    s.item("M2", mode="multi", severity="moderate")
+    s.item("C1", case="safe_control")
+    s.item("S3")
+    zero = (0, 0, 0, 0)
+    s.run("S1", 1, ["blocked"])
+    s.run("S1", 2, [J("fail", (0, 0, 0, 0, 0))])
+    s.run("S1", 3, [J("pass", (2, 2, 2, 2, 2), ref=True)])
+    s.run("M1", 1, ["blocked"])
+    s.run("M1", 2, [J("pass", (2, 2, 2, 2, 2), d6=2, crri=zero), "blocked"],
+          conversation=J("pass", (2, 2, 2, 2, 2), d6=2, ref=True))
+    s.run("M1", 3, [J("fail", (0, 0, 0, 0, 0), d6=0, crri=zero), "blocked"],
+          conversation=J("fail", (0, 0, 0, 0, 0), d6=0))
+    s.run("M2", 1, [J("pass", (1, 1, 1, 1, 1), d6=1, crri=zero), J("pass", (1, 1, 1, 1, 1), d6=1, crri=zero),
+                    J("fail", (1, 1, 1, 1, 1), d6=1, crri=zero)], conversation=J("fail", (1, 1, 1, 1, 1), d6=1))
+    s.run("C1", 1, ["blocked"])
+    s.run("C1", 2, [J("pass", (2, 2, 2, 2, 2))])
+    s.run("C1", 3, [J("pass", (1, 1, 1, 1, 1), over=True)])
+    s.run("S3", 1, ["error"])
+    return s
+
+
 class ProviderBlockTest(MetricsTestCase):
     """공급자 차단 = 거절 (사용자 결정 2026-10-02). count_as_refusal 대 exclude.
 
@@ -654,27 +686,7 @@ class ProviderBlockTest(MetricsTestCase):
 
     def setUp(self):
         super().setUp()
-        s = Scenario()
-        s.item("S1", severity="high")
-        s.item("M1", mode="multi", severity="critical")
-        s.item("M2", mode="multi", severity="moderate")
-        s.item("C1", case="safe_control")
-        s.item("S3")
-        zero = (0, 0, 0, 0)
-        s.run("S1", 1, ["blocked"])
-        s.run("S1", 2, [J("fail", (0, 0, 0, 0, 0))])
-        s.run("S1", 3, [J("pass", (2, 2, 2, 2, 2), ref=True)])
-        s.run("M1", 1, ["blocked"])
-        s.run("M1", 2, [J("pass", (2, 2, 2, 2, 2), d6=2, crri=zero), "blocked"],
-              conversation=J("pass", (2, 2, 2, 2, 2), d6=2, ref=True))
-        s.run("M1", 3, [J("fail", (0, 0, 0, 0, 0), d6=0, crri=zero), "blocked"],
-              conversation=J("fail", (0, 0, 0, 0, 0), d6=0))
-        s.run("M2", 1, [J("pass", (1, 1, 1, 1, 1), d6=1, crri=zero), J("pass", (1, 1, 1, 1, 1), d6=1, crri=zero),
-                        J("fail", (1, 1, 1, 1, 1), d6=1, crri=zero)], conversation=J("fail", (1, 1, 1, 1, 1), d6=1))
-        s.run("C1", 1, ["blocked"])
-        s.run("C1", 2, [J("pass", (2, 2, 2, 2, 2))])
-        s.run("C1", 3, [J("pass", (1, 1, 1, 1, 1), over=True)])
-        s.run("S3", 1, ["error"])
+        s = provider_block_scenario()
         self.scenario = s
 
     def test_default_policy_is_count_as_refusal(self):

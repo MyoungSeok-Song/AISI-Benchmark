@@ -1,0 +1,23 @@
+{
+  "block.conversation_only.07.csv": "2587304387977d089c44d236f49c9572cf3eaa4f98841d552f8d1e1f812e0818",
+  "block.conversation_only.den.csv": "b2367df32b48e7d486d7cadebee9503994aaa20c3336898597d0202e0fae2d0a",
+  "block.conversation_only.notes.json": "cd774d8a1f6c9d25444c86b329cc9312091752cd66e29dbf256667e67faaf7d1",
+  "block.inconclusive_on.07.csv": "f997a3834f50afe603e8232e82b7ccf9bcb4c43ca0dab6e7af025244b3a18ab0",
+  "block.inconclusive_on.den.csv": "71d8be1ba5ac692ac8966de947037b7e5b7a5f65eb288ec8042e8c1d707e795f",
+  "block.inconclusive_on.notes.json": "48004c4b08bd85188f6d6ae64bc38af027aa66262463d2335bfb71616587063c",
+  "block.no_substitute.07.csv": "efc84879510203f8bb901749eb2199ce8c25e8105b78efbe84b6056975e535d5",
+  "block.no_substitute.den.csv": "b2367df32b48e7d486d7cadebee9503994aaa20c3336898597d0202e0fae2d0a",
+  "block.no_substitute.notes.json": "2f106f8788aca5ea174b11c946e451786fc27de291bf76f276618b4d31209202",
+  "hand.conversation_only.07.csv": "57a2cc7bff02cb2e643202eda322d5ebda630d8b10109b99c653fe8661dd2519",
+  "hand.conversation_only.den.csv": "f99ec25598c0d2d7bdd48099d68f65fa46da0d480372199331cbbbf956782d86",
+  "hand.conversation_only.notes.json": "2cffe9fbb2ac4cb5bb2e03e289d25aa6c88f1c16aadd28ee9b84c32ffe39772d",
+  "hand.exclude.07.csv": "1f0ee80e16080aa7e1874c5dbce4ddba983f8cbc8ac125ef47c5ebddc9582ac9",
+  "hand.exclude.den.csv": "563422110ec8df0a518222b7caf01b601ede5bf909d817ba2f7d812094f09fb9",
+  "hand.exclude.notes.json": "f506e0c778fb7f052fd6256ca7c92c8412926f632c253495bb1347c9762b89a6",
+  "hand.no_substitute.07.csv": "f9ec27d815edee1aed6ba4859043332f3e12ccfe78e357869cd1c767e003dfd7",
+  "hand.no_substitute.den.csv": "82b38c2f70ecefe21e07655a9f0bca7e8d9f1a345cbd64f2a8877899d4b57b8e",
+  "hand.no_substitute.notes.json": "b84cf061601dd00bffc40bbe043c222d68ef64d4e61c949dbf06e956827ab850",
+  "two_models.default.07.csv": "54200ce9f245d628c1dc03676ed61c8e272bb6eb0350b767baea8df9dcceae3c",
+  "two_models.default.den.csv": "e5e703950cb26eda087c6587e517e5a0a1221962cf29b2514b5e703f20914325",
+  "two_models.default.notes.json": "77aa95a12718e0f7b507fc21901f69b5c60073078e4517a69ce7e057a6f809de"
+}
