@@ -23,7 +23,7 @@ from pathlib import Path
 
 from . import codebook as codebook_module
 from . import csv_io, fileio, judge_io, paths, provenance
-from .context import READ_ERRORS, SETUP_ERRORS, load_environment, open_views, report_read_error, setup_error_message
+from .context import prepare
 from .exitcodes import EXIT_INVALID, EXIT_OK
 from .layout import (DELIVERY_ITEMS_FILE, DELIVERY_JUDGMENTS_DIR, DELIVERY_MANIFEST_FILE, DELIVERY_RESPONSES_DIR,
                      DELIVERY_RESULTS_DIR, DELIVERY_SCHEMA_DIR, DELIVERY_SOURCES_FILE, RESULTS_FOLDER_FILES)
@@ -744,20 +744,10 @@ def main(argv=None):
     parser.add_argument("--results", type=Path, help="복사할 RESULTS-… 폴더(07·분모·notes)")
     parser.add_argument("--allow-mock-judge", action="store_true", help="모의 판정이 섞여 있어도 내보낸다(경로 확인용)")
     args = parser.parse_args(argv)
-    try:
-        env = load_environment()
-    except SETUP_ERRORS as exc:
-        print(setup_error_message(exc))
+    prepared = prepare(args.input, args.batches)      # 명세·설정 오류와 배치·입력 오류를 구분해 알리고 종료 2 (context.prepare)
+    if prepared is None:
         return EXIT_INVALID
-    for warning in env.rules.load_warnings:
-        print(f"주의: {warning}")
-    try:
-        index, views, notices = open_views(env, args.input, args.batches)
-    except READ_ERRORS as exc:                    # 배치 폴더·입력 문제는 명세 오류와 구분해 알린다
-        report_read_error(exc)
-        return EXIT_INVALID
-    for notice in notices:
-        print(f"주의: {notice}")
+    env, index, views = prepared.env, prepared.index, prepared.views
     try:
         manifest = export(env, index, views, args.out, args.results, args.allow_mock_judge)
     except (ExportError, SourcesRegistryError) as exc:

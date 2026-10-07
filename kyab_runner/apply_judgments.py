@@ -117,7 +117,7 @@ def main(argv=None):
     prepared = prepare(args.input, args.batches)
     if prepared is None:
         return EXIT_INVALID
-    env, views = prepared
+    env, views = prepared.env, prepared.views
 
     plans, stopped = [], False
     for view in views:

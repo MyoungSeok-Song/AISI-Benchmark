@@ -235,16 +235,24 @@ class MockJudgeTest(JudgedTestCase):
         self.assertIn("보류", output)
 
     def test_setup_errors_exit_with_code_2_in_every_entry_point(self):
-        """run_judge·run_aggregate·apply_judgments 모두 명세·설정 오류를 메시지 + 종료 2로 끝낸다."""
+        """run_judge·run_aggregate·apply_judgments·export·e2e_check 모두 context.prepare를 거쳐 명세·설정 오류를 메시지 + 종료 2로 끝낸다(R13)."""
         from unittest import mock
-        from kyab_runner import run_aggregate
+        import e2e_check
+        from kyab_runner import context, export, run_aggregate
         from kyab_runner.rules import RulesError
-        from kyab_runner import context
-        for module, main in ((run_judge, run_judge.main), (run_aggregate, run_aggregate.main), (apply_judgments, apply_judgments.main)):
+        entry_points = ((run_judge.main, [str(self.single_dir)]), (run_aggregate.main, [str(self.single_dir)]),
+                        (apply_judgments.main, [str(self.single_dir)]),
+                        (export.main, [str(self.single_dir), "--out", str(self.tmp / "delivery")]),
+                        (e2e_check.main, [str(self.out), "1.0.0", "1.0.1"]))
+        for main, argv in entry_points:
             with mock.patch.object(context, "load_environment", side_effect=RulesError("시험용 규칙 오류")):
-                code, output = self.capture(main, [str(self.single_dir)])
-            self.assertEqual(code, 2, module.__name__)
+                code, output = self.capture(main, argv)
+            self.assertEqual(code, 2, main.__module__)
             self.assertIn("시험용 규칙 오류", output)
+            self.assertFalse((self.tmp / "delivery").exists())
+        prepared = context.prepare(paths.DEFAULT_INPUT_DIR, [self.single_dir])
+        self.assertIsInstance(prepared, context.Prepared)
+        self.assertEqual(len(prepared.index.items), 6)
 
     def test_broken_batch_manifest_is_a_message_not_a_traceback(self):
         """R04: 잘린 JSON·필수 키 빠짐·객체가 아닌 batch_manifest.json → 네 진입점 모두 한 줄 메시지·종료 2(종료 1은 '할 일 없음')."""

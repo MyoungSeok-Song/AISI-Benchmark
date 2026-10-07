@@ -1,8 +1,9 @@
-"""판정·집계 단계 도구가 함께 쓰는 준비 절차.
+"""판정·집계·납품 단계 도구가 함께 쓰는 준비 절차.
 
-run_judge, run_aggregate, apply_judgments는 모두 같은 것을 읽고 시작한다(prepare):
+run_judge, run_aggregate, apply_judgments, export, tools/e2e_check는 모두 같은 것을 읽고 시작한다(prepare):
 명세(코드북·분류체계) → 설정 → 판정·집계 규칙 → 입력 3종 → 배치 폴더.
 실패하면 한 줄 메시지를 출력하고 None을 돌려주며, 진입점은 종료 코드 2로 끝낸다.
+준비 절차를 바꿀 때는 여기만 고친다 — 진입점이 이 순서를 따로 베껴 두면 변경이 거기까지 닿지 않는다.
 """
 from dataclasses import dataclass
 from pathlib import Path
@@ -86,8 +87,16 @@ def report_read_error(exc):
     print(f"배치 또는 입력을 읽을 수 없습니다: {exc}")
 
 
+@dataclass(frozen=True)
+class Prepared:
+    """prepare의 결과. 입력 색인(index)은 납품 내보내기처럼 문항 전체가 필요한 진입점이 쓴다."""
+    env: Environment
+    index: InputIndex
+    views: list
+
+
 def prepare(input_dir, batch_dirs, rules_yaml=paths.AGGREGATION_RULES_YAML):
-    """진입점 공통 준비: 명세·설정·규칙 → 입력 3종·배치 폴더. 반환: (Environment, [BatchView]) — 실패하면 출력 뒤 None.
+    """진입점 공통 준비: 명세·설정·규칙 → 입력 3종·배치 폴더. 반환: Prepared(env, index, views) — 실패하면 출력 뒤 None.
 
     규칙 파일 로드 경고와 입력 안내 문구는 '주의:'로 출력한다.
     """
@@ -99,10 +108,10 @@ def prepare(input_dir, batch_dirs, rules_yaml=paths.AGGREGATION_RULES_YAML):
     for warning in env.rules.load_warnings:
         print(f"주의: {warning}")
     try:
-        _, views, notices = open_views(env, input_dir, batch_dirs)
+        index, views, notices = open_views(env, input_dir, batch_dirs)
     except READ_ERRORS as exc:
         report_read_error(exc)
         return None
     for notice in notices:
         print(f"주의: {notice}")
-    return env, views
+    return Prepared(env, index, views)

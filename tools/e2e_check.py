@@ -17,7 +17,7 @@ RUNNER_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RUNNER_DIR))
 
 from kyab_runner import csv_io, fileio, ids, judge_io, metrics, paths, validate   # noqa: E402
-from kyab_runner.context import READ_ERRORS, SETUP_ERRORS, load_environment, open_views, report_read_error, setup_error_message   # noqa: E402
+from kyab_runner.context import prepare                                          # noqa: E402
 from kyab_runner.layout import DENOMINATORS_FILE, NOTES_FILE, RESULTS_FILE        # noqa: E402
 
 EXIT_OK, EXIT_FAILED, EXIT_INVALID = 0, 1, 2
@@ -60,17 +60,10 @@ def main(argv=None):
     parser.add_argument("variant_version", help="비교용 규칙 판본(둘째 결과 폴더)")
     parser.add_argument("--input", type=Path, default=paths.DEFAULT_INPUT_DIR, help="입력 3종이 있는 폴더")
     args = parser.parse_args(argv)
-    try:
-        env = load_environment()
-    except SETUP_ERRORS as exc:
-        print(setup_error_message(exc))
+    prepared = prepare(args.input, ids.batch_dirs(args.e2e_dir))     # 진입점 공통 준비(명세·설정·규칙·입력·배치), 실패는 종료 2
+    if prepared is None:
         return EXIT_INVALID
-    batches = ids.batch_dirs(args.e2e_dir)
-    try:
-        _, views, _ = open_views(env, args.input, batches)
-    except READ_ERRORS as exc:
-        report_read_error(exc)
-        return EXIT_INVALID
+    env, views = prepared.env, prepared.views
 
     rows06, finished, blank, errors = check_judgments(env, views)
     print(f"06: {rows06}행, 완료 행 {finished}건 중 CFC 빈칸 {blank}건, 검증 오류 {errors}건")

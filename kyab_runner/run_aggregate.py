@@ -265,7 +265,7 @@ def main(argv=None):
     prepared = prepare(args.input, args.batches, args.rules)
     if prepared is None:
         return EXIT_INVALID
-    env, views = prepared
+    env, views = prepared.env, prepared.views
     rules = env.rules
     try:
         loaded, judgment_warnings = load_valid_judgments(env, views)
