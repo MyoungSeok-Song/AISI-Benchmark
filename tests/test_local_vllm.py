@@ -18,26 +18,26 @@ def completion(content, finish_reason):
 class NormalizeTest(unittest.TestCase):
     def test_success_keeps_text_and_raw(self):
         raw = completion("안녕하세요.", "stop")
-        result = _to_result(raw, 120)
+        result = _to_result(raw)
         self.assertEqual((result.response_status, result.response_text, result.finish_reason),
                          ("success", "안녕하세요.", "stop"))
         self.assertIs(result.raw_response, raw)          # 원본을 고치지 않는다
 
     def test_length_is_success(self):
-        result = _to_result(completion("잘린 응답", "length"), 1)
+        result = _to_result(completion("잘린 응답", "length"))
         self.assertEqual((result.response_status, result.finish_reason), ("success", "length"))
 
     def test_content_filter_is_blocked(self):
-        result = _to_result(completion(None, "content_filter"), 1)
+        result = _to_result(completion(None, "content_filter"))
         self.assertEqual((result.response_status, result.block_source, result.response_text),
                          ("blocked", "provider", ""))
 
     def test_blank_content_is_empty(self):
         for content in (None, "", "  \n"):
-            self.assertEqual(_to_result(completion(content, "stop"), 1).response_status, "empty")
+            self.assertEqual(_to_result(completion(content, "stop")).response_status, "empty")
 
     def test_unknown_finish_reason_becomes_other(self):
-        result = _to_result(completion("응답", "abort"), 1)
+        result = _to_result(completion("응답", "abort"))
         self.assertEqual(result.finish_reason, "other")
         self.assertIn(result.finish_reason, load_config()["finish_reasons"])
 

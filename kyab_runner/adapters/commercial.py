@@ -1,4 +1,4 @@
-"""상용 API 어댑터의 공통부: API 키, 호출 파라미터 정책, HTTP 오류 분류.
+"""상용 API 어댑터의 공통부: API 키, 호출 파라미터 정책, HTTP 오류 분류, HTTP 어댑터 공통 틀.
 
 !! 실제 호출은 API 키 + D06(유료 집행 승인) + D08(외부 전송 조건)이 모두 확인된 뒤에만 한다.
    그 전에는 config/models.yaml에서 enabled: false로 두며, 실행기가 호출을 거부한다.
@@ -21,10 +21,12 @@ API 키
 import os
 import sys
 
-from .base import Adapter, AdapterResult
+from . import http_json
+from .base import (RETRYABLE_HTTP_COMMERCIAL, Adapter, AdapterResult, connection_error_result,   # noqa: F401 (재수출)
+                   invalid_response_result, timeout_result)
+from ..vocab import RESPONSE_ERROR
 
-# 다시 보내 볼 만한 HTTP 상태: 요청 과다, 서버 쪽 일시 장애
-RETRYABLE_HTTP = (408, 409, 429, 500, 502, 503, 504, 529)
+RETRYABLE_HTTP = RETRYABLE_HTTP_COMMERCIAL          # 이 모듈의 옛 이름
 
 
 def require_api_key(model):
@@ -43,22 +45,13 @@ def sent_params(model, params):
     return {name: value for name, value in params.items() if name not in omit}
 
 
-def http_error_result(reply, latency_ms=0):
+def http_error_result(reply):
     """성공이 아닌 HTTP 응답 -> error 결과. 본문이 JSON이면 원본으로 보존한다."""
     error = reply.body.get("error") if isinstance(reply.body, dict) else None
     detail = error.get("message") if isinstance(error, dict) else None
-    return AdapterResult("error", raw_response=reply.body if isinstance(reply.body, dict) else {},
+    return AdapterResult(RESPONSE_ERROR, raw_response=reply.body if isinstance(reply.body, dict) else {},
                          error_code=f"http_{reply.status}", error_message=(detail or reply.text)[:500],
-                         retryable=reply.status in RETRYABLE_HTTP, latency_ms=latency_ms)
-
-
-def timeout_result(timeout_s):
-    return AdapterResult("timeout", error_code="timeout",
-                         error_message=f"{timeout_s}초 안에 응답 없음", retryable=True)
-
-
-def connection_error_result(exc):
-    return AdapterResult("error", error_code="connection_error", error_message=str(exc), retryable=True)
+                         retryable=reply.status in RETRYABLE_HTTP_COMMERCIAL)
 
 
 class CommercialAdapter(Adapter):
@@ -80,3 +73,49 @@ class CommercialAdapter(Adapter):
                 "api_model": self._api_model, "api_key_env": self._options["api_key_env"],
                 "omit_params": self._options.get("omit_params", []),
                 "extra_body": self._extra_body, "conversation_storage": "off"}
+
+
+class HttpCommercialAdapter(CommercialAdapter):
+    """표준 라이브러리 HTTP(http_json)로 JSON을 주고받는 상용 어댑터의 공통 틀(OpenAI·Gemini).
+
+    하위 클래스가 정하는 것: default_base_url, _endpoint(base), _headers(), build_request(messages, params),
+    _parse(raw), 필요하면 _on_http_error(reply). Anthropic은 SDK를 쓰므로 CommercialAdapter를 직접 상속한다.
+    transport는 테스트가 가짜 전송 함수를 넣는 자리다.
+    """
+
+    default_base_url = ""
+
+    def __init__(self, model, transport=http_json.post_json):
+        super().__init__(model)
+        self._transport = transport
+        self._url = self._endpoint(self._options.get("base_url", self.default_base_url).rstrip("/"))
+
+    def _endpoint(self, base):
+        raise NotImplementedError
+
+    def _headers(self):
+        raise NotImplementedError
+
+    def build_request(self, messages, params):
+        """요청 본문. 테스트가 실제 전송 내용을 확인할 수 있게 따로 둔다."""
+        raise NotImplementedError
+
+    def _parse(self, raw):
+        raise NotImplementedError
+
+    def _on_http_error(self, reply):
+        """2xx가 아닌 응답. 기본은 error(재시도 여부는 상태 코드 표). 차단으로 볼 400은 하위 클래스가 가린다."""
+        return http_error_result(reply)
+
+    def complete(self, messages, params, call_info):
+        try:
+            reply = self._transport(self._url, self._headers(), self.build_request(messages, params), self._timeout)
+        except http_json.TransportTimeout:
+            return timeout_result(self._timeout)
+        except http_json.TransportFailure as exc:
+            return connection_error_result(exc)
+        if not reply.ok:
+            return self._on_http_error(reply)
+        if not isinstance(reply.body, dict):             # 2xx인데 JSON 객체가 아님(HTML 오류 페이지 등)
+            return invalid_response_result(f"JSON 객체가 아닌 응답 본문: {reply.text[:200]!r}")
+        return self._parse(reply.body)

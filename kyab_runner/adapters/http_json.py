@@ -63,6 +63,3 @@ def post_json(url, headers, body, timeout):
                                      headers={"Content-Type": "application/json", **headers})
     return _send(request, timeout)
 
-
-def get_json(url, timeout, headers=None):
-    return _send(urllib.request.Request(url, headers=headers or {}), timeout)

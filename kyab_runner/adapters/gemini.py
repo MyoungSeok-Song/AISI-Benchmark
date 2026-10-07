@@ -11,7 +11,7 @@
   finishReason이 안전 계열(SAFETY 등)          -> blocked (provider): 출력 단계 차단
   본문 있음 (거절 문장 포함)                   -> success
   본문 없음                                   -> empty. 사고 토큰이 한도를 다 쓰면 finishReason=MAX_TOKENS
-  429·5xx                                     -> error, 재시도 대상
+  408·409·429·5xx(500·502·503·504)·529         -> error, 재시도 대상 (base.RETRYABLE_HTTP_COMMERCIAL)
 
 확인 필요 (실제 호출 전, 공식 문서·실응답으로 대조)
   * Gemini 3.8 Flash의 API 모델 이름과 API 버전 경로(v1beta 여부)
@@ -19,11 +19,8 @@
   * 사고(thinking)를 끄거나 줄이는 generationConfig.thinkingConfig 필드 — 모델 세대마다 다름.
     필요하면 models.yaml extra_generation_config에 넣는다.
 """
-import time
-
-from . import http_json
 from .base import blocked_result, normalize_finish_reason, text_result
-from .commercial import CommercialAdapter, connection_error_result, http_error_result, sent_params, timeout_result
+from .commercial import HttpCommercialAdapter, sent_params
 
 _FINISH_REASONS = {"STOP": "stop", "MAX_TOKENS": "length"}
 _BLOCK_FINISH_REASONS = ("SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "RECITATION", "IMAGE_SAFETY")
@@ -31,14 +28,15 @@ _PARAM_FIELDS = {"temperature": "temperature", "top_p": "topP", "max_output_toke
 _ROLES = {"user": "user", "assistant": "model"}
 
 
-class GeminiAdapter(CommercialAdapter):
+class GeminiAdapter(HttpCommercialAdapter):
     provider_label = "gemini generateContent"
+    default_base_url = "https://generativelanguage.googleapis.com/v1beta"
 
-    def __init__(self, model, transport=http_json.post_json):
-        super().__init__(model)
-        self._transport = transport
-        base = self._options.get("base_url", "https://generativelanguage.googleapis.com/v1beta").rstrip("/")
-        self._url = f"{base}/models/{self._api_model}:generateContent"
+    def _endpoint(self, base):
+        return f"{base}/models/{self._api_model}:generateContent"
+
+    def _headers(self):
+        return {"x-goog-api-key": self._api_key}
 
     def build_request(self, messages, params):
         generation = {_PARAM_FIELDS[name]: value for name, value in sent_params(self._model, params).items()}
@@ -51,31 +49,15 @@ class GeminiAdapter(CommercialAdapter):
             body["systemInstruction"] = {"parts": [{"text": text} for text in system]}
         return {**body, **self._extra_body}
 
-    def complete(self, messages, params, call_info):
-        began = time.monotonic()
-        try:
-            reply = self._transport(self._url, {"x-goog-api-key": self._api_key},
-                                    self.build_request(messages, params), self._timeout)
-        except http_json.TransportTimeout:
-            return timeout_result(self._timeout)
-        except http_json.TransportFailure as exc:
-            return connection_error_result(exc)
-        latency_ms = int((time.monotonic() - began) * 1000)
-        if not reply.ok:
-            return http_error_result(reply, latency_ms)
-        return self._parse(reply.body, latency_ms)
-
-    @staticmethod
-    def _parse(raw, latency_ms):
+    def _parse(self, raw):
         feedback = raw.get("promptFeedback") or {}
         if feedback.get("blockReason"):
-            return blocked_result(raw, detail=f"promptFeedback.blockReason={feedback['blockReason']}",
-                                  latency_ms=latency_ms)
+            return blocked_result(raw, detail=f"promptFeedback.blockReason={feedback['blockReason']}")
         candidate = (raw.get("candidates") or [{}])[0]
         finish = candidate.get("finishReason")
         if finish in _BLOCK_FINISH_REASONS:
-            return blocked_result(raw, detail=f"finishReason={finish}", latency_ms=latency_ms)
+            return blocked_result(raw, detail=f"finishReason={finish}")
         parts = (candidate.get("content") or {}).get("parts") or []
         # thought=true인 부분은 모델의 사고 요약이라 사용자에게 보이는 응답이 아니다.
         text = "".join(p.get("text", "") for p in parts if not p.get("thought"))
-        return text_result(raw, text, normalize_finish_reason(finish, _FINISH_REASONS), latency_ms)
+        return text_result(raw, text, normalize_finish_reason(finish, _FINISH_REASONS))

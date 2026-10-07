@@ -17,18 +17,18 @@
   stop_reason=refusal (안전 분류기가 응답을 거절)  -> blocked (provider)
   본문 있음 (모델이 쓴 거절 문장 포함)             -> success
   본문 없음                                       -> empty (stop_reason=max_tokens이면 length)
-  429·5xx·연결 오류                               -> error, 재시도 대상
+  408·409·429·5xx(500·502·503·504)·529·연결 오류    -> error, 재시도 대상 (base.RETRYABLE_HTTP_COMMERCIAL)
 
 확인 필요 (실제 호출 전)
   * stop_reason=refusal을 block_source=provider로 볼지 model로 볼지 (코드북 block_source 정의 협의)
 """
-import time
-
 import anthropic
 from anthropic import DefaultHttpxClient
 
-from .base import AdapterResult, blocked_result, normalize_finish_reason, text_result
-from .commercial import CommercialAdapter, connection_error_result, sent_params, timeout_result
+from .base import (RETRYABLE_HTTP_COMMERCIAL, AdapterResult, blocked_result, connection_error_result,
+                   normalize_finish_reason, text_result, timeout_result)
+from .commercial import CommercialAdapter, sent_params
+from ..vocab import RESPONSE_ERROR
 
 _FINISH_REASONS = {"end_turn": "stop", "stop_sequence": "stop", "max_tokens": "length", "tool_use": "tool_calls"}
 # SDK 인자로 넘길 수 없어 extra_body로 보내는 샘플링 파라미터
@@ -59,31 +59,27 @@ class AnthropicAdapter(CommercialAdapter):
         return request
 
     def complete(self, messages, params, call_info):
-        began = time.monotonic()
         try:
             message = self._client.messages.create(**self.build_request(messages, params))
         except anthropic.APITimeoutError:                 # APIConnectionError의 하위 클래스라 먼저 잡는다
             return timeout_result(self._timeout)
         except anthropic.APIConnectionError as exc:
             return connection_error_result(exc)
-        except anthropic.RateLimitError as exc:
-            return _status_error(exc, retryable=True)
-        except anthropic.APIStatusError as exc:
-            return _status_error(exc, retryable=exc.status_code >= 500 or exc.status_code in (408, 409))
-        return _parse(message.to_dict(), int((time.monotonic() - began) * 1000))
+        except anthropic.APIStatusError as exc:           # RateLimitError(429)도 이 하위 클래스다
+            return _status_error(exc, retryable=exc.status_code in RETRYABLE_HTTP_COMMERCIAL)
+        return _parse(message.to_dict())
 
 
 def _status_error(exc, retryable):
     body = exc.body if isinstance(exc.body, dict) else {}
-    return AdapterResult("error", raw_response=body, error_code=f"http_{exc.status_code}",
+    return AdapterResult(RESPONSE_ERROR, raw_response=body, error_code=f"http_{exc.status_code}",
                          error_message=str(exc.message)[:500], retryable=retryable)
 
 
-def _parse(raw, latency_ms):
+def _parse(raw):
     stop_reason = raw.get("stop_reason")
     if stop_reason == "refusal":
         details = raw.get("stop_details") or {}
-        return blocked_result(raw, detail=f"stop_reason=refusal category={details.get('category')}",
-                              latency_ms=latency_ms)
+        return blocked_result(raw, detail=f"stop_reason=refusal category={details.get('category')}")
     text = "".join(block.get("text", "") for block in raw.get("content") or [] if block.get("type") == "text")
-    return text_result(raw, text, normalize_finish_reason(stop_reason, _FINISH_REASONS), latency_ms)
+    return text_result(raw, text, normalize_finish_reason(stop_reason, _FINISH_REASONS))

@@ -17,22 +17,17 @@ models.yaml options
 """
 import json
 import socket
-import time
 import urllib.error
 import urllib.request
 from urllib.parse import urlparse
 
-from .. import paths
-from .base import Adapter, AdapterResult, blocked_result, normalize_finish_reason, text_result
+from .. import fileio, paths
+from ..vocab import RESPONSE_ERROR
+from .base import (RETRYABLE_HTTP_LOCAL, Adapter, AdapterResult, chat_completion_result, connection_error_result,
+                   invalid_response_result, timeout_result)
 
 _LOCAL_HOSTS = ("127.0.0.1", "localhost", "::1")
 SERVER_INFO_FILE = paths.VLLM_SERVER_INFO                           # tools/vllm_server.py가 기록
-
-# 공급자 finish_reason -> 정규화 어휘 (config finish_reasons). 목록에 없으면 other.
-_FINISH_REASONS = {"stop": "stop", "length": "length", "content_filter": "content_filter",
-                   "tool_calls": "tool_calls"}
-# 다시 보내 볼 만한 HTTP 상태: 요청 과다·서버 쪽 일시 장애
-_RETRYABLE_HTTP = (408, 429, 500, 502, 503, 504)
 
 
 class LocalVllmAdapter(Adapter):
@@ -74,7 +69,7 @@ class LocalVllmAdapter(Adapter):
         except (urllib.error.URLError, OSError, ValueError):
             info["vllm_version"] = None
         if SERVER_INFO_FILE.exists():                 # 기동 명령·dtype·GPU
-            info["server"] = json.loads(SERVER_INFO_FILE.read_text(encoding="utf-8"))
+            info["server"] = fileio.read_json(SERVER_INFO_FILE)
         return info
 
     # ── 호출 ────────────────────────────────────────────────────────────
@@ -82,24 +77,23 @@ class LocalVllmAdapter(Adapter):
         body = {"model": self._served_name, "messages": messages,
                 "temperature": params["temperature"], "top_p": params["top_p"],
                 "max_tokens": params["max_output_tokens"], **self._extra_body}
-        began = time.monotonic()
+        # http_json(상용 어댑터의 전송부)을 쓰지 않는다: 오류 메시지·원본(05 error_message·raw_response_json)의 표기가
+        # 지금 기록과 달라진다(str(URLError) 대 str(exc.reason), HTTP 오류 본문의 보존 방식).
         try:
             raw = self._post("/chat/completions", body)
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", "replace")[:500]
-            return AdapterResult("error", error_code=f"http_{exc.code}", error_message=detail,
-                                 retryable=exc.code in _RETRYABLE_HTTP)
+            return AdapterResult(RESPONSE_ERROR, error_code=f"http_{exc.code}", error_message=detail,
+                                 retryable=exc.code in RETRYABLE_HTTP_LOCAL)
         except (socket.timeout, TimeoutError):
-            return AdapterResult("timeout", error_code="timeout",
-                                 error_message=f"{self._timeout}초 안에 응답 없음", retryable=True)
+            return timeout_result(self._timeout)
         except (urllib.error.URLError, OSError) as exc:
             if isinstance(getattr(exc, "reason", None), (socket.timeout, TimeoutError)):
-                return AdapterResult("timeout", error_code="timeout",
-                                     error_message=f"{self._timeout}초 안에 응답 없음", retryable=True)
-            return AdapterResult("error", error_code="connection_error", error_message=str(exc), retryable=True)
+                return timeout_result(self._timeout)
+            return connection_error_result(exc)
         except ValueError as exc:                     # 본문이 JSON이 아님
-            return AdapterResult("error", error_code="invalid_response", error_message=str(exc))
-        return _to_result(raw, int((time.monotonic() - began) * 1000))
+            return invalid_response_result(exc)
+        return _to_result(raw)
 
     # ── HTTP ────────────────────────────────────────────────────────────
     def _get(self, path):
@@ -113,11 +107,6 @@ class LocalVllmAdapter(Adapter):
             return json.load(response)
 
 
-def _to_result(raw, latency_ms):
-    """chat completion 원본 응답 -> AdapterResult. 원본은 손대지 않고 그대로 보존한다."""
-    choice = (raw.get("choices") or [{}])[0]
-    finish = choice.get("finish_reason")
-    if finish == "content_filter":
-        return blocked_result(raw, latency_ms=latency_ms)
-    text = (choice.get("message") or {}).get("content") or ""
-    return text_result(raw, text, normalize_finish_reason(finish, _FINISH_REASONS), latency_ms)
+def _to_result(raw):
+    """chat completion 원본 응답 -> AdapterResult (base.chat_completion_result). 원본은 손대지 않고 그대로 보존한다."""
+    return chat_completion_result(raw)
