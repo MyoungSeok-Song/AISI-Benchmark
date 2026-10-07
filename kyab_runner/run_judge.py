@@ -3,7 +3,7 @@
 배치 폴더마다
   1. 판정 틀의 행(성공 응답마다 turn, 다중턴 실행마다 conversation)을 만든다.
   2. 행마다 판정 입력을 만들어 judge_inputs.jsonl에 쓴다(내부 중간 산출물).
-  3. 판정기를 부르고, 사람 재채점 표본(20%, 시드 고정)을 표시한다.
+  3. 판정기를 부르고, 사람 재채점 표본(규칙 파일 human_review_sample.rate 비율, 시드 고정)을 표시한다.
   4. 기존 행과 새 행을 함께 검증한 뒤, 문제가 없을 때만 06_judgments.csv에 덧붙인다.
   5. judge_manifest.json과 보조 로그에 무엇으로 판정했는지 남긴다.
 
@@ -26,7 +26,7 @@ from pathlib import Path
 from . import csv_io, fileio, ids, judge_io, paths, validate
 from .context import prepare
 from .exitcodes import EXIT_INVALID, EXIT_NOTHING, EXIT_OK                   # noqa: F401 (테스트가 이 모듈 이름으로 쓴다)
-from .judge_io import MOCK_WARNING, foreign_judgment_ids                    # noqa: F401 (옛 위치 재수출)
+from .judge_io import MOCK_WARNING                                         # noqa: F401 (옛 위치 재수출)
 from .judges import create_judge
 from .layout import JUDGE_MANIFEST_FILE                                     # noqa: F401 (옛 위치 재수출)
 from .vocab import REVIEW_NOT_SELECTED, REVIEW_SELECTED_PENDING, VERDICT_FAIL, VERDICT_INCONCLUSIVE, VERDICT_PASS
@@ -83,12 +83,17 @@ def report_blinding(view, rules):
     return found
 
 
+def _prepare_inputs(view, rules):
+    """판정 틀 행을 만들고 판정 입력(judge_inputs.jsonl)을 쓴다. 출력은 하지 않는다. 반환: (틀 행, 판정 입력)."""
+    rows = judge_io.template_rows(view)
+    return rows, judge_io.write_judge_inputs(view, rules, rows)
+
+
 def judge_batch(env, view, entry, judge, allocator):
     """배치 1개를 판정한다. 반환: 새로 쓴 행 수. 검증 오류면 아무것도 쓰지 않고 None."""
     codebook, rules, batch = env.codebook, env.rules, view.batch
-    rows = judge_io.template_rows(view)
-    inputs = judge_io.write_judge_inputs(view, rules, rows)
-    report_blinding(view, rules)
+    rows, inputs = _prepare_inputs(view, rules)
+    self_identifying = report_blinding(view, rules)
 
     existing = judge_io.load_judgments(codebook, batch.dir)
     done = {(judge_io.judgment_key(r), r["tag_revision"]) for r in existing if r["judge_id"] == entry.judge_id}
@@ -108,12 +113,11 @@ def judge_batch(env, view, entry, judge, allocator):
     print(f"{batch.run_batch_id}: 판정 자리 {len(rows)}개, 새 판정 {len(new_rows)}개, 건너뜀 {len(rows) - len(new_rows)}개")
     if new_rows:
         print(f"  새 판정 verdict 분포 — " + describe_verdicts(new_rows))
-    if report(judge_io.validate_judgments(codebook, rules, view, existing + new_rows,
-                                          foreign_judgment_ids(codebook, view))):
+    if report(judge_io.validate_batch(codebook, rules, view, existing + new_rows)):
         return None
     if new_rows:
         csv_io.append_rows(codebook, judge_io.TABLE, batch.dir / ids.JUDGMENTS_FILE, new_rows)
-        _record_judge_run(view, entry, judge, rules, rows, new_rows, sample)
+        _record_judge_run(view, entry, judge, rules, rows, new_rows, sample, self_identifying)
     return len(new_rows)
 
 
@@ -134,8 +138,11 @@ def describe_verdicts(rows):
     return "; ".join(parts) + (f"; 보류 {inconclusive}/{total} = {inconclusive / total:.3f}" if total else "")
 
 
-def _record_judge_run(view, entry, judge, rules, rows, new_rows, sample):
-    """무엇으로 판정했는지 judge_manifest.json(판정 실행마다 한 항목)과 보조 로그에 남긴다."""
+def _record_judge_run(view, entry, judge, rules, rows, new_rows, sample, self_identifying):
+    """무엇으로 판정했는지 judge_manifest.json(판정 실행마다 한 항목)과 보조 로그에 남긴다.
+
+    self_identifying: report_blinding이 이미 찾은 {response_id: [패턴]} (응답 전체를 다시 훑지 않는다).
+    """
     batch = view.batch
     inputs_digest = fileio.sha256_file(batch.dir / judge_io.JUDGE_INPUTS_FILE)
     record = {
@@ -153,7 +160,7 @@ def _record_judge_run(view, entry, judge, rules, rows, new_rows, sample):
         "rules_sha256": rules.sha256,
         "judge_inputs_file": judge_io.JUDGE_INPUTS_FILE, "judge_inputs_sha256": inputs_digest,
         # 눈가림 점검: 응답 본문이 스스로 모델명을 말한 것으로 보이는 응답 (원문은 고치지 않음)
-        "self_identifying_responses": judge_io.self_identifying_responses(view, rules),
+        "self_identifying_responses": self_identifying,
     }
     path = batch.dir / JUDGE_MANIFEST_FILE
     manifest = fileio.read_json(path) if path.exists() else {"judge_runs": []}
@@ -172,7 +179,7 @@ def main(argv=None):
 
     if args.inputs_only:
         for view in views:
-            inputs = judge_io.write_judge_inputs(view, env.rules, judge_io.template_rows(view))
+            _, inputs = _prepare_inputs(view, env.rules)
             print(f"{view.batch.run_batch_id}: 판정 입력 {len(inputs)}건 → {view.batch.dir / judge_io.JUDGE_INPUTS_FILE}")
             report_blinding(view, env.rules)
         return EXIT_OK
@@ -218,8 +225,7 @@ def validate_only(env, views):
         if not judgments:
             codes.append(EXIT_NOTHING)
             continue
-        errors = report(judge_io.validate_judgments(env.codebook, env.rules, view, judgments,
-                                                    foreign_judgment_ids(env.codebook, view)))
+        errors = report(judge_io.validate_batch(env.codebook, env.rules, view, judgments))
         codes.append(EXIT_INVALID if errors else EXIT_OK)
     return max(codes)
 

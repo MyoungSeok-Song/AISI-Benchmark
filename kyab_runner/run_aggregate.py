@@ -31,7 +31,7 @@ from pathlib import Path
 from . import clock, csv_io, fileio, ids, judge_io, metrics, paths, validate
 from .context import READ_ERRORS, prepare, report_read_error
 from .exitcodes import EXIT_INVALID, EXIT_NOTHING, EXIT_OK                   # noqa: F401 (테스트가 이 모듈 이름으로 쓴다)
-from .judge_io import MOCK_WARNING, foreign_judgment_ids
+from .judge_io import MOCK_WARNING
 from .layout import DENOMINATORS_FILE, NOTES_FILE                           # noqa: F401 (테스트가 이 모듈 이름으로 쓴다)
 from .validate import CONTROL_TARGET_FIELD
 
@@ -84,8 +84,7 @@ def load_valid_judgments(env, views):
             print(f"{view.batch.run_batch_id}: 06_judgments.csv가 없거나 비어 있습니다.")
             failed = True
             continue
-        issues = judge_io.validate_judgments(env.codebook, env.rules, view, judgments,
-                                             foreign_judgment_ids(env.codebook, view))
+        issues = judge_io.validate_batch(env.codebook, env.rules, view, judgments)
         errors = validate.errors_of(issues)
         for issue in errors:
             print(issue)

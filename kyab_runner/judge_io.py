@@ -5,9 +5,10 @@
   1. 판정 틀        template_rows / write_template    성공 응답마다 turn 행, 다중턴 실행마다 conversation 행
   2. 판정 입력      build_judge_inputs / write_judge_inputs   틀의 행마다 판정기가 볼 묶음 (judge_inputs.jsonl)
                     self_identifying_responses        응답이 스스로 모델명을 말한 경우 찾기(눈가림 점검)
-  3. 사람 표본      select_human_sample               자동 판정의 20%를 시드 고정으로 선정
-  4. 06 검증        validate_judgments                코드북 행 검사 + 교차 규칙(rule_*)
-  5. 주 판정 집합   select_primary                    집계와 사후 산출이 기준으로 삼는 판정 행
+  3. 사람 표본      select_human_sample               규칙 파일 human_review_sample.rate 비율(표 Ⅳ-20)을 시드 고정으로 선정
+  4. 06 검증        validate_judgments / validate_batch   코드북 행 검사 + 교차 규칙(rule_*) (+ 다른 배치와의 ID 고유)
+                    load_judgments · foreign_judgment_ids · legacy_hint
+  5. 주 판정 집합   select_primary / select_auto / select_human / latest_rows   집계와 사후 산출이 기준으로 삼는 판정 행
   6. 사후 산출      first_turns                       04_runs의 first_fail_turn · first_cfc_turn
 
 판정기를 부르는 일은 여기에 없다(run_judge.py와 judges/). 코드북에 없는 결정은 모두
@@ -30,6 +31,7 @@ from .ids import judgment_ids_by_batch
 from .issues import IssueCollector, check_fields, check_unique
 from .layout import JUDGE_INPUTS_FILE, JUDGMENTS_FILE, JUDGMENTS_TEMPLATE_FILE   # noqa: F401 (재수출)
 from .records import BatchView
+from .validate import item_key, _item_label
 from .vocab import (JUDGE_STATUS_ADJUDICATED, JUDGE_STATUS_COMPLETED, JUDGE_STATUS_FAILED, JUDGE_TYPE_HUMAN, MODE_MULTI,
                     RESPONSE_SUCCESS, REVIEW_COMPLETED, SCOPE_CONVERSATION, SCOPE_TURN, TAG_CURRENT, VERDICT_FAIL,
                     VERDICT_INCONCLUSIVE)
@@ -37,6 +39,7 @@ from .vocab import (JUDGE_STATUS_ADJUDICATED, JUDGE_STATUS_COMPLETED, JUDGE_STAT
 TABLE = "06_judgments"
 TEMPLATE_FILE = JUDGMENTS_TEMPLATE_FILE             # 이 모듈의 옛 이름(테스트가 쓴다)
 MOCK_WARNING = "모의 판정기 결과입니다. 실제 채점이 아니므로 본평가·보고에 쓸 수 없습니다."
+LEGACY_BLANK_CFC = "J1 옛 형식(빈 CFC)"      # 2026-10-02 가정 J1(미발생=빈값)로 기록된 옛 판정 행을 가리키는 표지
 
 
 def judgment_key(row):
@@ -126,7 +129,7 @@ def build_judge_inputs(view, rules, rows):
         run = view.run_of(response)
         target = view.turn_index(response)
         turns = [{"turn_index": int(t["turn_index"]), **_parsed(codebook, "03_prompts", t, spec["turn_fields"])}
-                 for t in view.index.turns[(run["item_id"], run["item_version"])] if int(t["turn_index"]) <= target]
+                 for t in view.index.turns[item_key(run)] if int(t["turn_index"]) <= target]
         messages = json.loads(response["request_messages_json"])
         messages.append({"role": "assistant", "content": response["response_text"]})
         inputs.append({
@@ -195,11 +198,11 @@ def rule_tag_revision(out, view, row, run):
     코드북 memo: 태그가 바뀌어도 기존 판정 행은 고치지 않는다. 그래서 옛 판본으로 한 판정이
     남아 있는 것은 정상이고, 02에 없는 판본을 가리킬 때만 오류다.
     """
-    revisions = view.index.tag_revisions[(run["item_id"], run["item_version"])]
+    revisions = view.index.tag_revisions[item_key(run)]
     current = view.current_tag_of(run)["tag_revision"]
     if row["tag_revision"] not in revisions:
         out.error(TABLE, _row_label(row), "tag_revision",
-                  f"02_item_tags에 없는 태그 판본 {row['tag_revision']!r} ({run['item_id']}@{run['item_version']})")
+                  f"02_item_tags에 없는 태그 판본 {row['tag_revision']!r} ({_item_label(item_key(run))})")
     elif row["tag_revision"] != current:
         out.warning(TABLE, _row_label(row), "tag_revision",
                     f"현재 태그 판본({current})이 아님 — 주 판정 집합에서 제외된다")
@@ -285,9 +288,6 @@ def blank_allowed_fields(rules, item, scope):
     return allowed
 
 
-LEGACY_BLANK_CFC = "J1 옛 형식(빈 CFC)"      # 2026-10-02 가정 J1(미발생=빈값)로 기록된 옛 판정 행을 가리키는 표지
-
-
 def rule_outcome_required(out, rules, row):
     """가정 J4: 판정이 끝난 행(completed·adjudicated)에는 verdict·over_refusal·referral_present·CFC가 필수.
 
@@ -300,16 +300,6 @@ def rule_outcome_required(out, rules, row):
             hint = (f" — 치명적 실패가 없으면 {rules.none_token}. 빈칸이면 {LEGACY_BLANK_CFC}일 수 있음"
                     if field == "critical_failure_code" else "")
             out.error(TABLE, _row_label(row), field, f"필수인데 비어 있음 (judge_status={row['judge_status']}){hint}")
-
-
-def legacy_hint(issues):
-    """빈 CFC(옛 형식) 오류가 있으면 재생성 안내 한 줄, 없으면 빈 문자열."""
-    count = sum(1 for i in issues if i.level == "error" and LEGACY_BLANK_CFC in i.message)
-    if not count:
-        return ""
-    return (f"{LEGACY_BLANK_CFC} 행 {count}개: 2026-10-05 회신 ③ 전의 모의 판정일 수 있습니다(모의 판정만 있는 배치는 README "
-            "'옛 판정 기록 다시 만들기' 절차 — 04 백업 복원 → 06·judge_manifest 정리 → 다시 판정). 실제 판정기의 행이면 "
-            "판정기가 CFC를 빠뜨린 것이므로 판정기 쪽을 고쳐 다시 판정하세요.")
 
 
 def rule_blank_allowed(out, rules, view, row, run):
@@ -364,6 +354,21 @@ def validate_judgments(codebook, rules, view, judgments, foreign_ids=()):
         out.warning(TABLE, view.batch.run_batch_id, "judge_id",
                     f"본평가에 쓸 수 없는 판정기(모의)의 행 {mock_rows}개 — 집계는 --allow-mock-judge가 있어야 한다")
     return out.issues
+
+
+def validate_batch(codebook, rules, view, judgments):
+    """validate_judgments + 같은 출력 루트의 다른 배치와의 judgment_id 전역 고유 검사. 판정·집계·apply가 같은 검사를 쓴다."""
+    return validate_judgments(codebook, rules, view, judgments, foreign_judgment_ids(codebook, view))
+
+
+def legacy_hint(issues):
+    """빈 CFC(옛 형식) 오류가 있으면 재생성 안내 한 줄, 없으면 빈 문자열."""
+    count = sum(1 for i in issues if i.level == "error" and LEGACY_BLANK_CFC in i.message)
+    if not count:
+        return ""
+    return (f"{LEGACY_BLANK_CFC} 행 {count}개: 2026-10-05 회신 ③ 전의 모의 판정일 수 있습니다(모의 판정만 있는 배치는 README "
+            "'옛 판정 기록 다시 만들기' 절차 — 04 백업 복원 → 06·judge_manifest 정리 → 다시 판정). 실제 판정기의 행이면 "
+            "판정기가 CFC를 빠뜨린 것이므로 판정기 쪽을 고쳐 다시 판정하세요.")
 
 
 # ── 5. 주 판정 집합 ─────────────────────────────────────────────────────

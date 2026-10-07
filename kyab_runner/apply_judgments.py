@@ -23,7 +23,6 @@ from pathlib import Path
 from . import csv_io, judge_io, paths, validate
 from .context import prepare
 from .exitcodes import EXIT_INVALID, EXIT_OK
-from .judge_io import foreign_judgment_ids
 from .records import RUNNER_STAGES, RUNS_FILE
 from .vocab import MODE_MULTI, SCOPE_TURN, VERDICT_INCONCLUSIVE
 
@@ -47,8 +46,7 @@ def plan(env, view):
     judgments = judge_io.load_judgments(env.codebook, batch.dir)
     if not judgments:
         return None, ["06_judgments.csv가 없거나 비어 있음"]
-    issues = judge_io.validate_judgments(env.codebook, env.rules, view, judgments,
-                                         foreign_judgment_ids(env.codebook, view))
+    issues = judge_io.validate_batch(env.codebook, env.rules, view, judgments)
     errors = validate.errors_of(issues)
     if errors:
         reasons.append(f"06 검증 오류 {len(errors)}건 (예: {errors[0]})")
