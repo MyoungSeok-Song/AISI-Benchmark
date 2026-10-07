@@ -4,7 +4,7 @@ import shutil
 
 from test_judge_io import ENV, RULES, JudgedTestCase
 
-from kyab_runner import csv_io, export, fileio, run_multiturn, run_single            # noqa: E402
+from kyab_runner import csv_io, export, fileio, ids, run_multiturn, run_single       # noqa: E402
 from kyab_runner.context import open_views                                         # noqa: E402
 from kyab_runner.records import InputIndex                                         # noqa: E402
 from test_runner import CODEBOOK, FAILURE_PLAN, TAXONOMY                           # noqa: E402
@@ -339,3 +339,53 @@ class LayoutTest(ExportTestCase):
         self.assertFalse(export.cells_equal(spec, '["A3.01"]', '["A3.02"]'))
         self.assertIsNone(export.to_value(CODEBOOK.field("04_runs", "first_fail_turn"), ""))
         self.assertEqual(export.to_value(CODEBOOK.field("03_prompts", "context_text"), ""), "")
+
+
+class ErrorPathTest(ExportTestCase):
+    """내보내기 오류 경로(export-03·04·09·14·15): traceback 없이 종료 2, 반쪽 폴더를 남기지 않음."""
+
+    def test_missing_batch_folder_is_a_batch_error(self):
+        code, output = self.run_export("--allow-mock-judge", batches=[self.tmp / "RBATCH-20260101-009"])
+        self.assertEqual(code, 2)
+        self.assertIn("배치 또는 입력을 읽을 수 없습니다", output)
+        self.assertNotIn("명세·설정", output)
+
+    def test_broken_06_header_is_refused(self):
+        path = self.single_dir / ids.JUDGMENTS_FILE
+        path.write_bytes(path.read_bytes().replace(b"judgment_id", b"judgmentid", 1))
+        code, output = self.run_export("--allow-mock-judge")
+        self.assertEqual((code, "배치 기록을 읽을 수 없습니다" in output), (2, True))
+        self.assertFalse(self.export_dir.exists())
+
+    def test_duplicate_batches_and_bad_model_id_are_refused_before_writing(self):
+        code, output = self.run_export("--allow-mock-judge", batches=[self.single_dir, self.single_dir])
+        self.assertEqual((code, "겹치는 배치" in output), (2, True))
+        self.assertFalse(self.export_dir.exists())
+        rows = self.table(self.single_dir, "04_runs")
+        for row in rows:
+            row["model_id"] = "org/model"
+        csv_io.rewrite_table(CODEBOOK, "04_runs", self.single_dir / "04_runs.csv", rows)
+        code, output = self.run_export("--allow-mock-judge", batches=[self.single_dir])
+        self.assertEqual((code, "파일 이름으로 쓸 수 없는" in output), (2, True))
+        self.assertFalse(self.export_dir.exists())
+
+    def test_any_failure_during_writing_removes_the_folder(self):
+        from unittest import mock
+        index, views, _ = self.views()
+        with mock.patch.object(export, "_git_state", side_effect=RuntimeError("git down")):
+            with self.assertRaises(RuntimeError):
+                export.export(ENV, index, views, self.export_dir, None, True)
+        self.assertFalse(self.export_dir.exists())
+
+    def test_missing_results_folder_is_warned(self):
+        code, output = self.run_export("--allow-mock-judge", "--results", str(self.tmp / "RESULTS-NOPE"))
+        self.assertEqual(code, 0, output)
+        self.assertIn("주의: --results 폴더", output)
+        self.assertIn("폴더 없음", output)
+
+    def test_registry_shape_errors(self):
+        bad = self.tmp / "sources_bad.yaml"
+        for text in ("- 1\n", "sources: [1]\n", "sources:\n  CAREBench: 3\n", "sources:\n  CAREBench: [\n"):
+            bad.write_text(text, encoding="utf-8")
+            with self.assertRaises(export.SourcesRegistryError):
+                export.load_sources_registry(bad)

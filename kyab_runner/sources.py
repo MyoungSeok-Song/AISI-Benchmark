@@ -26,9 +26,13 @@ def load_sources_registry(path=paths.SOURCES_YAML):
     if not path.exists():
         return {}
     raw = load_yaml(path, SourcesRegistryError) or {}
+    if not isinstance(raw, dict) or not isinstance(raw.get("sources", {}), dict):
+        raise SourcesRegistryError(f"{path.name}: 최상위와 sources는 매핑(키: 값)이어야 합니다")
     registry = raw.get("sources") or {}
     for name, entry in registry.items():
-        missing = [k for k in SOURCE_REGISTRY_KEYS if not (entry or {}).get(k)]
+        if not isinstance(entry, dict):
+            raise SourcesRegistryError(f"{path.name} {name}: 매핑(키: 값)이어야 합니다 (현재 {entry!r})")
+        missing = [k for k in SOURCE_REGISTRY_KEYS if not entry.get(k)]
         if missing:
             raise SourcesRegistryError(f"{path.name} {name}: 빈 항목 {missing}")
         if not re.fullmatch(r"[0-9a-f]{64}", str(entry["sha256"])):

@@ -23,7 +23,7 @@ from pathlib import Path
 
 from . import codebook as codebook_module
 from . import csv_io, fileio, judge_io, paths, provenance
-from .context import SETUP_ERRORS, RecordsError, load_environment, open_views, report_read_error, setup_error_message
+from .context import READ_ERRORS, SETUP_ERRORS, load_environment, open_views, report_read_error, setup_error_message
 from .exitcodes import EXIT_INVALID, EXIT_OK
 from .layout import (DELIVERY_ITEMS_FILE, DELIVERY_JUDGMENTS_DIR, DELIVERY_MANIFEST_FILE, DELIVERY_RESPONSES_DIR,
                      DELIVERY_RESULTS_DIR, DELIVERY_SCHEMA_DIR, DELIVERY_SOURCES_FILE, RESULTS_FOLDER_FILES)
@@ -113,6 +113,8 @@ WARNING_PATTERNS = {
     "email": re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"),
 }
 MOCK_JUDGE_WARNING = "모의 판정기 결과가 포함돼 있어 본평가·보고에 쓸 수 없습니다."
+# model_id가 파일 이름(responses/<model_id>.jsonl)이 되므로 경로 구분자 등을 막는다. 등록 모델 코드는 모두 여기에 맞는다(파일 체계 규칙, 설정 아님)
+MODEL_FILE_STEM = re.compile(r"[A-Za-z0-9._-]+")
 
 
 class ExportError(Exception):
@@ -429,7 +431,33 @@ def _preflight(env, views, out_dir, allow_mock_judge):
     mixed = {m: dict(c) for m, c in combos.items() if len(c) > 1}
     if mixed:
         raise ExportError(f"같은 모델에 실행 조건이 섞여 있습니다 {mixed} — 한도가 다른 배치는 따로 내보내세요")
+    bad_models = sorted({m for m in combos if not MODEL_FILE_STEM.fullmatch(m)})
+    if bad_models:
+        raise ExportError(f"model_id가 파일 이름으로 쓸 수 없는 값입니다 {bad_models} (허용: 영문·숫자·._-)")
+    _check_unique_ids(views, judgments_by_batch)
     return judgments_by_batch, mock_judges
+
+
+def _check_unique_ids(views, judgments_by_batch):
+    """납품 묶음 안에서 run_id·response_id·judgment_id가 겹치면 거부한다.
+
+    ID는 출력 루트 하나 안에서만 고유하므로(ids.py) 다른 루트의 배치를 섞거나 같은 배치를 두 번 주면 겹친다. 쓰기 전에 잡는다.
+    """
+    seen = {"run_id": defaultdict(list), "response_id": defaultdict(list), "judgment_id": defaultdict(list)}
+    for view in views:
+        name = view.batch.run_batch_id
+        for run_id in view.runs:
+            seen["run_id"][run_id].append(name)
+        for response_id in view.responses:
+            seen["response_id"][response_id].append(name)
+        for row in judgments_by_batch[name]:
+            seen["judgment_id"][row["judgment_id"]].append(name)
+    for kind, by_id in seen.items():
+        duplicates = {i: names for i, names in by_id.items() if len(names) > 1}
+        if duplicates:
+            sample = "; ".join(f"{i} ({', '.join(names)})" for i, names in list(duplicates.items())[:5])
+            raise ExportError(f"{kind}가 겹치는 배치를 함께 내보낼 수 없습니다 {len(duplicates)}건 (예: {sample}) — "
+                              "같은 배치를 두 번 주었거나 다른 출력 루트의 배치가 섞였습니다")
 
 
 def _item_records(codebook, index):
@@ -524,9 +552,10 @@ def _build_manifest(env, index, views, records, mock_judges, copied, warnings, n
 def export(env, index, views, out_dir, results_dir=None, allow_mock_judge=False):
     """CSV 기록 -> 납품 폴더. 반환: manifest dict. 안전장치에 걸리면 ExportError.
 
-    순서가 중요하다: ① 안전장치와 원천 등록부 읽기는 파일을 쓰기 전에(거부되면 아무것도 남지 않는다) ② items → responses·
-    judgments → results → schema → sources ③ 비밀값 검사(거부·삭제) ④ 파일 목록(manifest.json이 생기기 전에) ⑤ manifest →
-    manifest에만 있는 값까지 비밀값 검사.
+    순서가 중요하다: ① 안전장치(06 검증·모의 판정·조건 섞임·ID 중복·model_id)와 원천 등록부 읽기는 파일을 쓰기 전에
+    (거부되면 폴더를 만들지 않는다) ② items → responses·judgments → results → schema → sources ③ 비밀값 검사(거부)
+    ④ 파일 목록(manifest.json이 생기기 전에) ⑤ manifest → manifest에만 있는 값까지 비밀값 검사.
+    쓰기 도중 어떤 예외가 나도 출력 폴더를 지운다. 스키마·왕복 검증 실패(main)는 원인을 보도록 남긴다.
     """
     codebook, rules = env.codebook, env.rules
     out_dir = Path(out_dir)
@@ -536,27 +565,29 @@ def export(env, index, views, out_dir, results_dir=None, allow_mock_judge=False)
     notices = [f"sources.json: {w}" for w in sources["warnings"]]
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    fileio.write_jsonl(out_dir / ITEMS_FILE, items)
-    records = _run_records(codebook, rules, views, judgments_by_batch)
-    responses_by_model, judgments_by_model = records[0], records[1]
-    for model_id, model_records in responses_by_model.items():
-        fileio.write_jsonl(out_dir / DELIVERY_RESPONSES_DIR / f"{model_id}.jsonl", model_records)
-    for model_id, model_records in judgments_by_model.items():
-        fileio.write_jsonl(out_dir / DELIVERY_JUDGMENTS_DIR / f"{model_id}.jsonl", model_records)
-    copied = _copy_results(results_dir, out_dir) if results_dir is not None else []
-    _write_schemas(out_dir, env)
-    fileio.write_json(out_dir / SOURCES_FILE, sources)
+    try:                                                    # 쓰기 도중 어떤 예외든 반쪽 납품 폴더를 남기지 않는다(비밀값 거부 포함)
+        fileio.write_jsonl(out_dir / ITEMS_FILE, items)
+        records = _run_records(codebook, rules, views, judgments_by_batch)
+        responses_by_model, judgments_by_model = records[0], records[1]
+        for model_id, model_records in responses_by_model.items():
+            fileio.write_jsonl(out_dir / DELIVERY_RESPONSES_DIR / f"{model_id}.jsonl", model_records)
+        for model_id, model_records in judgments_by_model.items():
+            fileio.write_jsonl(out_dir / DELIVERY_JUDGMENTS_DIR / f"{model_id}.jsonl", model_records)
+        copied = _copy_results(results_dir, out_dir) if results_dir is not None else []
+        _write_schemas(out_dir, env)
+        fileio.write_json(out_dir / SOURCES_FILE, sources)
 
-    hits = find_secrets(out_dir)                            # 키 패턴은 거부, 이메일은 경고(manifest에 건수·위치)
-    if hits:
-        shutil.rmtree(out_dir)
-        raise ExportError("비밀값으로 보이는 문자열이 있어 출력을 지웠습니다: " + "; ".join(f"{f} {n} {ln}행" for f, n, ln in hits[:5]))
-    warnings = find_patterns(out_dir, WARNING_PATTERNS)
-    manifest = _build_manifest(env, index, views, records, mock_judges, copied, warnings, notices, _file_inventory(out_dir))
-    fileio.write_json(out_dir / MANIFEST_FILE, manifest)
-    if find_secrets(out_dir):                              # 시스템 프롬프트 원문 등 manifest에만 있는 값도 훑는다
-        shutil.rmtree(out_dir)
-        raise ExportError("manifest에 비밀값으로 보이는 문자열이 있어 출력을 지웠습니다")
+        hits = find_secrets(out_dir)                        # 키 패턴은 거부, 이메일은 경고(manifest에 건수·위치)
+        if hits:
+            raise ExportError("비밀값으로 보이는 문자열이 있어 출력을 지웠습니다: " + "; ".join(f"{f} {n} {ln}행" for f, n, ln in hits[:5]))
+        warnings = find_patterns(out_dir, WARNING_PATTERNS)
+        manifest = _build_manifest(env, index, views, records, mock_judges, copied, warnings, notices, _file_inventory(out_dir))
+        fileio.write_json(out_dir / MANIFEST_FILE, manifest)
+        if find_secrets(out_dir):                          # 시스템 프롬프트 원문 등 manifest에만 있는 값도 훑는다
+            raise ExportError("manifest에 비밀값으로 보이는 문자열이 있어 출력을 지웠습니다")
+    except BaseException:
+        shutil.rmtree(out_dir, ignore_errors=True)
+        raise
     return manifest
 
 
@@ -715,11 +746,14 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         env = load_environment()
-        index, views, notices = open_views(env, args.input, args.batches)
     except SETUP_ERRORS as exc:
         print(setup_error_message(exc))
         return EXIT_INVALID
-    except (csv_io.CsvFormatError, RecordsError) as exc:
+    for warning in env.rules.load_warnings:
+        print(f"주의: {warning}")
+    try:
+        index, views, notices = open_views(env, args.input, args.batches)
+    except READ_ERRORS as exc:                    # 배치 폴더·입력 문제는 명세 오류와 구분해 알린다
         report_read_error(exc)
         return EXIT_INVALID
     for notice in notices:
@@ -729,8 +763,16 @@ def main(argv=None):
     except (ExportError, SourcesRegistryError) as exc:
         print(f"내보내기 거부: {exc}")
         return EXIT_INVALID
+    except csv_io.CsvFormatError as exc:          # 06_judgments.csv 머리글이 깨진 배치
+        print(f"내보내기 거부: 배치 기록을 읽을 수 없습니다: {exc}")
+        return EXIT_INVALID
     for notice in manifest["warnings"]:
         print(f"주의: {notice}")
+    if args.results is not None:
+        missing = [name for name in RESULTS_FOLDER_FILES if name not in manifest["results_copied"]]
+        if missing:
+            where = "폴더 없음" if not Path(args.results).is_dir() else "없는 파일"
+            print(f"주의: --results 폴더 {args.results}에 {where} {missing} — 복사하지 않았습니다")
     if manifest["mock_judge_used"]:
         print(f"주의: {manifest['warning']}")
     if manifest["pattern_warnings"]["count"]:
