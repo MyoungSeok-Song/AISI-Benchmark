@@ -1,8 +1,8 @@
 """코드북 명세 로드와 값 검사.
 
-명세의 출처는 두 파일뿐이다.
-  schema/codebook_v0.2.json          코드북 xlsx 추출본 (tools/extract_codebook.py)
-  schema/overlay_v0.3_confirmed.yaml v0.3 xlsx가 오기 전까지의 확정·가정 변경
+명세의 출처는 둘뿐이다.
+  spec/codebook_data.py              코드북 xlsx 추출본(자동 생성 모듈, tools/extract_codebook.py)
+  schema/overlay_v0.3_confirmed.yaml v0.3 xlsx가 오기 전까지의 확정·가정 변경(사람이 쓰는 yaml)
 
 필드 이름·순서·허용값·정규식을 코드에 적지 않는다. 코드북이 바뀌면 추출만 다시 한다.
 
@@ -19,6 +19,7 @@ from datetime import date, datetime
 import yaml
 
 from . import paths
+from .spec import codebook_data
 
 # ── 값 종류 ─────────────────────────────────────────────────────────────
 # 코드북 '들어갈 수 있는 값·형식' 원문에서 기계적으로 추론한다. 위에서부터 먼저 맞는 것.
@@ -272,15 +273,13 @@ def _check_overlay_schema(overlay):
                 raise OverlayError(f"overlay {entry['id']} add_field: 알 수 없는 키 {sorted(set(change) - _ADD_KEYS)} 또는 누락 {sorted(missing)}")
 
 
-def load_codebook(taxonomy, codebook_json=paths.CODEBOOK_JSON, overlay_yaml=paths.OVERLAY_YAML):
-    """코드북 추출본을 읽고 overlay를 덮어쓴 Codebook을 만든다.
+def load_codebook(taxonomy, raw=codebook_data.CODEBOOK, overlay_yaml=paths.OVERLAY_YAML):
+    """코드북 추출본(생성 모듈의 dict)에 overlay를 덮어쓴 Codebook을 만든다.
 
     overlay 파일이 없으면(v0.3 추출 후 삭제한 상태) 추출본만 쓴다.
     적용한 overlay 기록(applied_overlays)에는 id·status·basis와 note가 남아 매니페스트에서
-    '잠정' 표시를 읽을 수 있다.
+    '잠정' 표시를 읽을 수 있다. raw 인자는 시험용 치환 자리다(읽기만 하므로 복사하지 않는다).
     """
-    with open(codebook_json, encoding="utf-8") as f:
-        raw = json.load(f)
     tables = {name: [_field_from_json(name, fld) for fld in table["fields"]]
               for name, table in raw["tables"].items()}
 

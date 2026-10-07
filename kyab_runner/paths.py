@@ -6,10 +6,8 @@ SCHEMA_DIR = RUNNER_DIR / "schema"
 CONFIG_DIR = RUNNER_DIR / "config"
 SAMPLES_DIR = RUNNER_DIR / "samples"
 
-CODEBOOK_JSON = SCHEMA_DIR / "codebook_v0.2.json"
+# 코드북·분류체계 추출본은 파일이 아니라 생성 모듈(kyab_runner/spec/)이다. overlay만 yaml로 남는다.
 OVERLAY_YAML = SCHEMA_DIR / "overlay_v0.3_confirmed.yaml"
-TAXONOMY_JSON = SCHEMA_DIR / "taxonomy_A1-A10.json"
-CROSSWALK_CSV = SCHEMA_DIR / "crosswalk_RM_to_A.csv"
 
 AGGREGATION_RULES_YAML = CONFIG_DIR / "aggregation_rules.yaml"   # 판정·집계 가정 모음
 JUDGES_YAML = CONFIG_DIR / "judges.yaml"                         # 판정기 등록부

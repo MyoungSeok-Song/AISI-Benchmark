@@ -1,9 +1,9 @@
-# 코드북 v0.2 추출본(codebook_v0.2.json) 위에 덮어쓰는 변경 목록
+# 코드북 v0.2 추출본(kyab_runner/spec/codebook_data.py, 자동 생성) 위에 덮어쓰는 변경 목록
 #
 # 왜 필요한가
 #   코드북 xlsx가 유일한 명세인데, v0.3 xlsx가 오기 전에 이미 확정된 변경이 있다.
-#   codebook_v0.2.json을 손으로 고치면 xlsx와 어긋나므로, 변경만 이 파일에 따로 적고
-#   kyab_runner/codebook.py가 읽을 때 덮어쓴다.
+#   생성 모듈을 손으로 고치면 xlsx와 어긋나므로, 변경만 이 파일에 따로 적고
+#   kyab_runner/codebook.py가 읽을 때 덮어쓴다. 이 파일은 사람이 쓰므로 yaml로 둔다(사용자 결정 2026-10-07).
 #
 # 언제 지우는가
 #   코드북 v0.3 xlsx 수령 → tools/extract_codebook.py 재실행 → 이 파일 삭제.

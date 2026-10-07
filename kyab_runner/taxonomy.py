@@ -1,13 +1,11 @@
 """A1~A10 분류체계와 이전 코드(R/M) 대응표.
 
-코드 목록은 tools/extract_taxonomy.py가 분류팀 xlsx에서 뽑은 파일에서만 읽는다.
+코드 목록은 tools/extract_taxonomy.py가 분류팀 xlsx에서 뽑은 생성 모듈(spec/taxonomy_data.py)에서만 읽는다.
 이 모듈에 코드 값을 직접 적지 않는다.
 """
-import csv
-import json
 from dataclasses import dataclass
 
-from . import paths
+from .spec import taxonomy_data
 
 
 @dataclass(frozen=True)
@@ -25,15 +23,13 @@ class Taxonomy:
         return self.parent_of.get(sub_code) == major_code
 
 
-def load_taxonomy(taxonomy_json=paths.TAXONOMY_JSON, crosswalk_csv=paths.CROSSWALK_CSV):
-    with open(taxonomy_json, encoding="utf-8") as f:
-        data = json.load(f)
-    majors = data["majors"]
+def load_taxonomy(taxonomy=taxonomy_data.TAXONOMY, crosswalk=taxonomy_data.CROSSWALK):
+    """생성 모듈의 분류체계 dict와 대응표 행 목록 -> Taxonomy. 인자는 시험용 치환 자리다."""
+    majors = taxonomy["majors"]
     parent_of = {s["code"]: m["code"] for m in majors for s in m["subs"]}
 
     # 이전 코드는 대응표의 대분류 행에서 가져온다. 계열(R/M)은 legacy_scheme 열.
-    with open(crosswalk_csv, encoding="utf-8-sig", newline="") as f:
-        legacy_majors = [r for r in csv.DictReader(f) if r["level"] == "major"]
+    legacy_majors = [r for r in crosswalk if r["level"] == "major"]
 
     return Taxonomy(
         major_codes=tuple(m["code"] for m in majors),

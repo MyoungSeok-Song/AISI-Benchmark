@@ -1,38 +1,37 @@
-"""01_분류팀_벤치마크비교와_재분류.xlsx -> taxonomy_A1-A10.json + crosswalk_RM_to_A.csv
+"""01_분류팀_벤치마크비교와_재분류.xlsx -> kyab_runner/spec/taxonomy_data.py (분류체계 명세 모듈).
 
-A1~A10 단일 분류체계(상위 10 · 하위 39)를 분류팀 xlsx에서 기계적으로 옮긴다.
+A1~A10 단일 분류체계(상위 10 · 하위 39)와 이전 코드(R/M) 대응표를 분류팀 xlsx에서 기계적으로 옮긴다.
 extract_codebook.py와 같은 원칙을 따른다.
 
   * xlsx가 유일한 원천이다. 코드·이름·정의를 이 파일에 손으로 적지 않는다.
   * 셀 원문은 변형하지 않는다(앞뒤 공백만 제거). 각 값에는 출처 셀 주소를 붙인다.
   * 열은 위치가 아니라 머리글 이름으로 찾는다(열이 옮겨져도 깨지지 않게).
-  * 같은 내용을 담은 시트끼리 교차 검산하고, 하나라도 어긋나면 파일을 쓰지 않고
-    종료 코드 1로 끝낸다.
+  * 같은 내용을 담은 시트끼리 교차 검산하고, 하나라도 어긋나면 모듈을 쓰지 않고 종료 코드 1로 끝낸다.
 
 원천 시트
   코드북49        주 원천. 층위·코드·명칭·정의·포함/경계·출처·이전 코드 (49행)
   분류표_A1-A10   검산용. 대분류별 하위 수·소분류 목록·상위 정의·이전 코드 + 안내 문구
   하위39          검산용. 소분류 39개 목록
 
-실행:  runner/.venv/bin/python runner/tools/extract_taxonomy.py
+생성 모듈의 TAXONOMY는 분류체계 dict(대분류 아래 소분류), CROSSWALK는 이전 코드 → 새 코드 대응 행 목록이다.
+
+실행:  .venv/bin/python tools/extract_taxonomy.py [--xlsx 경로]   (runner/ 폴더에서)
+       기본 원본 위치는 프로젝트 폴더의 'project proposal/'(저장소 밖)이다.
 """
-import csv
-import glob
-import json
+import argparse
 import os
 import re
 import sys
-import unicodedata
+from pathlib import Path
 
 import openpyxl
 
-# ── 경로 ────────────────────────────────────────────────────────────────
-HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
-SRC_DIR = os.path.join(ROOT, "project proposal")
-SCHEMA_DIR = os.path.join(ROOT, "runner", "schema")
-OUT_TAXONOMY = os.path.join(SCHEMA_DIR, "taxonomy_A1-A10.json")
-OUT_CROSSWALK = os.path.join(SCHEMA_DIR, "crosswalk_RM_to_A.csv")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _xlsx_common import SPEC_DIR, nfc, render_module, resolve_xlsx, write_module   # noqa: E402
+
+# ── 산출물 ──────────────────────────────────────────────────────────────
+OUT_MODULE = SPEC_DIR / "taxonomy_data.py"
+COMMAND = "python tools/extract_taxonomy.py"
 
 # ── 원천 파일·시트 이름 ─────────────────────────────────────────────────
 SRC_NAME_KEY = "벤치마크비교와_재분류"   # 파일명에 들어 있는 고정 문자열
@@ -49,26 +48,10 @@ RE_LEGACY = r"^(R[1-5]|M0[1-5])(\.[0-9]{2})?$"
 # ── 기대 개수 (지시문·분류표 기준. 어긋나면 실패 처리) ──────────────────
 EXPECT_MAJOR, EXPECT_SUB = 10, 39
 
-CROSSWALK_COLUMNS = ["legacy_code", "legacy_scheme", "new_code", "level",
-                     "relation", "new_name", "source_cell"]
-
-
 # ── 공통 도우미 ─────────────────────────────────────────────────────────
-def nfc(text):
-    """macOS에서 온 파일명은 자모가 분리(NFD)돼 있어 비교 전에 NFC로 맞춘다."""
-    return unicodedata.normalize("NFC", text)
-
-
 def cell_text(cell):
     """셀 값을 문자열로. 빈 셀은 빈 문자열, 앞뒤 공백만 제거하고 본문은 그대로."""
     return "" if cell.value is None else str(cell.value).strip()
-
-
-def find_xlsx():
-    for path in glob.glob(os.path.join(SRC_DIR, "*.xlsx")):
-        if SRC_NAME_KEY in nfc(os.path.basename(path)):
-            return path
-    sys.exit(f"'{SRC_NAME_KEY}' xlsx를 {SRC_DIR}에서 찾지 못했습니다")
 
 
 def header_map(ws, header_row, required):
@@ -290,8 +273,18 @@ def build_crosswalk(rows):
     return out
 
 
-def main():
-    src = find_xlsx()
+def render(src, taxonomy, crosswalk):
+    doc = ("분류체계 명세 데이터(분류팀 xlsx 추출본). TAXONOMY는 A1~A10 대분류와 그 아래 소분류, "
+           "CROSSWALK는 이전 코드(R/M) → 새 코드 대응 행 목록이다. 러너(kyab_runner.taxonomy)는 이 두 값만 읽는다.")
+    return render_module(doc, src, COMMAND, [("TAXONOMY", taxonomy), ("CROSSWALK", crosswalk)])
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--xlsx", help=f"분류팀 xlsx 경로 (기본: project proposal/ 아래 '{SRC_NAME_KEY}' 파일)")
+    parser.add_argument("--out", type=Path, default=OUT_MODULE, help="생성할 모듈 경로")
+    args = parser.parse_args(argv)
+    src = resolve_xlsx(args.xlsx, SRC_NAME_KEY)
     # data_only=True: 수식이 있어도 저장된 값을 읽는다. 원본은 읽기만 한다.
     wb = openpyxl.load_workbook(src, data_only=True)
     rows = read_codebook49(wb[SHEET_CODEBOOK])
@@ -300,27 +293,20 @@ def main():
 
     failed = verify(rows, overview, sub39)
     if failed:
-        sys.exit(f"검산 실패 {failed}건 — 산출물을 쓰지 않았습니다")
+        sys.exit(f"검산 실패 {failed}건 — 모듈을 쓰지 않았습니다")
 
-    os.makedirs(SCHEMA_DIR, exist_ok=True)
     taxonomy = build_taxonomy(src, rows, notes)
-    with open(OUT_TAXONOMY, "w", encoding="utf-8") as f:
-        json.dump(taxonomy, f, ensure_ascii=False, indent=2)
     crosswalk = build_crosswalk(rows)
-    with open(OUT_CROSSWALK, "w", encoding="utf-8-sig", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=CROSSWALK_COLUMNS)
-        writer.writeheader()
-        writer.writerows(crosswalk)
-
     by_relation = {}
     for row in crosswalk:
         by_relation[row["relation"]] = by_relation.get(row["relation"], 0) + 1
-    print(f"wrote {OUT_TAXONOMY}  (상위 {taxonomy['counts']['major']} · 하위 {taxonomy['counts']['sub']})")
-    print(f"wrote {OUT_CROSSWALK}  ({len(crosswalk)}행: {by_relation})")
+    write_module(args.out, render(src, taxonomy, crosswalk))
+    print(f"상위 {taxonomy['counts']['major']} · 하위 {taxonomy['counts']['sub']} · 대응표 {len(crosswalk)}행 {by_relation}")
+    return 0
 
 
 if __name__ == "__main__":
     # openpyxl이 '데이터 유효성 확장 미지원' 경고를 내지만 값 읽기에는 영향이 없다.
     import warnings
     warnings.filterwarnings("ignore", message="Data Validation extension")
-    main()
+    sys.exit(main())

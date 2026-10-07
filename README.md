@@ -501,8 +501,9 @@ OpenAI·Anthropic·Gemini 어댑터가 있지만 **실제로 호출한 적이 �
 ```
 runner/
   tools/
-    extract_codebook.py     코드북 xlsx → schema/codebook_v0.2.json
-    extract_taxonomy.py     분류팀 xlsx → schema/taxonomy_A1-A10.json, crosswalk_RM_to_A.csv
+    extract_codebook.py     코드북 xlsx → kyab_runner/spec/codebook_data.py (생성 모듈)
+    extract_taxonomy.py     분류팀 xlsx → kyab_runner/spec/taxonomy_data.py (생성 모듈)
+    _xlsx_common.py         두 추출기 공용(원본 찾기·sha256·모듈 쓰기)
     build_samples.py        개발 샘플 입력 6건 생성
     vllm_server.py          로컬 vLLM 서버 기동·종료·상태
     check_determinism.py    반복 간 응답 동일 여부 확인
@@ -510,10 +511,7 @@ runner/
     e2e_judge_aggregate.sh  판정·집계 종단 시험 (모의 배치 4개, 실모델 배치는 인자로)
     export_jsonl.py         납품 형식(JSONL) 내보내기 명령행
   schema/
-    codebook_v0.2.json            코드북 추출본 (손으로 고치지 않음)
-    overlay_v0.3_confirmed.yaml   v0.3 xlsx가 오기 전까지의 확정·가정 변경
-    taxonomy_A1-A10.json          분류체계 상위 10 · 하위 39
-    crosswalk_RM_to_A.csv         이전 코드 → 새 코드 49행
+    overlay_v0.3_confirmed.yaml   v0.3 xlsx가 오기 전까지의 확정·가정 변경(사람이 쓰는 yaml)
   config/
     runner.yaml             코드북이 정하지 않은 규칙의 기본값
     aggregation_rules.yaml  판정·집계 가정 모음 (07의 aggregation_rule_id·version이 가리키는 파일)
@@ -557,8 +555,8 @@ runner/
 
 | 바뀐 것 | 할 일 |
 |---|---|
-| 코드북 xlsx (v0.3) | `tools/extract_codebook.py`의 파일명·출력 경로를 새 판으로 바꿔 실행 → `paths.py`의 `CODEBOOK_JSON` 갱신 → `overlay_v0.3_confirmed.yaml`에서 반영된 항목 삭제(전부 반영됐으면 파일 삭제) → 테스트 |
-| 분류표 (분류팀 xlsx) | `tools/extract_taxonomy.py` 실행. 검산 21항목이 모두 OK여야 파일을 씀 |
+| 코드북 xlsx (v0.3) | `tools/extract_codebook.py`의 `CODEBOOK_VERSION`을 올리고 실행(`--xlsx 경로`, 기본은 `project proposal/`에서 찾음) → `kyab_runner/spec/codebook_data.py`가 다시 생성됨(손으로 고치지 않음) → `overlay_v0.3_confirmed.yaml`에서 반영된 항목 삭제(전부 반영됐으면 파일 삭제) → 테스트 |
+| 분류표 (분류팀 xlsx) | `tools/extract_taxonomy.py` 실행(`--xlsx 경로`). 검산 21항목이 모두 OK여야 `kyab_runner/spec/taxonomy_data.py`를 씀 |
 | 협의 결과 (재시도 횟수, context 위치, 등록 코드 등) | `config/runner.yaml`만 수정 |
 | 판정·집계 결정 (CFC 목록, 빈값 규칙, 표본 비율, 임계값 등) | `config/aggregation_rules.yaml`만 수정하고 `aggregation_rule_version`을 올림 |
 | 코드북 담당 회신으로 열이 추가될 때 | overlay에 `confirmed` 항목(회신 기록) + `provisional` 항목(`add_field`, `authorized_by`로 앞 항목을 가리킴). 회신 없는 열 추가는 로드가 거부됨 |

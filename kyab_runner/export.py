@@ -22,6 +22,7 @@ from pathlib import Path
 import yaml
 
 from . import csv_io, judge_io, paths
+from .spec import codebook_data
 from .session import RUN_PARAM_FIELDS
 from .validate import item_key
 
@@ -437,7 +438,7 @@ def export(env, index, views, out_dir, results_dir=None, allow_mock_judge=False,
         "runner_git": git or {"commit": "", "dirty": None, "uncommitted": None, "note": "runner/가 git 저장소가 아님"},
         "generated_at": views[0].batch.now() if views else None,
         "dataset_version": sorted({i["dataset_version"] for i in index.tables["01_items"]}),
-        "codebook": {"source": str(paths.CODEBOOK_JSON.name), "overlays": codebook.applied_overlays},
+        "codebook": {"source": codebook_source(), "overlays": codebook.applied_overlays},
         "aggregation_rule": {"id": rules.rule_id, "version": rules.rule_version, "sha256": rules.sha256},
         "execution_library_versions": sorted(library_versions),
         "system_prompts": prompts,
@@ -457,6 +458,12 @@ def export(env, index, views, out_dir, results_dir=None, allow_mock_judge=False,
         shutil.rmtree(out_dir)
         raise ExportError("manifest에 비밀값으로 보이는 문자열이 있어 출력을 지웠습니다")
     return manifest
+
+
+def codebook_source():
+    """납품 manifest에 적는 코드북 출처: 원본 xlsx 이름·판본·sha256과 생성 모듈 이름."""
+    return (f"{codebook_data.SOURCE_FILE} (v{codebook_data.CODEBOOK_VERSION}, sha256 {codebook_data.SOURCE_SHA256}; "
+            f"추출 모듈 kyab_runner/spec/codebook_data.py)")
 
 
 def _library_version():
