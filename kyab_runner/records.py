@@ -11,21 +11,19 @@
 responses.turn_id → prompts 이다. 06_judgments는 response_id로만 이어지므로(구조 검토 S2)
 판정·집계 코드는 BatchView를 거쳐 문항과 태그를 찾는다.
 """
-import hashlib
-import json
 from collections import defaultdict
-from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
-from . import csv_io
+from . import clock, csv_io, fileio
+from .layout import BATCH_MANIFEST_FILE, EVENTS_FILE, INPUT_FILES, RESPONSES_FILE, RUNS_FILE   # noqa: F401 (재수출)
 from .validate import item_key
 
-INPUT_FILES = {"01_items": "01_items.csv", "02_item_tags": "02_item_tags.csv", "03_prompts": "03_prompts.csv"}
-MANIFEST_FILE = "batch_manifest.json"
-RUNS_FILE = "04_runs.csv"
-RESPONSES_FILE = "05_responses.csv"
-EVENTS_FILE = "runner_events.jsonl"
+MANIFEST_FILE = BATCH_MANIFEST_FILE                 # 옛 이름(cli·테스트가 쓴다)
+
+# 러너가 채우는 필드의 '생성 단계'. 이 단계의 필수 필드가 비면 기록을 거부한다(session·apply_judgments).
+RUNNER_STAGES = ("실행 자동기록 필수",)
+# 러너가 모델에 보내고 04_runs에 그대로 적는 호출 파라미터(runner.yaml run_params의 키). 사전 점검·집계 섞임 검사가 쓴다.
+RUN_PARAM_FIELDS = ("temperature", "top_p", "max_output_tokens")
 
 
 def load_inputs(codebook, input_dir):
@@ -34,7 +32,7 @@ def load_inputs(codebook, input_dir):
     for table, filename in INPUT_FILES.items():
         path = Path(input_dir) / filename
         tables[table] = csv_io.read_table(codebook, table, path)
-        digests[filename] = hashlib.sha256(path.read_bytes()).hexdigest()
+        digests[filename] = fileio.sha256_file(path)
     return tables, digests
 
 
@@ -68,7 +66,7 @@ class BatchRecords:
         self.codebook = codebook
         self.config = config
         self.dir = Path(batch_dir)
-        self.manifest = json.loads((self.dir / MANIFEST_FILE).read_text(encoding="utf-8"))
+        self.manifest = fileio.read_json(self.dir / BATCH_MANIFEST_FILE)
         self.run_batch_id = self.manifest["run_batch_id"]
         self.protocol_id = self.manifest["protocol_id"]
 
@@ -80,12 +78,11 @@ class BatchRecords:
 
     def now(self):
         """ISO 8601 타임스탬프 (시간대 포함, 밀리초). session.Batch.now와 같은 표기."""
-        return datetime.now(ZoneInfo(self.config["timezone"])).isoformat(timespec="milliseconds")
+        return clock.iso(clock.now(self.config))
 
     def log_event(self, event, **fields):
         """배치의 보조 로그(runner_events.jsonl)에 한 줄 추가한다."""
-        with open(self.dir / EVENTS_FILE, "a", encoding="utf-8") as f:
-            f.write(json.dumps({"ts": self.now(), "event": event, **fields}, ensure_ascii=False) + "\n")
+        fileio.append_jsonl(self.dir / EVENTS_FILE, {"ts": self.now(), "event": event, **fields})
 
     def changed_inputs(self, index):
         """실행 때와 내용이 달라진 입력 파일 이름 목록.

@@ -97,16 +97,26 @@ def append_rows(codebook, table, path, rows, stages=None):
         os.fsync(f.fileno())
 
 
-def rewrite_table(codebook, table, path, rows):
-    """파일 전체를 다시 쓴다. 임시 파일에 쓴 뒤 바꿔치기해 중간 상태가 남지 않게 한다.
+def write_plain_csv(path, columns, rows):
+    """열 이름 목록 순서로 CSV를 새로 쓴다(UTF-8 BOM, RFC 4180). 임시 파일에 쓴 뒤 바꿔치기한다.
 
-    이미 기록된 행을 고치는 용도가 아니다. 중단된 실행이 남긴 짝 없는 행을
-    재시작 때 걷어낼 때만 쓴다(session.discard_orphan_responses).
+    코드북 표가 아닌 보조표(results_denominators.csv)도 같은 바이트 규약을 쓰도록 여기 한 곳에 둔다.
     """
-    columns = codebook.columns(table)
     tmp = f"{path}.tmp"
     with open(tmp, "w", encoding="utf-8-sig", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(columns)
         writer.writerows([row[c] for c in columns] for row in rows)
     os.replace(tmp, path)
+
+
+def rewrite_table(codebook, table, path, rows):
+    """코드북 표 파일 전체를 다시 쓴다(임시 파일 → os.replace로 중간 상태가 남지 않게).
+
+    행 검사는 하지 않으므로 호출자가 검사한 행만 넘긴다. 쓰는 곳:
+      session.Batch.discard_orphan_responses   재시작 때 짝 없는 05 행 걷어내기
+      judge_io.write_template                  빈 06 틀 재생성
+      tools/apply_judgments.py                 판정에서 나온 04 first_fail_turn·first_cfc_turn 채우기(원본은 .bak으로 백업)
+      tools/build_samples.py                   샘플 입력 생성
+    """
+    write_plain_csv(path, codebook.columns(table), rows)

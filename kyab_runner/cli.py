@@ -4,31 +4,30 @@ run_single.py와 run_multiturn.py는 '대화 1건을 어떻게 진행하는가'(
 입력 읽기·검증, 실행 대상 선정, 배치 준비, 반복·재시작, 요약은 이 모듈이 맡는다.
 """
 import argparse
-import hashlib
 import json
-import subprocess
 import sys
 from collections import Counter, defaultdict
-from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 import yaml
 
-from . import __version__, csv_io, judge_io, paths, validate
+from . import clock, csv_io, fileio, judge_io, paths, validate
 from .adapters import create_adapter
 from .codebook import fixed_value as codebook_fixed_value, load_codebook
-from .context import SETUP_ERRORS
+from .context import SETUP_ERRORS, setup_error_message
 from .config import load_config
+from .exitcodes import EXIT_INTERRUPTED, EXIT_INVALID, EXIT_NOTHING, EXIT_OK
 from .ids import IdAllocator
-from .records import INPUT_FILES, MANIFEST_FILE, InputIndex, load_inputs   # noqa: F401  (INPUT_FILES는 테스트가 쓴다)
-from .session import RUN_PARAM_FIELDS, Batch, RunSession
+from .issues import report_issues                                           # noqa: F401 (이 모듈의 옛 이름으로 재수출)
+from .provenance import git_state, library_version                          # noqa: F401 (옛 위치, export 등이 썼다)
+from .records import INPUT_FILES, MANIFEST_FILE, RUN_PARAM_FIELDS, InputIndex, load_inputs   # noqa: F401  (INPUT_FILES는 테스트가 쓴다)
+from .session import Batch, RunSession
 from .taxonomy import load_taxonomy
 
 # 재시작할 때 처음 실행과 같아야 하는 값. 하나라도 다르면 같은 배치로 이어 쓸 수 없다.
 _MANIFEST_LOCKED = ("protocol_id", "model_id", "dataset_version", "system_prompt_hash", "input_sha256", "run_params")
 
-EXIT_OK, EXIT_NOTHING_TO_RUN, EXIT_INVALID_INPUT, EXIT_INTERRUPTED = 0, 1, 2, 130
+EXIT_NOTHING_TO_RUN, EXIT_INVALID_INPUT = EXIT_NOTHING, EXIT_INVALID        # 이 모듈의 옛 이름(테스트가 쓴다)
 
 
 class PreflightError(Exception):
@@ -56,59 +55,6 @@ def build_parser(description, default_protocol):
 
 
 # ── 준비 단계 ───────────────────────────────────────────────────────────
-def _git(*args):
-    """러너 폴더에서 git 명령을 실행해 출력을 돌려준다. git이 없거나 실패하면 None."""
-    try:
-        return subprocess.run(["git", "-C", str(paths.RUNNER_DIR), *args],
-                              capture_output=True, text=True, check=True).stdout.strip()
-    except (OSError, subprocess.CalledProcessError):
-        return None
-
-
-def git_state():
-    """러너 저장소의 커밋과 수정 상태. 납품 manifest가 실행 코드를 되짚을 수 있게 남긴다.
-
-    반환: {"commit": 전체 SHA, "dirty": 커밋 안 된 수정 유무, "uncommitted": 그 파일 수}.
-    runner/ 가 git 저장소가 아니면 None.
-    """
-    top = _git("rev-parse", "--show-toplevel")
-    sha = _git("rev-parse", "HEAD")
-    if not (top and sha and Path(top).resolve() == paths.RUNNER_DIR):
-        return None
-    status = _git("status", "--porcelain") or ""
-    changed = [line for line in status.splitlines() if line.strip()]
-    return {"commit": sha, "dirty": bool(changed), "uncommitted": len(changed)}
-
-
-def library_version():
-    """execution_library_version. 예: runner-0.1.0+abc1234
-
-    runner/ 가 git 저장소면   runner-<버전>+<커밋 SHA 7자리>
-    커밋 안 된 변경이 있으면   runner-<버전>+<SHA>.dirty  (기록은 하되 표시를 남긴다)
-    git 저장소가 아니면        runner-<버전>+src<소스 해시 7자리>  (대체 수단)
-
-    본평가는 .dirty가 붙지 않은 상태에서 돌려야 실행 코드를 커밋으로 되짚을 수 있다.
-    """
-    # 상위 폴더의 다른 저장소를 잡지 않도록, 저장소 최상위가 runner/ 자신인지 확인한다.
-    top = _git("rev-parse", "--show-toplevel")
-    sha = _git("rev-parse", "--short=7", "HEAD")
-    if top and sha and Path(top).resolve() == paths.RUNNER_DIR:
-        dirty = ".dirty" if _git("status", "--porcelain") else ""
-        return f"runner-{__version__}+{sha}{dirty}"
-    digest = hashlib.sha256()
-    for source in sorted((paths.RUNNER_DIR / "kyab_runner").rglob("*.py")):
-        digest.update(source.read_bytes())
-    return f"runner-{__version__}+src{digest.hexdigest()[:7]}"
-
-
-def report_issues(issues):
-    for issue in issues:
-        print(issue)
-    errors = validate.errors_of(issues)
-    print(f"입력 검증: 오류 {len(errors)}건, 경고 {len(issues) - len(errors)}건")
-    return errors
-
-
 def select_items(items, config, protocol_id, only_ids, allow_unverified):
     """이 실행기가 돌릴 문항을 고른다. 반환: (선정 문항, 제외 사유별 개수)."""
     selected, skipped = [], Counter()
@@ -212,7 +158,7 @@ def open_batch(args, codebook, config, dataset_version, input_digests, input_val
     if problem:
         raise PreflightError(f"실행 전 점검 실패 — 모델을 호출하지 않았습니다: {problem}")
 
-    today = datetime.now(ZoneInfo(config["timezone"])).strftime("%Y%m%d")
+    today = clock.compact_date(clock.now(config))
     ids = IdAllocator(codebook, args.out, today)
     run_batch_id = args.batch_id or ids.new_batch_id()
     batch_dir = args.out / run_batch_id
@@ -249,7 +195,7 @@ def _write_or_check_manifest(batch, input_digests, codebook, input_validation):
     }
     path = batch.dir / MANIFEST_FILE
     if path.exists():
-        saved = json.loads(path.read_text(encoding="utf-8"))
+        saved = fileio.read_json(path)
         if "run_params" not in saved:                   # 2026-10-05 전 manifest: 기록된 04 행의 값을 기준으로 삼는다
             saved["run_params"] = _recorded_run_params(batch) or current["run_params"]
         changed = [k for k in _MANIFEST_LOCKED if saved[k] != current[k]]
@@ -258,19 +204,12 @@ def _write_or_check_manifest(batch, input_digests, codebook, input_validation):
             raise PreflightError(f"{batch.run_batch_id}에 이어 쓸 수 없습니다. 처음 실행과 다른 값 — {detail}")
         saved["input_validation"] = input_validation    # 재시작 때의 검증 결과로 갱신(잠금 대상 아님)
         saved["run_params"] = saved.get("run_params") or current["run_params"]     # 옛 manifest 보강
-        _write_json_atomic(path, saved)
+        fileio.write_json(path, saved)
         batch.log_event("batch_resumed", execution_library_version=batch.library_version,
                         adapter_info=current["adapter_info"])
     else:
-        _write_json_atomic(path, current)
+        fileio.write_json(path, current)
         batch.log_event("batch_created", adapter_info=current["adapter_info"])
-
-
-def _write_json_atomic(path, data):
-    """임시 파일에 쓴 뒤 바꿔치기한다(덮어쓰는 도중 끊겨도 반쪽 manifest가 남지 않게)."""
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp.replace(path)
 
 
 def _recorded_run_params(batch):
@@ -340,7 +279,7 @@ def main(description, default_protocol, conversation_mode, conduct, argv=None):
         codebook = load_codebook(taxonomy)
         config = load_config()
     except SETUP_ERRORS as exc:                      # overlay·설정 파일 문제: traceback 대신 한 줄 + 종료 2
-        print(f"명세·설정을 읽을 수 없습니다: {type(exc).__name__}: {exc}")
+        print(setup_error_message(exc))
         return EXIT_INVALID_INPUT
 
     protocol = config["protocols"].get(args.protocol)

@@ -16,15 +16,16 @@ sys.path.insert(0, str(RUNNER_DIR))
 
 from kyab_runner import csv_io                       # noqa: E402
 from kyab_runner.codebook import load_codebook       # noqa: E402
-from kyab_runner.context import SETUP_ERRORS         # noqa: E402
+from kyab_runner.context import SETUP_ERRORS, setup_error_message   # noqa: E402
+from kyab_runner.layout import RESPONSES_FILE, RUNS_FILE            # noqa: E402
 from kyab_runner.taxonomy import load_taxonomy       # noqa: E402
 
 
 def compare(codebook, batch_dir):
     """배치 1개를 비교한다. 반환: (비교한 턴 수, 응답이 갈린 턴 목록)."""
-    runs = {r["run_id"]: r for r in csv_io.read_table(codebook, "04_runs", batch_dir / "04_runs.csv")}
+    runs = {r["run_id"]: r for r in csv_io.read_table(codebook, "04_runs", batch_dir / RUNS_FILE)}
     texts = defaultdict(dict)                        # (item_id, turn_id) -> {rollout_no: 응답 본문}
-    for row in csv_io.read_table(codebook, "05_responses", batch_dir / "05_responses.csv"):
+    for row in csv_io.read_table(codebook, "05_responses", batch_dir / RESPONSES_FILE):
         run = runs[row["run_id"]]
         texts[(run["item_id"], row["turn_id"])][run["rollout_no"]] = row["response_text"]
 
@@ -42,7 +43,7 @@ def main():
     try:
         codebook = load_codebook(load_taxonomy())
     except SETUP_ERRORS as exc:
-        print(f"명세·설정을 읽을 수 없습니다: {type(exc).__name__}: {exc}")
+        print(setup_error_message(exc))
         return 2
     failed = False
     for arg in sys.argv[1:]:

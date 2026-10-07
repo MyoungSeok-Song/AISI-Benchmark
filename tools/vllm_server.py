@@ -26,22 +26,21 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 RUNNER_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RUNNER_DIR))
 
+from kyab_runner import clock, fileio, paths               # noqa: E402
 from kyab_runner.config import ConfigError, load_config    # noqa: E402
 
 # vLLM 전용 venv는 러너 폴더 밖, 공백 없는 경로에 둔다. vLLM이 쓰는 FlashInfer가 첫 실행 때
 # CUDA 커널을 ninja로 빌드하는데, 설치 경로에 공백이 있으면 경로를 끊어 읽어 실패한다
 # (프로젝트 폴더 이름 "ETRI_AI BENCHMARK"에 공백이 있음. 심볼릭 링크로는 해결되지 않는다).
 # 위치는 config/runner.yaml의 vllm_venv.
-VAR_DIR = RUNNER_DIR / "var"
-INFO_FILE = VAR_DIR / "vllm_server.json"
-LOG_FILE = VAR_DIR / "vllm_server.log"
+VAR_DIR = paths.VAR_DIR
+INFO_FILE = paths.VLLM_SERVER_INFO
+LOG_FILE = paths.VLLM_SERVER_LOG
 STARTUP_TIMEOUT_S = 900
 OFFLINE_ENV = {"HF_HUB_OFFLINE": "1", "VLLM_NO_USAGE_STATS": "1", "DO_NOT_TRACK": "1"}
 
@@ -130,8 +129,9 @@ def start(args):
             "dtype": server["dtype"], "gpu": args.gpu, "port": server["port"],
             "vllm_version": version, "torch_version": torch_version, "cuda_build": cuda_build,
             "command": command, "env": server_env,
-            "started_at": datetime.now(ZoneInfo(config["timezone"])).isoformat(timespec="seconds")}
-    INFO_FILE.write_text(json.dumps(info, ensure_ascii=False, indent=2), encoding="utf-8")
+            # 초 단위로 적는다(local_vllm 어댑터가 이 파일을 batch_manifest adapter_info.server로 옮겨 적는다)
+            "started_at": clock.iso(clock.now(config), timespec="seconds")}
+    fileio.write_json(INFO_FILE, info)
 
     print(f"서버 기동 중 (pid {process.pid}, GPU {args.gpu}). 로그: {LOG_FILE}")
     deadline = time.monotonic() + STARTUP_TIMEOUT_S

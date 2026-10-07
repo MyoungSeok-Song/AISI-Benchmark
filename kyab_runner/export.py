@@ -12,24 +12,24 @@
 
 01·02·03의 모든 필드가 items.jsonl에 한 번씩 들어간다. 배치표(ITEM_LAYOUT)가 코드북 열을 모두 덮지 못하면 내보내기가 거부된다.
 """
-import hashlib
 import json
 import re
 import shutil
 from collections import Counter, defaultdict
 from pathlib import Path
 
-import yaml
 
-from . import csv_io, judge_io, paths
+from . import csv_io, fileio, judge_io, paths, provenance
+from .errors import SetupError, load_yaml
+from .exitcodes import EXIT_INVALID, EXIT_OK
+from .layout import (DELIVERY_ITEMS_FILE, DELIVERY_JUDGMENTS_DIR, DELIVERY_MANIFEST_FILE, DELIVERY_RESPONSES_DIR,
+                     DELIVERY_RESULTS_DIR, DELIVERY_SCHEMA_DIR, DELIVERY_SOURCES_FILE, RESULTS_FOLDER_FILES)
+from .records import RUN_PARAM_FIELDS
 from .spec import codebook_data
-from .session import RUN_PARAM_FIELDS
 from .validate import item_key
 
 FORMAT_VERSION = "0.1"           # 납품형식_JSONL스키마 문서 판본
-ITEMS_FILE = "items.jsonl"
-MANIFEST_FILE = "manifest.json"
-SOURCES_FILE = "sources.json"
+ITEMS_FILE, MANIFEST_FILE, SOURCES_FILE = DELIVERY_ITEMS_FILE, DELIVERY_MANIFEST_FILE, DELIVERY_SOURCES_FILE
 
 # ── items.jsonl 배치표: 01·02·03의 모든 열이 정확히 한 번씩 들어간다 ─────────
 ITEM_TOP = ("item_id", "item_version", "dataset_version", "case_type", "conversation_mode", "planned_round_count", "protocol_id")
@@ -309,17 +309,6 @@ def build_schemas(codebook, rules, taxonomy=None):
 
 
 # ── 내보내기 ────────────────────────────────────────────────────────────
-def _write_jsonl(path, records):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8", newline="\n") as f:
-        for record in records:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
-
-
-def _sha256(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
 def find_patterns(root, patterns):
     """출력 폴더의 모든 텍스트 파일에서 패턴을 찾는다. 반환: [(파일, 패턴 이름, 줄 번호)]"""
     hits = []
@@ -377,7 +366,7 @@ def export(env, index, views, out_dir, results_dir=None, allow_mock_judge=False,
     notices = [f"sources.json: {w}" for w in sources["warnings"]]
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    _write_jsonl(out_dir / ITEMS_FILE, items)
+    fileio.write_jsonl(out_dir / ITEMS_FILE, items)
 
     # responses·judgments: 모델별 파일
     responses_by_model, judgments_by_model, prompts, library_versions = defaultdict(list), defaultdict(list), {}, set()
@@ -391,27 +380,27 @@ def export(env, index, views, out_dir, results_dir=None, allow_mock_judge=False,
             run = view.run_of(view.responses[row["response_id"]])
             judgments_by_model[run["model_id"]].append(judgment_record(codebook, rules, row, run))
     for model_id, records in responses_by_model.items():
-        _write_jsonl(out_dir / "responses" / f"{model_id}.jsonl", records)
+        fileio.write_jsonl(out_dir / DELIVERY_RESPONSES_DIR / f"{model_id}.jsonl", records)
     for model_id, records in judgments_by_model.items():
-        _write_jsonl(out_dir / "judgments" / f"{model_id}.jsonl", records)
+        fileio.write_jsonl(out_dir / DELIVERY_JUDGMENTS_DIR / f"{model_id}.jsonl", records)
 
     # results: 집계 결과를 그대로 복사
     copied = []
     if results_dir is not None:
-        (out_dir / "results").mkdir()
-        for name in ("07_results.csv", "results_denominators.csv", "results_notes.json"):
+        (out_dir / DELIVERY_RESULTS_DIR).mkdir()
+        for name in RESULTS_FOLDER_FILES:
             source = Path(results_dir) / name
             if source.exists():
-                shutil.copy2(source, out_dir / "results" / name)
+                shutil.copy2(source, out_dir / DELIVERY_RESULTS_DIR / name)
                 copied.append(name)
 
     # schema
-    (out_dir / "schema").mkdir()
+    (out_dir / DELIVERY_SCHEMA_DIR).mkdir()
     for name, schema in build_schemas(codebook, rules, env.taxonomy).items():
-        (out_dir / "schema" / f"{name}.schema.json").write_text(json.dumps(schema, ensure_ascii=False, indent=2), encoding="utf-8")
+        fileio.write_json(out_dir / DELIVERY_SCHEMA_DIR / f"{name}.schema.json", schema)
 
     # sources.json
-    (out_dir / SOURCES_FILE).write_text(json.dumps(sources, ensure_ascii=False, indent=2), encoding="utf-8")
+    fileio.write_json(out_dir / SOURCES_FILE, sources)
 
     # 비밀값: 키 패턴은 거부, 이메일은 경고(manifest에 건수·위치)
     hits = find_secrets(out_dir)
@@ -428,7 +417,7 @@ def export(env, index, views, out_dir, results_dir=None, allow_mock_judge=False,
         if path.suffix in (".jsonl", ".csv"):
             with open(path, encoding="utf-8") as f:
                 rows = sum(1 for _ in f)
-        files[rel] = {"rows": rows - 1 if path.suffix == ".csv" and rows else rows, "sha256": _sha256(path)}
+        files[rel] = {"rows": rows - 1 if path.suffix == ".csv" and rows else rows, "sha256": fileio.sha256_file(path)}
     git = _git_state()                                      # 커밋 해시·수정 유무. dirty면 경고(거부는 않음)
     if git and git["dirty"]:
         notices.append(f"러너에 커밋되지 않은 수정 {git['uncommitted']}건 (.dirty) — 커밋 뒤 내보내야 코드를 되짚을 수 있다")
@@ -453,7 +442,7 @@ def export(env, index, views, out_dir, results_dir=None, allow_mock_judge=False,
         "links": MANIFEST_LINKS,
         "files": files,
     }
-    (out_dir / MANIFEST_FILE).write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    fileio.write_json(out_dir / MANIFEST_FILE, manifest)
     if find_secrets(out_dir):                              # 시스템 프롬프트 원문 등 manifest에만 있는 값도 훑는다
         shutil.rmtree(out_dir)
         raise ExportError("manifest에 비밀값으로 보이는 문자열이 있어 출력을 지웠습니다")
@@ -468,14 +457,12 @@ def codebook_source():
 
 def _library_version():
     """실행기와 같은 표기(runner-<판본>+<커밋 SHA>[.dirty])."""
-    from .cli import library_version
-    return library_version()
+    return provenance.library_version()
 
 
 def _git_state():
-    """러너 저장소 커밋·수정 상태(cli.git_state). git 저장소가 아니면 None."""
-    from .cli import git_state
-    return git_state()
+    """러너 저장소 커밋·수정 상태. git 저장소가 아니면 None. (테스트가 이 이름을 치환한다)"""
+    return provenance.git_state()
 
 
 # ── sources.json: 원천 데이터셋 목록 ─────────────────────────────────────
@@ -485,7 +472,7 @@ DEFAULT_DATA_DIR = paths.DEFAULT_DATA_DIR
 SOURCE_REGISTRY_KEYS = ("local_file", "hf_repo", "hf_commit", "hf_file", "sha256", "basis")
 
 
-class SourcesRegistryError(Exception):
+class SourcesRegistryError(SetupError):
     """config/sources.yaml 형식 오류."""
 
 
@@ -494,8 +481,7 @@ def load_sources_registry(path=paths.SOURCES_YAML):
     path = Path(path)
     if not path.exists():
         return {}
-    with open(path, encoding="utf-8") as f:
-        raw = yaml.safe_load(f) or {}
+    raw = load_yaml(path, SourcesRegistryError) or {}
     registry = raw.get("sources") or {}
     for name, entry in registry.items():
         missing = [k for k in SOURCE_REGISTRY_KEYS if not (entry or {}).get(k)]
@@ -538,7 +524,7 @@ def sources_skeleton(index, data_dir=DEFAULT_DATA_DIR, registry=None):
             local = Path(data_dir) / known["local_file"]
             entry["local_file"] = f"data/{known['local_file']}"
             if local.exists():
-                entry["sha256"] = _sha256(local)
+                entry["sha256"] = fileio.sha256_file(local)
                 if entry["sha256"] == known["sha256"]:
                     entry["version"] = known["hf_commit"]
                     entry["location"] = hf_location(known)
@@ -708,8 +694,7 @@ def main(argv=None):
     import argparse
     import sys
 
-    from . import validate
-    from .context import SETUP_ERRORS, RecordsError, load_environment, open_views
+    from .context import SETUP_ERRORS, RecordsError, load_environment, open_views, setup_error_message
 
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("batches", nargs="*", type=Path, help="배치 폴더 (없으면 items.jsonl만)")
@@ -722,18 +707,18 @@ def main(argv=None):
         env = load_environment()
         index, views, notices = open_views(env, args.input, args.batches)
     except SETUP_ERRORS as exc:
-        print(f"명세·설정을 읽을 수 없습니다: {type(exc).__name__}: {exc}")
-        return 2
+        print(setup_error_message(exc))
+        return EXIT_INVALID
     except (csv_io.CsvFormatError, RecordsError) as exc:
-        print(f"입력 또는 배치를 읽을 수 없습니다: {exc}")
-        return 2
+        print(f"배치 또는 입력을 읽을 수 없습니다: {exc}")
+        return EXIT_INVALID
     for notice in notices:
         print(f"주의: {notice}")
     try:
         manifest = export(env, index, views, args.out, args.results, args.allow_mock_judge)
     except (ExportError, SourcesRegistryError) as exc:
         print(f"내보내기 거부: {exc}")
-        return 2
+        return EXIT_INVALID
     for notice in manifest["warnings"]:
         print(f"주의: {notice}")
     if manifest["mock_judge_used"]:
@@ -747,7 +732,7 @@ def main(argv=None):
     for diff in diffs[:20]:
         print(f"[roundtrip] {diff}")
     print(f"파일 {len(manifest['files'])}개 → {args.out} | 스키마 위반 {len(violations)} | 왕복 차이 {len(diffs)}")
-    return 2 if violations or diffs else 0
+    return EXIT_INVALID if violations or diffs else EXIT_OK
 
 
 if __name__ == "__main__":

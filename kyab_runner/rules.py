@@ -10,6 +10,7 @@ from dataclasses import dataclass
 import yaml
 
 from . import paths
+from .errors import SetupError, load_yaml
 
 PROVIDER_BLOCK_POLICIES = ("count_as_refusal", "exclude")
 DIMENSION_SOURCES = ("conversation_then_turn_mean", "conversation_only")
@@ -18,7 +19,7 @@ SUPPORTED_EVALUATION_UNIT = {"single": "turn", "multi": "conversation"}
 SUPPORTED_CI_METHODS = ("wilson_95",)
 
 
-class RulesError(Exception):
+class RulesError(SetupError):
     """규칙 파일이 코드북과 맞지 않거나 지원하지 않는 값을 담고 있을 때."""
 
 
@@ -210,13 +211,18 @@ def _fill_defaults(raw):
 
 
 def load_rules(codebook, rules_yaml=paths.AGGREGATION_RULES_YAML, judges_yaml=paths.JUDGES_YAML):
-    data = rules_yaml.read_bytes()
-    raw = yaml.safe_load(data)
+    """규칙 파일과 판정기 등록부 -> Rules. 규칙 파일 해시는 바이트 그대로 센다(results_notes.json rules_sha256)."""
+    try:
+        data = rules_yaml.read_bytes()
+        raw = yaml.safe_load(data)
+    except FileNotFoundError as exc:
+        raise RulesError(f"{rules_yaml.name}: 파일이 없습니다 ({rules_yaml})") from exc
+    except yaml.YAMLError as exc:
+        raise RulesError(f"{rules_yaml.name}: yaml 문법 오류 — {exc}") from exc
     load_warnings = _fill_defaults(raw)
     _check_against_codebook(codebook, raw)
     none_token = _check_cfc_tokens(codebook, raw)
-    with open(judges_yaml, encoding="utf-8") as f:
-        registry = yaml.safe_load(f)
+    registry = load_yaml(judges_yaml, RulesError)
     judges = {judge_id: JudgeEntry(judge_id=judge_id, **entry) for judge_id, entry in registry["judges"].items()}
     return Rules(raw=raw, sha256=hashlib.sha256(data).hexdigest(), judges=judges,
                  self_identification_patterns=tuple(registry.get("self_identification_patterns", ())),

@@ -11,7 +11,8 @@
 """
 import json
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+
+from .issues import Issue, IssueCollector, check_fields, check_unique, errors_of, report_issues   # noqa: F401 (재수출)
 
 # 대조 문항이 어느 위험군의 대조인지 잇는 02 열(overlay OV-P4, 잠정). 이름은 여기 한 곳에서만 정한다.
 # 집계(metrics)·검증이 이 상수를 쓰고, validate_inputs가 코드북 열에 실제로 있는지 확인한다.
@@ -20,19 +21,6 @@ CONTROL_TARGET_FIELD = "control_target_risk"
 # 분류체계 판본에 따라 허용값이 달라지는 02_item_tags 필드. 필드 단위 검사에서 빼고
 # _check_risk_codes가 판본에 맞는 목록으로 검사한다.
 TAXONOMY_DEPENDENT_FIELDS = ("primary_risk", "secondary_risks", "sub_risk_codes", "m_review_codes", CONTROL_TARGET_FIELD)
-
-
-@dataclass(frozen=True)
-class Issue:
-    """검증에서 찾은 문제 1건."""
-    level: str      # 'error'(실행 불가) | 'warning'(실행은 가능, 확인 필요)
-    table: str
-    key: str        # 어느 행인지: 'KYAB-900001@1.0.0', 'TURN-00000001' 등
-    field: str
-    message: str
-
-    def __str__(self):
-        return f"[{self.level}] {self.table} {self.key} {self.field}: {self.message}"
 
 
 def item_key(row):
@@ -53,31 +41,11 @@ def json_list(value):
     return parsed if isinstance(parsed, list) else []
 
 
-class IssueCollector:
-    """Issue를 모으는 작은 도우미. 판정 검증(judge_io)과 집계 결과 검증(metrics)도 함께 쓴다."""
-
-    def __init__(self):
-        self.issues = []
-
-    def error(self, table, key, field, message):
-        self.issues.append(Issue("error", table, key, field, message))
-
-    def warning(self, table, key, field, message):
-        self.issues.append(Issue("warning", table, key, field, message))
-
-
 # ── 1. 필드 단위 ────────────────────────────────────────────────────────
-def _check_fields(out, codebook, table, rows, key_of, skip=()):
-    for row in rows:
-        for field, problem in codebook.check_row(table, row, skip=skip):
-            out.error(table, key_of(row), field, problem)
+_check_fields = check_fields            # 공용 기반(issues.check_fields). 이 모듈의 호출부 이름을 유지한다
 
 
 # ── 2. 키·연결 ──────────────────────────────────────────────────────────
-def check_unique(out, table, rows, key_of, what):
-    for key, count in Counter(key_of(r) for r in rows).items():
-        if count > 1:
-            out.error(table, str(key), what, f"중복 {count}행")
 
 
 def _check_links(out, items, tags, prompts):
@@ -287,6 +255,3 @@ def validate_inputs(codebook, taxonomy, config, items, tags, prompts):
         _check_roles(out, tag, key)
     return out.issues
 
-
-def errors_of(issues):
-    return [i for i in issues if i.level == "error"]

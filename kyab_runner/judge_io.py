@@ -25,14 +25,15 @@ import math
 from datetime import datetime
 from fractions import Fraction
 
-from . import csv_io
-from .ids import JUDGMENTS_FILE
+from . import csv_io, fileio
+from .ids import judgment_ids_by_batch
+from .issues import IssueCollector, check_fields, check_unique
+from .layout import JUDGE_INPUTS_FILE, JUDGMENTS_FILE, JUDGMENTS_TEMPLATE_FILE   # noqa: F401 (재수출)
 from .records import BatchView
-from .validate import IssueCollector, check_unique
 
 TABLE = "06_judgments"
-TEMPLATE_FILE = "06_judgments_template.csv"
-JUDGE_INPUTS_FILE = "judge_inputs.jsonl"
+TEMPLATE_FILE = JUDGMENTS_TEMPLATE_FILE             # 이 모듈의 옛 이름(테스트가 쓴다)
+MOCK_WARNING = "모의 판정기 결과입니다. 실제 채점이 아니므로 본평가·보고에 쓸 수 없습니다."
 
 
 def judgment_key(row):
@@ -141,12 +142,7 @@ def build_judge_inputs(view, rules, rows):
 def write_judge_inputs(view, rules, rows):
     """판정 입력을 배치 폴더의 judge_inputs.jsonl에 쓴다(매번 전체를 다시 쓴다). 반환: 입력 목록."""
     inputs = build_judge_inputs(view, rules, rows)
-    path = view.batch.dir / JUDGE_INPUTS_FILE
-    tmp = path.with_name(path.name + ".tmp")
-    with open(tmp, "w", encoding="utf-8") as f:
-        for record in inputs:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
-    tmp.replace(path)
+    fileio.write_jsonl(view.batch.dir / JUDGE_INPUTS_FILE, inputs, atomic=True)
     return inputs
 
 
@@ -326,6 +322,12 @@ def rule_blank_allowed(out, rules, view, row, run):
             out.error(TABLE, _row_label(row), field, "필수인데 비어 있음 (빈값 허용 조건 J3에 해당하지 않는 행)")
 
 
+def foreign_judgment_ids(codebook, view):
+    """같은 출력 루트의 다른 배치에서 쓰인 judgment_id (전역 고유 검사용)."""
+    by_batch = judgment_ids_by_batch(codebook, view.batch.dir.parent)
+    return [i for name, used in by_batch.items() if name != view.batch.dir.name for i in used]
+
+
 def validate_judgments(codebook, rules, view, judgments, foreign_ids=()):
     """판정 행을 검사해 Issue 목록을 돌려준다.
 
@@ -333,9 +335,7 @@ def validate_judgments(codebook, rules, view, judgments, foreign_ids=()):
     검사: 코드북 행 검사(허용값·정규식·형식·필수) → ID 고유 → 응답 연결 → 교차 규칙.
     """
     out = IssueCollector()
-    for row in judgments:
-        for field, problem in codebook.check_row(TABLE, row):
-            out.error(TABLE, _row_label(row), field, problem)
+    check_fields(out, codebook, TABLE, judgments, _row_label)
     check_unique(out, TABLE, judgments, lambda r: r["judgment_id"], "judgment_id")
 
     foreign = set(foreign_ids)

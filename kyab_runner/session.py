@@ -13,19 +13,11 @@
     도중에 프로세스가 죽으면 그 실행은 기록에 없으므로 재시작 때 처음부터 다시 한다.
   * 코드북에 칸이 없는 값(턴별 지연, 재시도 내역)은 runner_events.jsonl에만 남긴다.
 """
-import json
 import time
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
-from . import csv_io
+from . import clock, csv_io, fileio
 from .adapters.base import CallInfo
-from .records import EVENTS_FILE, RESPONSES_FILE, RUNS_FILE
-
-# 러너가 채우는 필드의 '생성 단계'. 이 단계의 필수 필드가 비면 기록을 거부한다.
-RUNNER_STAGES = ("실행 자동기록 필수",)
-# 러너가 모델에 보내고 04_runs에 그대로 적는 호출 파라미터(runner.yaml run_params의 키). 사전 점검·집계 섞임 검사가 쓴다.
-RUN_PARAM_FIELDS = ("temperature", "top_p", "max_output_tokens")
+from .records import EVENTS_FILE, RESPONSES_FILE, RUN_PARAM_FIELDS, RUNNER_STAGES, RUNS_FILE   # noqa: F401 (재수출)
 
 # 응답 상태 -> 실행 중단 사유 (04 stop_reason). 차단만 provider_block, 나머지 실패는 error.
 _STOP_REASON = {"blocked": "provider_block", "error": "error", "timeout": "error", "empty": "error"}
@@ -46,17 +38,15 @@ class Batch:
         self.dataset_version = dataset_version
         self.protocol_id = protocol_id
         self.library_version = library_version
-        self._tz = ZoneInfo(config["timezone"])
 
     # ── 시각·보조 로그 ──────────────────────────────────────────────────
     def now(self):
-        """ISO 8601 타임스탬프 (시간대 포함, 밀리초)."""
-        return datetime.now(self._tz).isoformat(timespec="milliseconds")
+        """ISO 8601 타임스탬프 (시간대 포함, 밀리초). records.BatchRecords.now와 같은 표기."""
+        return clock.iso(clock.now(self.config))
 
     def log_event(self, event, **fields):
         """7 CSV 밖의 보조 로그에 한 줄 추가한다."""
-        with open(self.dir / EVENTS_FILE, "a", encoding="utf-8") as f:
-            f.write(json.dumps({"ts": self.now(), "event": event, **fields}, ensure_ascii=False) + "\n")
+        fileio.append_jsonl(self.dir / EVENTS_FILE, {"ts": self.now(), "event": event, **fields})
 
     # ── 기록된 실행 조회·정리 (재시작용) ────────────────────────────────
     def recorded_runs(self):

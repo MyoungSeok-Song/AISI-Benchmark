@@ -1,7 +1,10 @@
 """KYAB 러너: 코드북 7 CSV 형식으로 실행(04·05) → 판정(06) → 집계(07) 기록을 만든다.
 
-모듈 구성
-  paths       폴더 위치
+모듈 구성 (아래층 → 위층. 위층만 아래층을 import한다)
+  공용  paths       폴더 위치             layout     파일 이름           clock     시각 표기
+        fileio      JSON·JSONL 쓰기·해시  exitcodes  종료 코드 계약      errors    설정 오류 기반(SetupError)
+        issues      검증 결과(Issue) 기반  provenance 실행 코드 출처(git·판본)
+  명세  spec        자동 생성 모듈(코드북·분류체계 추출본)
   codebook    코드북 추출본 + 확정 변경(overlay) 로드, 값·행 검사
   taxonomy    A1~A10 분류체계와 이전 코드 대응표
   config      runner.yaml · models.yaml 로드

@@ -6,12 +6,11 @@
 import hashlib
 from dataclasses import dataclass, field
 
-import yaml
-
 from . import paths
+from .errors import SetupError, load_yaml
 
 
-class ConfigError(Exception):
+class ConfigError(SetupError):
     """설정 파일이 러너 규칙에 어긋날 때."""
 
 
@@ -75,10 +74,9 @@ class RunnerConfig:
 
 
 def load_config(config_dir=paths.CONFIG_DIR):
-    with open(config_dir / "runner.yaml", encoding="utf-8") as f:
-        raw = yaml.safe_load(f)
-    with open(config_dir / "models.yaml", encoding="utf-8") as f:
-        models_raw = yaml.safe_load(f)["models"]
+    """runner.yaml·models.yaml·시스템 프롬프트 -> RunnerConfig. config_dir는 시험용 치환 자리다."""
+    raw = load_yaml(config_dir / paths.RUNNER_YAML.name, ConfigError)
+    models_raw = load_yaml(config_dir / paths.MODELS_YAML.name, ConfigError)["models"]
 
     # 파일 끝 줄바꿈만 떼고 나머지는 그대로 쓴다. 해시는 실제로 보낸 문자열 기준.
     prompt = (config_dir / raw["system_prompt_file"]).read_text(encoding="utf-8").rstrip("\n")

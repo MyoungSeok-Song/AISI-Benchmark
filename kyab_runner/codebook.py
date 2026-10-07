@@ -16,9 +16,8 @@ import re
 from dataclasses import dataclass, replace
 from datetime import date, datetime
 
-import yaml
-
 from . import paths
+from .errors import SetupError, load_yaml
 from .spec import codebook_data
 
 # ── 값 종류 ─────────────────────────────────────────────────────────────
@@ -51,7 +50,7 @@ def _infer_type(fmt):
     return "text"
 
 
-class OverlayError(Exception):
+class OverlayError(SetupError):
     """overlay 항목이 규칙에 어긋날 때(허가 없는 열 추가, 없는 필드·위치 등)."""
 
 
@@ -285,8 +284,7 @@ def load_codebook(taxonomy, raw=codebook_data.CODEBOOK, overlay_yaml=paths.OVERL
 
     applied = []
     if overlay_yaml.exists():
-        with open(overlay_yaml, encoding="utf-8") as f:
-            overlay = yaml.safe_load(f)
+        overlay = load_yaml(overlay_yaml, OverlayError)
         _check_overlay_schema(overlay)
         confirmed_ids = {e["id"] for e in overlay["changes"] if e["status"] == "confirmed"}
         for entry in overlay["changes"]:

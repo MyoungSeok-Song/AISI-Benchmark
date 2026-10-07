@@ -26,7 +26,7 @@ from .. import paths
 from .base import Adapter, AdapterResult, blocked_result, normalize_finish_reason, text_result
 
 _LOCAL_HOSTS = ("127.0.0.1", "localhost", "::1")
-SERVER_INFO_FILE = paths.RUNNER_DIR / "var" / "vllm_server.json"    # tools/vllm_server.py가 기록
+SERVER_INFO_FILE = paths.VLLM_SERVER_INFO                           # tools/vllm_server.py가 기록
 
 # 공급자 finish_reason -> 정규화 어휘 (config finish_reasons). 목록에 없으면 other.
 _FINISH_REASONS = {"stop": "stop", "length": "length", "content_filter": "content_filter",

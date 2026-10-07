@@ -20,19 +20,15 @@
 종료 코드: 0 정상, 1 판정할 것·검증할 것이 없음, 2 입력·검증 오류.
 """
 import argparse
-import hashlib
-import json
 import sys
 from pathlib import Path
 
-from . import csv_io, ids, judge_io, paths, validate
-from .context import SETUP_ERRORS, RecordsError, load_environment, open_views
+from . import csv_io, fileio, ids, judge_io, paths, validate
+from .context import SETUP_ERRORS, RecordsError, load_environment, open_views, setup_error_message
+from .exitcodes import EXIT_INVALID, EXIT_NOTHING, EXIT_OK                   # noqa: F401 (테스트가 이 모듈 이름으로 쓴다)
+from .judge_io import MOCK_WARNING, foreign_judgment_ids                    # noqa: F401 (옛 위치 재수출)
 from .judges import create_judge
-
-JUDGE_MANIFEST_FILE = "judge_manifest.json"
-MOCK_WARNING = "모의 판정기 결과입니다. 실제 채점이 아니므로 본평가·보고에 쓸 수 없습니다."
-
-EXIT_OK, EXIT_NOTHING, EXIT_INVALID = 0, 1, 2
+from .layout import JUDGE_MANIFEST_FILE                                     # noqa: F401 (옛 위치 재수출)
 
 
 def build_parser():
@@ -44,12 +40,6 @@ def build_parser():
     p.add_argument("--inputs-only", action="store_true", help="judge_inputs.jsonl만 만들고 끝낸다")
     p.add_argument("--validate-only", action="store_true", help="이미 있는 06_judgments.csv를 검증만 한다")
     return p
-
-
-def foreign_judgment_ids(codebook, view):
-    """같은 출력 루트의 다른 배치에서 쓰인 judgment_id."""
-    by_batch = ids.judgment_ids_by_batch(codebook, view.batch.dir.parent)
-    return [i for name, used in by_batch.items() if name != view.batch.dir.name for i in used]
 
 
 def judgment_row(columns, template_row, result, entry, rules, judgment_id, selected, evaluated_at):
@@ -146,7 +136,7 @@ def describe_verdicts(rows):
 def _record_judge_run(view, entry, judge, rules, rows, new_rows, sample):
     """무엇으로 판정했는지 judge_manifest.json(판정 실행마다 한 항목)과 보조 로그에 남긴다."""
     batch = view.batch
-    inputs_digest = hashlib.sha256((batch.dir / judge_io.JUDGE_INPUTS_FILE).read_bytes()).hexdigest()
+    inputs_digest = fileio.sha256_file(batch.dir / judge_io.JUDGE_INPUTS_FILE)
     record = {
         "judged_at": batch.now(),
         "judge_id": entry.judge_id, "judge_type": entry.judge_type, "judge_version": entry.judge_version,
@@ -165,9 +155,9 @@ def _record_judge_run(view, entry, judge, rules, rows, new_rows, sample):
         "self_identifying_responses": judge_io.self_identifying_responses(view, rules),
     }
     path = batch.dir / JUDGE_MANIFEST_FILE
-    manifest = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"judge_runs": []}
+    manifest = fileio.read_json(path) if path.exists() else {"judge_runs": []}
     manifest["judge_runs"].append(record)
-    path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    fileio.write_json(path, manifest)                # 원자적 쓰기: 끊겨도 잘린 manifest가 남지 않는다
     batch.log_event("judgments_written", judge_id=entry.judge_id, production=entry.production,
                     rows_written=len(new_rows))
 
@@ -177,7 +167,7 @@ def main(argv=None):
     try:
         env = load_environment()
     except SETUP_ERRORS as exc:
-        print(f"명세·설정을 읽을 수 없습니다: {type(exc).__name__}: {exc}")
+        print(setup_error_message(exc))
         return EXIT_INVALID
     try:
         _, views, notices = open_views(env, args.input, args.batches)

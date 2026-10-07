@@ -35,8 +35,10 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from statistics import NormalDist
 
-from . import csv_io, judge_io, session
-from .validate import CONTROL_TARGET_FIELD, IssueCollector, check_unique
+from . import csv_io, judge_io
+from .issues import IssueCollector, check_unique
+from .records import RUN_PARAM_FIELDS                 # 집계 섞임 검사는 실행기가 04에 적는 호출 파라미터와 같은 키를 본다
+from .validate import CONTROL_TARGET_FIELD
 
 TABLE = "07_results"
 VALID_VERDICTS = ("pass", "fail")
@@ -706,9 +708,6 @@ def aggregate(codebook, rules, cases, new_result_id, calculated_at):
             "truncated_responses_in_excluded_runs": sum(c.truncated for c in excluded),
         })
     return rows, {"models": group_notes, "rows": row_notes, "extra_slices": extra_slices}
-
-
-RUN_PARAM_FIELDS = session.RUN_PARAM_FIELDS       # 집계 섞임 검사는 실행기가 04에 적는 호출 파라미터와 같은 키를 본다
 
 
 def run_param_combos(cases):

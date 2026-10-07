@@ -22,24 +22,18 @@
 종료 코드: 0 정상, 1 집계할 실행이 없음, 2 입력·검증 오류 또는 거부.
 """
 import argparse
-import csv
-import json
 import shutil
 import sys
 import tempfile
 from collections import Counter
-from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
-from . import csv_io, ids, judge_io, metrics, paths, validate
+from . import clock, csv_io, fileio, ids, judge_io, metrics, paths, validate
+from .context import SETUP_ERRORS, RecordsError, load_environment, open_views, setup_error_message
+from .exitcodes import EXIT_INVALID, EXIT_NOTHING, EXIT_OK                   # noqa: F401 (테스트가 이 모듈 이름으로 쓴다)
+from .judge_io import MOCK_WARNING, foreign_judgment_ids
+from .layout import DENOMINATORS_FILE, NOTES_FILE                           # noqa: F401 (테스트가 이 모듈 이름으로 쓴다)
 from .validate import CONTROL_TARGET_FIELD
-from .context import SETUP_ERRORS, RecordsError, load_environment, open_views
-from .run_judge import MOCK_WARNING, foreign_judgment_ids
-
-NOTES_FILE = "results_notes.json"
-DENOMINATORS_FILE = "results_denominators.csv"
-EXIT_OK, EXIT_NOTHING, EXIT_INVALID = 0, 1, 2
 
 # 코드북 07에 칸이 없어 results_notes.json에만 두는 항목. 열을 추가하지 않고 협의 후보로만 적는다 (S7).
 CODEBOOK_CANDIDATES = [
@@ -125,7 +119,7 @@ def write_results(results_dir, codebook, rows, denominators, record):
     try:
         csv_io.append_rows(codebook, metrics.TABLE, tmp / ids.RESULTS_FILE, rows)
         write_denominators(tmp / DENOMINATORS_FILE, denominators)
-        (tmp / NOTES_FILE).write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+        (tmp / NOTES_FILE).write_text(fileio.dumps_pretty(record), encoding="utf-8")
     except BaseException:
         shutil.rmtree(tmp, ignore_errors=True)
         raise
@@ -134,10 +128,7 @@ def write_results(results_dir, codebook, rows, denominators, record):
 
 def write_denominators(path, rows):
     """results_denominators.csv (코드북 밖 보조 산출물). 07과 같은 CSV 형식(UTF-8 BOM, RFC 4180)."""
-    with open(path, "w", encoding="utf-8-sig", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=metrics.DENOMINATOR_COLUMNS)
-        writer.writeheader()
-        writer.writerows(rows)
+    csv_io.write_plain_csv(path, metrics.DENOMINATOR_COLUMNS, rows)
 
 
 def inconclusive_warnings(rules, rows, notes):
@@ -169,7 +160,7 @@ def print_summary(rows, notes):
              ("ORR", "over_refusal_rate"), ("TRR", "referral_rate"), ("CRRI", "crri_mean"))
     print(f"\n{'model_id':<22} {'slice':<14} {'key':<36} runs  D/I   " + " ".join(f"{name:<8}" for name, _ in shown))
     for row in rows:
-        key = ",".join(json.loads(row["slice_key_json"]).values()) or "-"
+        key = ",".join(metrics._json_object(row["slice_key_json"]).values()) or "-"
         note = notes["rows"][row["result_id"]]
         print(f"{row['model_id']:<22} {row['slice_level']:<14} {key:<36} {row['n_runs']:>4}  "
               f"{note['fr_valid_units']:>2}/{note['inconclusive_units']:<2} "
@@ -188,7 +179,7 @@ def main(argv=None):
     try:
         env = load_environment(args.rules)
     except SETUP_ERRORS as exc:
-        print(f"명세·설정을 읽을 수 없습니다: {type(exc).__name__}: {exc}")
+        print(setup_error_message(exc))
         return EXIT_INVALID
     rules = env.rules
     for warning in rules.load_warnings:
@@ -234,8 +225,8 @@ def main(argv=None):
         print("한도가 다른 배치는 따로 집계하세요(예: 1,024 배치와 8,192 배치).")
         return EXIT_INVALID
 
-    timezone = ZoneInfo(env.config["timezone"])
-    calculated_at = datetime.now(timezone).isoformat(timespec="milliseconds")
+    stamp = clock.now(env.config)                 # calculated_at과 결과 폴더 날짜는 같은 시각에서 나온다
+    calculated_at = clock.iso(stamp)
     root = output_root(args)
     leftovers = sorted(p.name for p in root.glob("RESULTS-*.tmp-*")) if root.exists() else []
     if leftovers:                               # 강제 종료가 남긴 임시 폴더: 자동으로 지우지 않고 알린다
@@ -257,7 +248,7 @@ def main(argv=None):
     warnings = inconclusive_warnings(rules, rows, notes)
     for warning in warnings:
         print(f"주의: {warning}")
-    results_dir = root / ids.new_results_dir_name(root, datetime.now(timezone).strftime("%Y%m%d"))
+    results_dir = root / ids.new_results_dir_name(root, clock.compact_date(stamp))
     record = {
         "note": "07_results.csv의 보조 기록. 코드북 7 CSV에 속하지 않는다. 07에 열을 추가하지 않고 여기에 둔다.",
         "denominators_note": ("[확정 — 코드북 담당 회신 2026-10-05 ④] 보류(inconclusive)를 실패율에서 뺐으면 보류 건수·비율과 분모를 함께 제시. "

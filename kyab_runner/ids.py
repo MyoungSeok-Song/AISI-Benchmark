@@ -18,6 +18,7 @@ import re
 from pathlib import Path
 
 from . import csv_io
+from .layout import JUDGMENTS_FILE, RESPONSES_FILE, RESULTS_FILE, RUNS_FILE   # noqa: F401 (재수출)
 
 _RE_BATCH = re.compile(r"^RBATCH-([0-9]{8})-([0-9]{3})$")
 _RE_RUN = re.compile(r"^RUN-([0-9]{8})-([0-9]{6})$")
@@ -25,9 +26,6 @@ _RE_RESP = re.compile(r"^RESP-([0-9]{8})$")
 _RE_JDG = re.compile(r"^JDG-([0-9]{8})$")
 _RE_RESULT = re.compile(r"^RESULT-([0-9]{8})$")
 _RE_RESULTS_DIR = re.compile(r"^RESULTS-([0-9]{8})-([0-9]{3})$")
-
-JUDGMENTS_FILE = "06_judgments.csv"
-RESULTS_FILE = "07_results.csv"
 
 
 def batch_dirs(out_root):
@@ -90,11 +88,11 @@ class IdAllocator:
         self._run_seq = 0       # 오늘 날짜로 발급된 run_id의 최대 순번
         self._resp_seq = 0      # 전체 response_id의 최대 순번
         for batch_dir in batch_dirs(self._out_root):
-            for row in csv_io.read_if_exists(codebook, "04_runs", batch_dir / "04_runs.csv"):
+            for row in csv_io.read_if_exists(codebook, "04_runs", batch_dir / RUNS_FILE):
                 m = _RE_RUN.match(row["run_id"])
                 if m and m.group(1) == today:
                     self._run_seq = max(self._run_seq, int(m.group(2)))
-            for row in csv_io.read_if_exists(codebook, "05_responses", batch_dir / "05_responses.csv"):
+            for row in csv_io.read_if_exists(codebook, "05_responses", batch_dir / RESPONSES_FILE):
                 m = _RE_RESP.match(row["response_id"])
                 if m:
                     self._resp_seq = max(self._resp_seq, int(m.group(1)))

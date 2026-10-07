@@ -4,7 +4,7 @@ import shutil
 
 from test_judge_io import ENV, RULES, JudgedTestCase
 
-from kyab_runner import csv_io, export, run_multiturn, run_single                    # noqa: E402
+from kyab_runner import csv_io, export, fileio, run_multiturn, run_single            # noqa: E402
 from kyab_runner.context import open_views                                         # noqa: E402
 from kyab_runner.records import InputIndex                                         # noqa: E402
 from test_runner import CODEBOOK, FAILURE_PLAN, TAXONOMY                           # noqa: E402
@@ -206,7 +206,7 @@ class StructureTest(ExportTestCase):
         rows[2]["judgment_id"] = "JDG-1"
         del rows[3]["evaluated_at"]
         rows[4]["extra"] = 1
-        export._write_jsonl(path, rows)
+        fileio.write_jsonl(path, rows)
         problems = export.schema_violations(self.export_dir)
         self.assertEqual(sorted(p[1] for p in problems), [1, 2, 3, 4, 5])
         # 왕복 검증도 값 변경을 잡는다

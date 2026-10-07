@@ -26,12 +26,13 @@ RUNNER_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RUNNER_DIR))
 
 from kyab_runner import csv_io, judge_io, paths, validate          # noqa: E402
-from kyab_runner.context import SETUP_ERRORS, RecordsError, load_environment, open_views   # noqa: E402
-from kyab_runner.records import RUNS_FILE                           # noqa: E402
-from kyab_runner.run_judge import foreign_judgment_ids             # noqa: E402
+from kyab_runner.context import SETUP_ERRORS, RecordsError, load_environment, open_views, setup_error_message   # noqa: E402
+from kyab_runner.exitcodes import EXIT_INVALID, EXIT_OK            # noqa: E402
+from kyab_runner.judge_io import foreign_judgment_ids              # noqa: E402
+from kyab_runner.records import RUNNER_STAGES, RUNS_FILE           # noqa: E402
 
 TARGET_FIELDS = ("first_fail_turn", "first_cfc_turn")
-RUN_STAGES = ("실행 자동기록 필수",)        # 04_runs에서 필수 검사를 하는 생성 단계 (session.RUNNER_STAGES와 같음)
+RUN_STAGES = RUNNER_STAGES                  # 04_runs에서 필수 검사를 하는 생성 단계(실행기와 같은 기준)
 
 
 def plan(env, view):
@@ -113,13 +114,13 @@ def main(argv=None):
     try:
         env = load_environment()
     except SETUP_ERRORS as exc:
-        print(f"명세·설정을 읽을 수 없습니다: {type(exc).__name__}: {exc}")
-        return 2
+        print(setup_error_message(exc))
+        return EXIT_INVALID
     try:
         _, views, notices = open_views(env, args.input, args.batches)
     except (csv_io.CsvFormatError, FileNotFoundError, RecordsError) as exc:
         print(f"배치 또는 입력을 읽을 수 없습니다: {exc}")
-        return 2
+        return EXIT_INVALID
     for notice in notices:
         print(f"주의: {notice}")
 
@@ -133,7 +134,7 @@ def main(argv=None):
         plans.append((view, updated))
     if stopped:
         print("하나 이상의 배치가 통과하지 못해 아무것도 쓰지 않았습니다.")
-        return 2
+        return EXIT_INVALID
 
     for view, updated in plans:
         fails = sum(1 for r in updated if r["first_fail_turn"])
@@ -145,7 +146,7 @@ def main(argv=None):
         else:
             backup = apply(env, view, updated)
             print(f"{view.batch.run_batch_id}: {summary} 기록, 백업 {backup.name}")
-    return 0
+    return EXIT_OK
 
 
 if __name__ == "__main__":

@@ -9,10 +9,11 @@ from pathlib import Path
 import yaml
 
 from . import paths, validate
-from .codebook import Codebook, OverlayError, load_codebook
-from .config import ConfigError, RunnerConfig, load_config
+from .codebook import Codebook, load_codebook
+from .config import RunnerConfig, load_config
+from .errors import SetupError
 from .records import BatchRecords, BatchView, InputIndex
-from .rules import Rules, RulesError, load_rules
+from .rules import Rules, load_rules
 from .taxonomy import load_taxonomy
 
 
@@ -21,7 +22,14 @@ class RecordsError(Exception):
 
 
 # 명세·설정 파일이 잘못됐을 때 나는 예외. 진입점은 이것을 잡아 한 줄 메시지와 종료 코드 2로 끝낸다(traceback 없이).
-SETUP_ERRORS = (OverlayError, RulesError, ConfigError, FileNotFoundError, KeyError, yaml.YAMLError)
+# 도메인 예외(ConfigError·RulesError·OverlayError…)는 SetupError를 상속한다. FileNotFoundError·KeyError·YAMLError는
+# 로더가 아직 모두 감싸지 못한 경로를 위해 남겨 둔다.
+SETUP_ERRORS = (SetupError, FileNotFoundError, KeyError, yaml.YAMLError)
+
+
+def setup_error_message(exc):
+    """SETUP_ERRORS를 잡은 진입점이 출력하는 한 줄."""
+    return f"명세·설정을 읽을 수 없습니다: {type(exc).__name__}: {exc}"
 
 
 @dataclass(frozen=True)

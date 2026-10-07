@@ -33,9 +33,10 @@ sys.path.insert(0, str(RUNNER_DIR))
 from kyab_runner import csv_io, paths, validate          # noqa: E402
 from kyab_runner.codebook import load_codebook           # noqa: E402
 from kyab_runner.config import load_config               # noqa: E402
+from kyab_runner.export import load_sources_registry     # noqa: E402
 from kyab_runner.taxonomy import load_taxonomy           # noqa: E402
 
-DATA_DIR = RUNNER_DIR.parent / "data"
+DATA_DIR = paths.DEFAULT_DATA_DIR                        # 원천 원본 CSV(프로젝트 폴더, 러너 밖)
 STAMP = "2026-09-30T18:00:00+09:00"      # 샘플 태그 작성 시각 (고정값)
 STAMP_LINK = "2026-10-05T03:00:00+09:00"  # 대조 위험군 연결(rev2)을 덧붙인 시각 (고정값)
 LINK_NOTE = "대조 위험군 연결 추가(코드북 담당 회신 2026-10-05 ②). 연결값은 개발 샘플용 가정."
@@ -47,8 +48,10 @@ def load_source(filename, id_column):
         return {row[id_column]: row for row in csv.DictReader(f)}
 
 
-CARE = load_source("CAREBench_prompts_500.csv", "case_uid")
-MINOR = load_source("MinorBench_original_299.csv", "PromptID")
+# 원천 파일 이름은 config/sources.yaml(등록부)에서만 정한다. 열 이름(case_uid·PromptID)은 파일 형식 설명이라 여기 둔다.
+_REGISTRY = load_sources_registry()
+CARE = load_source(_REGISTRY["CAREBench"]["local_file"], "case_uid")
+MINOR = load_source(_REGISTRY["MinorBench"]["local_file"], "PromptID")
 
 
 def from_care(case_uid):
