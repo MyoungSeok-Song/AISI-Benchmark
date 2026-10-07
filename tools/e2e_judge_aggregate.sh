@@ -48,42 +48,7 @@ grep -q "^  provider_block_policy: exclude" "$E2E"/rules_exclude.yaml || { echo 
 $PY -m kyab_runner.run_aggregate --allow-mock-judge --rules "$E2E"/rules_exclude.yaml "$E2E"/RBATCH-* | tail -4
 
 echo "== 7. 결과 확인 =="
-$PY - "$E2E" "$current" "$variant" <<'PYEOF'
-import csv, glob, json, sys
-e2e, current, variant = sys.argv[1:4]
-sys.path.insert(0, ".")
-from kyab_runner import csv_io, judge_io, metrics
-from kyab_runner.context import load_environment, open_views
-env = load_environment()
-batches = sorted(glob.glob(f"{e2e}/RBATCH-*"))
-_, views, _ = open_views(env, "samples/input", batches)
-blank = finished = rows06 = errors = 0
-for view in views:
-    rows = judge_io.load_judgments(env.codebook, view.batch.dir)
-    rows06 += len(rows)
-    finished += sum(1 for r in rows if not env.rules.is_unfinished(r))
-    blank += sum(1 for r in rows if not env.rules.is_unfinished(r) and r["critical_failure_code"] == "")
-    errors += sum(1 for i in judge_io.validate_judgments(env.codebook, env.rules, view, rows) if i.level == "error")
-print(f"06: {rows06}행, 완료 행 {finished}건 중 CFC 빈칸 {blank}건, 검증 오류 {errors}건")
-assert blank == 0 and errors == 0
-results = sorted(glob.glob(f"{e2e}/RESULTS-*"))
-assert len(results) == 2, results
-versions = []
-for d in results:
-    rows = csv_io.read_table(env.codebook, "07_results", f"{d}/07_results.csv")
-    notes = json.load(open(f"{d}/results_notes.json", encoding="utf-8"))
-    violations = sum(len(env.codebook.check_row("07_results", r)) for r in rows)
-    issues = metrics.validate_results(env.codebook, env.rules, rows, {k: v["fr_valid_units"] for k, v in notes["rows"].items()})
-    denominators = list(csv.DictReader(open(f"{d}/results_denominators.csv", encoding="utf-8-sig", newline="")))
-    one_to_one = {r["result_id"] for r in denominators} == {r["result_id"] for r in rows}
-    orr_rows = [r for r in rows if r["slice_level"] == "risk_group" and r["over_refusal_rate"] != ""]
-    versions.append(rows[0]["aggregation_rule_version"])
-    print(f"{d.split('/')[-1]}: 07 {len(rows)}행 코드북 위반 {violations} 검증 문제 {len(issues)} | 분모 {len(denominators)}행 result_id 1:1 {one_to_one} "
-          f"| risk_group 행 중 ORR 있음 {len(orr_rows)} | 정책 {notes['provider_block_policy']} 규칙 {rows[0]['aggregation_rule_version']} | 모의 {notes['mock_judge_used']}")
-    assert violations == 0 and not issues and one_to_one and orr_rows and metrics.validate_denominators(notes) == []
-assert versions == [current, variant], versions
-print("e2e 확인 통과")
-PYEOF
+$PY tools/e2e_check.py "$E2E" "$current" "$variant"
 
 if [ ${#SOURCES[@]} -gt 0 ]; then
   after=""; for src in "${SOURCES[@]}"; do after+=$(cat "$src"/*.csv | md5sum); done
