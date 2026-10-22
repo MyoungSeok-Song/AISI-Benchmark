@@ -1,163 +1,83 @@
-# 평가 대상 모델 등록부 (04_runs: model_id·provider·model_version·model_snapshot_date·api_version)
-#
-# adapter        kyab_runner/adapters/ 의 어댑터 이름
-# model_version  공급자가 밝힌 공식 버전·체크포인트 문자열 그대로 (로컬 모델은 HF revision)
-#
-# 지금 실행할 수 있는 모델: 모의(mock-echo)와 로컬 vLLM 두 종(qwen3.8-27b-local, kanana-2-30b-local, 2026-10-05 실기동 확인).
-# 상용 API 3종은 키·D06(유료 집행)·D08(외부 전송 조건) 확인 전까지 enabled: false로 두며, 러너가 실행을 거부한다.
-# qwen3-8b-local은 경로 검증용이었고 가중치가 사라져 비활성이다.
+# Target models. The runner reads everything it records in runs.csv (provider, model_version,
+# api_version, snapshot date) from here — fill in official values before a real call; TBD is refused.
+# API keys: only the NAME of an environment variable goes here; put the value in .env (git/log excluded).
+# allow_reasoning (default false): thinking is off by protocol, so any reasoning output (separate field or
+# reasoning tokens) is recorded as error/REASONING_LEAK. A <think> tag in the reply text is a leak regardless.
 models:
-  mock-echo:
-    adapter: mock
+  - model_id: mock
+    client: mock
     provider: mock
-    model_version: mock-1
+    model_version: mock-0.1
+    api_version: none
     model_snapshot_date: "2026-09-30"
-    api_version: mock-v1
-    enabled: true
 
-  # ── 상용 모델 3종 (상용_API_제안_v0.1) ─────────────────────────────────
-  # enabled: false — API 키 + D06(유료 집행) + D08(외부 전송 조건) 확인 전에는 실행기가 호출을 거부한다.
-  # 켜기 전에 채울 것: api_model(공급자 공식 모델 이름), model_version(공식 스냅샷 문자열),
-  # model_snapshot_date(그것을 확인한 날), api_version. 키는 api_key_env 환경변수로만 전달한다.
-  # omit_params: 공급자가 받지 않거나 함께 지정할 수 없는 파라미터. 04_runs에는 코드북 고정값을
-  # 그대로 적고, 실제 전송값은 batch_manifest.json의 adapter_info에 남는다.
-  gpt-5.6-terra:
-    adapter: openai
+  # Fault-injection mock for error-path checks: MT3 item KYAB-900012 times out on turn 2.
+  - model_id: mock_faults
+    client: mock
+    provider: mock
+    model_version: mock-0.1
+    api_version: none
+    model_snapshot_date: "2026-09-30"
+    faults: {2: timeout}
+    fault_items: [KYAB-900012]
+
+  # --- commercial models of the main evaluation (decided 2026-10-22: GPT-6 Luna + GPT-5 mini) --------------
+  # Not called yet: needs OPENAI_API_KEY in .env (key pending). First call = smoke test, then cost re-estimate
+  # from call_metrics.csv (scripts/estimate_cost.py).
+  - model_id: gpt_6_luna
+    # reasoning_effort "none" is what lets temperature/top_p be sent (OpenAI latest-model guide, 2026-09-30).
+    client: openai_compatible
     provider: openai
-    model_version: ""
-    model_snapshot_date: ""
-    api_version: v1
-    enabled: false
-    options:
-      api_model: gpt-5.6-terra          # 확인 필요: 공식 API 모델 이름
-      api_key_env: OPENAI_API_KEY
-      request_timeout_s: 600            # 8,192 토큰 출력은 길다. 시간 초과 재시도는 유료 중복 호출이므로 넉넉히
-      omit_params: []                   # 확인 필요: 추론 모델이 temperature·top_p를 거부하면 여기에 추가
-      extra_body: {}                    # 추론 강도(reasoning_effort)는 C7 결정 뒤 04에 기록할 경로와 함께 허용(지금은 설정 로드가 거부)
+    model_version: gpt-6-luna (alias; OpenAI lists no dated snapshot — record run date)
+    model_snapshot_date: "2026-10-01"
+    api_version: openai chat-completions v1
+    base_url: https://api.openai.com/v1
+    request_model: gpt-6-luna
+    api_key_env: OPENAI_API_KEY
+    max_tokens_param: max_completion_tokens
+    timeout_s: 120
+    extra_body: {reasoning_effort: none, store: false}
 
-  claude-sonnet-4.6:
-    adapter: anthropic
-    provider: anthropic
-    model_version: ""
-    model_snapshot_date: ""
-    api_version: "2023-06-01"           # anthropic-version 헤더 (SDK 기본값)
-    enabled: false
-    options:
-      api_model: claude-sonnet-4-6
-      api_key_env: ANTHROPIC_API_KEY
-      request_timeout_s: 600            # 8,192 토큰 출력 기준
-      omit_params: [top_p]              # Claude 4.x는 temperature와 top_p를 함께 지정할 수 없다
-      extra_body: {}                    # thinking은 지정하지 않음(꺼진 상태로 평가). 넣으려면 C7 결정 뒤 기록 경로와 함께
+  - model_id: gpt_5_mini
+    # GPT-5 mini cannot turn reasoning off (lowest effort: minimal) and accepts only the default temperature/top_p
+    # (1) → those two are not sent (omit_params) and the provider default 1.0 applies, which equals the run
+    # config's temperature 1.0 / top_p 1.0. Reasoning tokens are expected (allow_reasoning) and count against
+    # max_completion_tokens (8192); call_metrics.csv records them. Verify both settings on the first call.
+    client: openai_compatible
+    provider: openai
+    model_version: gpt-5-mini-2025-08-07 (dated snapshot)
+    model_snapshot_date: "2025-08-07"
+    api_version: openai chat-completions v1
+    base_url: https://api.openai.com/v1
+    request_model: gpt-5-mini-2025-08-07
+    api_key_env: OPENAI_API_KEY
+    max_tokens_param: max_completion_tokens
+    timeout_s: 300
+    allow_reasoning: true
+    omit_params: [temperature, top_p]
+    extra_body: {reasoning_effort: minimal, store: false}
 
-  gemini-3.8-flash:
-    adapter: gemini
-    provider: google
-    model_version: ""
-    model_snapshot_date: ""
-    api_version: v1beta                 # 확인 필요
-    enabled: false
-    options:
-      api_model: gemini-3.8-flash       # 확인 필요: 공식 API 모델 이름
-      api_key_env: GEMINI_API_KEY
-      request_timeout_s: 600            # 8,192 토큰 출력 기준
-      omit_params: []
-      extra_generation_config: {}       # thinkingConfig는 C7 결정 뒤 04에 기록할 경로와 함께 허용(지금은 설정 로드가 거부)
+  - model_id: local_qwen3_8b
+    # Exploratory live pilot local model (served by scripts/serve_qwen3_8b.sh). Not a final-5 candidate size.
+    client: openai_compatible
+    provider: local-vllm
+    model_version: Qwen/Qwen3-8B@b968826d9c46dd6066d109eabc6255188de91218 (bf16)
+    model_snapshot_date: "2026-10-01"
+    api_version: vllm-0.11.0 openai-chat-completions-v1 (generation-config=vllm, seed=0)
+    base_url: http://127.0.0.1:8310/v1
+    request_model: Qwen/Qwen3-8B
+    timeout_s: 300
+    extra_body: {chat_template_kwargs: {enable_thinking: false}}   # thinking off (protocol decision pending)
 
-  # ── 로컬 공개 모델 (외부 전송 없음). 서버는 tools/vllm_server.py start --model <model_id> 로 띄운다 ──
-  # server.max_model_len 32768 (2026-10-05, 출력 한도 8,192에 맞춤): vLLM 0.30은 요청의 입력 상한을 max_model_len − max_tokens로
-  #   잡는다. 8192로 두면 입력 상한이 0이 되어 모든 호출이 400으로 실패한다. 3턴의 마지막 턴 입력은 시스템 프롬프트 + 앞 두 응답
-  #   (각 ≤ 8,192) + 발화라 최악 약 17k가 필요하다. Kanana의 max_position_embeddings 상한이 32,768이다.
-  #   실기동 확인(2026-10-05, GPU 0, 배치 RBATCH-20261005-001~004): 두 모델 모두 32k로 기동·스모크 통과, 결정성 12/12 턴.
-  #   KV 캐시 Kanana 11.66GiB=226,368토큰(32k 요청 동시 6.91x), 27B 18.73GiB=284,717토큰(8.69x). 27B는 --max-num-seqs 64로
-  #   정상 기동(어텐션 블록 784토큰 = mamba 페이지 크기). chunked prefill(max_num_batched_tokens 8192)은 켜져 있고 결정성에 영향 없음.
-  #   주의 — Kanana(TRITON_MLA)는 max_model_len이 바뀌면 같은 입력에도 greedy 응답이 달라진다(8k↔32k 0/36 일치, 각 설정 안에서는
-  #   36/36 재현). 27B(TRITON_ATTN)는 8k↔32k 36/36 동일. 이 값을 바꾸면 Kanana 배치는 다시 실행해야 한다. 세부는 README '등록된 로컬 모델'.
-  #   MT7·MT10(확장 검토 대상): 최악 가정(앞 턴 응답이 모두 8,192)이면 (턴 − 1) × 8,192 + 여유가 32k를 넘어 사전 점검에 걸린다.
-  #   Kanana는 max_position_embeddings 32,768이 상한이라 더 올릴 수 없다(27B는 262,144). 실제 응답은 수백 토큰이라
-  #   대부분 들어가지만, 긴 응답이 난 실행만 400으로 빠질 수 있다 — 범위 밖, 기록만.
-  # qwen3-8b-local은 경로 검증용이었고, 2026-10-02 재시작 때 가중치가 사라져 다시 받지 않았다 → enabled: false.
-  qwen3-8b-local:
-    adapter: local_vllm
-    provider: local_vllm         # 임시 등록 코드
-    model_version: b968826d9c46dd6066d109eabc6255188de91218   # HF 캐시 스냅샷 revision (Qwen/Qwen3-8B)
-    model_snapshot_date: "2026-09-30"                         # 위 revision을 캐시에서 확인한 날
-    api_version: v1              # vLLM OpenAI 호환 API. vLLM 자체 버전은 batch_manifest.json에 기록
-    enabled: false               # 가중치 없음(재시작으로 소실, 재다운로드 안 함). 평가 대상 5종에도 없다
-    options:
-      base_url: http://127.0.0.1:8000/v1
-      served_model_name: qwen3-8b-local
-      request_timeout_s: 120
-      # Qwen3 계열은 thinking이 기본으로 켜져 있다. 끈 상태로 평가한다 (C9 기본값).
-      extra_body:
-        chat_template_kwargs: {enable_thinking: false}
-      # 아래는 서버 기동용 (tools/vllm_server.py가 읽음)
-      server:
-        hf_repo: Qwen/Qwen3-8B
-        dtype: bfloat16          # 모델 config.json의 torch_dtype과 같음
-        max_model_len: 32768       # 출력 한도 8,192 기준(위 설명). 비활성 모델이라 실기동 안 함
-        gpu_memory_utilization: 0.5
-        port: 8000
-        # 접두부 캐시를 끈다. 켜 두면 temperature 0.0에서도 반복 간 응답이 갈렸다.
-        # 2026-09-30 확인(캐시 켬, 배치 005·006): 단일턴 3문항은 모두 반복 1만 다르고 2·3은 동일
-        # (캐시 없는 첫 호출과 캐시를 쓴 호출의 차이). 3턴은 9개 턴 중 4개가 같은 양상이고
-        # 5개는 반복 2·3도 서로 달랐다(앞 턴 응답이 갈리면 뒤 턴 입력이 달라짐).
-        # 캐시를 끈 배치 007·008은 12개 턴 모두 3회 동일.
-        extra_args: ["--no-enable-prefix-caching"]
-
-  # 평가 대상 공개 모델 후보 (상용_API_제안_v0.1). 2026-09-30 HF에서 받음: 55.6GB, apache-2.0, 비게이트.
-  qwen3.8-27b-local:
-    adapter: local_vllm
-    provider: local_vllm         # 임시 등록 코드
-    model_version: 1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0   # HF 스냅샷 revision (Qwen/Qwen3.8-27B)
-    model_snapshot_date: "2026-09-30"
-    api_version: v1
-    enabled: true
-    options:
-      base_url: http://127.0.0.1:8000/v1
-      served_model_name: qwen3.8-27b-local
-      request_timeout_s: 300
-      extra_body:
-        chat_template_kwargs: {enable_thinking: false}
-      server:
-        hf_repo: Qwen/Qwen3.8-27B
-        dtype: bfloat16
-        max_model_len: 32768       # 출력 한도 8,192 기준(위 설명). 2026-10-05 실기동 확인
-        gpu_memory_utilization: 0.92     # H100 80GB 1장에 BF16 가중치(약 51GiB) + KV 캐시
-        port: 8000
-        extra_args:
-          - "--no-enable-prefix-caching"
-          # 기본 어텐션 백엔드(FLASH_ATTN)의 컴파일된 커널이 이 venv의 torch 빌드(cu126)와 맞지 않아
-          # 첫 forward에서 실패한다("aten::new_empty API call failed"). Triton 구현으로 바꾼다.
-          - "--attention-backend"
-          - "TRITON_ATTN"
-          # 동시에 처리할 최대 시퀀스 수. 기본 1024는 이 모델의 상태 캐시 블록 수(GPU 1장 기준 357)를
-          # 넘어 기동이 거부된다. 러너는 한 번에 1건씩 보내므로 넉넉한 값이다.
-          - "--max-num-seqs"
-          - "64"
-
-  # 평가 대상 공개 모델. 사용자 승인(2026-10-02)으로 받음(61.4GB, 파일 크기·샤드 sha256 대조 통과).
-  # 라이선스 요약은 README '등록된 로컬 모델'.
-  kanana-2-30b-local:
-    adapter: local_vllm
-    provider: local_vllm         # 임시 등록 코드
-    model_version: 4a781fe5027da4af8d8208cb21bc5108b913bb62   # HF revision (kakaocorp/kanana-2-30b-a3b-instruct-2601)
-    model_snapshot_date: "2026-09-30"                         # 위 revision을 HF에서 확인한 날
-    api_version: v1
-    enabled: true
-    options:
-      base_url: http://127.0.0.1:8000/v1
-      served_model_name: kanana-2-30b-local
-      request_timeout_s: 300
-      extra_body: {}             # 채팅 템플릿에 thinking 스위치가 없다(instruct 판본). 추가 설정 없음
-      server:
-        hf_repo: kakaocorp/kanana-2-30b-a3b-instruct-2601
-        dtype: bfloat16          # config.json의 dtype과 같음. 양자화하지 않는다(제공 모델 그대로 평가)
-        max_model_len: 32768       # 출력 한도 8,192 기준(위 설명). 2026-10-05 실기동 확인
-        gpu_memory_utilization: 0.92
-        port: 8000
-        extra_args:
-          - "--no-enable-prefix-caching"
-          - "--attention-backend"
-          # MLA 구조(kv_lora_rank 512)라 일반 어텐션 백엔드(TRITON_ATTN)는 거부된다('MLA not supported').
-          # FLASH 계열 커널은 27B에서 이 venv의 torch 빌드와 맞지 않았으므로 Triton MLA 백엔드를 쓴다.
-          - "TRITON_MLA"
+  - model_id: local_qwen3_32b_fp8
+    # Exploratory live pilot, second local model (served by scripts/serve_qwen3_32b_fp8.sh). Same family as
+    # local_qwen3_8b → a model-size comparison, not a cross-provider comparison.
+    client: openai_compatible
+    provider: local-vllm
+    model_version: Qwen/Qwen3-32B-FP8@aa55da1ecc13d006e8b8e4f54579b1ea8c3db2df (fp8 e4m3 block-128 weights, bf16 activations)
+    model_snapshot_date: "2026-10-01"
+    api_version: vllm-0.11.0 openai-chat-completions-v1 (generation-config=vllm, seed=0, max-model-len=32768, max-num-seqs=16)
+    base_url: http://127.0.0.1:8311/v1
+    request_model: Qwen/Qwen3-32B-FP8
+    timeout_s: 300
+    extra_body: {chat_template_kwargs: {enable_thinking: false}}   # thinking off, same as local_qwen3_8b

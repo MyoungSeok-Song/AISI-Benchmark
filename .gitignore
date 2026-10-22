@@ -1,20 +1,11 @@
-# 비공개 공유 저장소(사용자 결정 2026-10-07). data/·samples/output/·var/ 등 평가 산출물과 모델 가중치는 넣지 않는다
-# (평가 문항·산출물은 ETRI 귀속). 저장소에 들어가는 입력은 samples/input의 개발 샘플 6문항뿐이다(samples/input/README.md).
-
-# 가상환경
+.env
 .venv/
-.venv-vllm/
-
-# 파이썬 캐시
 __pycache__/
 *.pyc
-
-# 실행 산출물 (재생성 가능하거나 용량이 큼)
-samples/output/
-var/
-
-# 모델 가중치·대용량 파일
-*.safetensors
-*.bin
-*.gguf
-*.pt
+*.lock
+.pytest_cache/
+# run outputs, reports and raw source data stay local (not published)
+data/output/
+data/raw/
+data/release/
+reports/

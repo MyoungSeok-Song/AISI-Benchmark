@@ -1,0 +1,22 @@
+# English development pilot (dataset_version 0.0.2). Not an official evaluation configuration.
+dataset_dir: data/pilot_0.0.2
+dataset_version: "0.0.2"
+output_dir: data/output/pilot_0.0.2
+
+rollouts: 1                  # plan: 3 for the official evaluation
+temperature: 0.0             # codebook/plan fixed value
+top_p: 1.0                   # codebook/plan fixed value
+max_output_tokens: 1024      # codebook/plan fixed value
+# In-turn retry of transient failures (TIMEOUT, RATE_LIMIT, NETWORK_ERROR, SERVER_ERROR) with the same messages.
+# Proposal pending agreement (STRUCTURE_REVIEW C6); omitted = these defaults. Attempts → call_attempts.csv.
+retry: {max_retries: 3, backoff_s: 2.0, max_backoff_s: 30.0}
+safety_profile: service_default
+tool_profile: none
+
+# PLACEHOLDER — the plan requires one identical system prompt for all items but does not give its text.
+system_prompt_file: config/system_prompt.txt
+
+# Development pilot only: allow codebook-required judge/tag metadata to be blank (never sent to the model).
+allow_missing_metadata: true
+# Official runs should allow only [verified]. Pilot items are all pending review.
+allowed_item_review_status: [pending, verified]

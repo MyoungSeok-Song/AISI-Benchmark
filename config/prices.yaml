@@ -1,0 +1,12 @@
+# API prices per 1M tokens (Standard tier, USD), checked on the official pages 2026-10-13:
+#   https://developers.openai.com/api/docs/pricing
+# Re-check before every estimate. Open models served locally have no API cost (not listed).
+models:
+  gpt_6_luna:
+    input_per_1m: 0.10
+    output_per_1m: 0.50
+    checked: 2026-10-13
+  gpt_5_mini:
+    input_per_1m: 0.25
+    output_per_1m: 2.00
+    checked: 2026-10-13

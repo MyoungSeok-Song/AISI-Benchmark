@@ -1,0 +1,37 @@
+# MAIN EVALUATION — template. Copy to config/main_eval_<dataset_version>.yaml once the data arrives, then fill
+# the TBD values. Decisions so far (lead-lab message 2026-10-22): age band 3 × gender 2 personas, 3 rollouts,
+# models GPT-6 Luna + GPT-5 mini (config/models.yaml gpt_6_luna, gpt_5_mini). Item set: 480 (composition TBD).
+#
+#   1. data QA (no model call):
+#      PYTHONPATH=src .venv/bin/python -m kyab.run_benchmark --config config/main_eval_<v>.yaml --validate-only
+#   2. smoke test: 5~10 items × 6 personas × 1 rollout per model, then the cost re-estimate:
+#      ... --model gpt_6_luna --items <ids> --rollouts 1 --output-dir data/output/smoke_<v>_gpt_6_luna
+#      .venv/bin/python scripts/estimate_cost.py --smoke data/output/smoke_<v>_* --single <n> --multi <n>
+#   3. full run (resumable: same command again skips completed runs; --retry-failed for unfinished ones)
+dataset_dir: data/TBD               # 7-CSV items / prompts / item_tags of the main set
+dataset_version: "TBD"
+output_dir: data/output/TBD
+
+persona_dir: data/personas/TBD      # personas.csv (6) + persona_prompts.csv (every item × persona × turn)
+# no persona_prompt_fallback: a missing rewrite stops the run
+
+expected_language: ko               # Korean text QA (Hangul share, untranslated text) in addition to encoding/NFC
+
+rollouts: 3
+concurrency: 8                      # API models: lower it if call_attempts.csv shows RATE_LIMIT retries
+temperature: 1.0                    # GPT-5 mini: not sent (omit_params), provider default 1 applies
+top_p: 1.0
+max_output_tokens: 8192             # codebook reply 2026-10-05 ①
+retry: {max_retries: 3, backoff_s: 2.0, max_backoff_s: 30.0}
+safety_profile: service_default
+tool_profile: none
+
+system_prompt_file: config/system_prompt.txt   # provisional common prompt — replace with the agreed final text
+
+allow_missing_metadata: false
+allowed_item_review_status: [verified]
+
+run_meta:
+  run_purpose: main_evaluation
+  final_benchmark_result: true
+  runner_tag: runner-v0.2.1

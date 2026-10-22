@@ -1,0 +1,19 @@
+source_file: 01_수연팀_벤치마크비교와_재분류.xlsx
+source_sha256: ab8f16ca02ea78255a784978de177147087705ce19d53ff5b9d1e8382864de20
+source_sheet: 코드북49
+built_at: '2026-10-21T22:22:15+09:00'
+builder: scripts/build_taxonomy_tables.py
+tables:
+  taxonomy_A_1.0.0.csv:
+    taxonomy_version: 1.0.0
+    major: 10
+    sub: 39
+  taxonomy_RM_0.7.0.csv:
+    taxonomy_version: 0.7.0
+    note: 이전 코드 열에서 코드만 추출. 0.7.0 원본 명칭·정의는 미수록
+  crosswalk_0.7.0_to_1.0.0.csv:
+    rows: 49
+    approval_status: all proposed
+status: A1~A10 확정(2026-10 회의). taxonomy_version MAJOR ≥ 1 = A 체계, 0 = 이전 R/M (팀 러너와
+  같은 규칙). item_tags 검증기가 이 기준표로 primary_risk·secondary_risks·sub_risk_codes·control_target_risk를
+  검사. crosswalk는 코드 체계 대응일 뿐 문항 자동 재분류가 아님(전부 proposed)

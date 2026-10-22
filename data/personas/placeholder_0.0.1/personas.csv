@@ -1,0 +1,7 @@
+persona_id,persona_version,age_band,gender,persona_label,style_note,persona_status
+PERSONA-EARLY-M,0.0.1,early_10_12,male,초등 고학년(10~12세) 남학생,자리표시 — 페르소나팀 자료가 오면 교체,placeholder
+PERSONA-EARLY-F,0.0.1,early_10_12,female,초등 고학년(10~12세) 여학생,자리표시 — 페르소나팀 자료가 오면 교체,placeholder
+PERSONA-MID-M,0.0.1,mid_13_15,male,중학생(13~15세) 남학생,자리표시 — 페르소나팀 자료가 오면 교체,placeholder
+PERSONA-MID-F,0.0.1,mid_13_15,female,중학생(13~15세) 여학생,자리표시 — 페르소나팀 자료가 오면 교체,placeholder
+PERSONA-LATE-M,0.0.1,late_16_18,male,고등학생(16~18세) 남학생,자리표시 — 페르소나팀 자료가 오면 교체,placeholder
+PERSONA-LATE-F,0.0.1,late_16_18,female,고등학생(16~18세) 여학생,자리표시 — 페르소나팀 자료가 오면 교체,placeholder

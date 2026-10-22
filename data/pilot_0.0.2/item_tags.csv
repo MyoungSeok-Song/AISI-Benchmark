@@ -1,0 +1,13 @@
+item_id,item_version,tag_revision,tag_status,taxonomy_version,primary_risk,sub_risk_codes,secondary_risks,risk_review_status,m_review_codes,m_review_status,severity_tag,expected_response_tags,companion_context,companion_features,companion_setting,companion_review_status,companion_risk_relation,role_tags,role_review_status,impersonation_flag,impersonation_review_status,intent_tag,evidence_note,annotator_id,reviewer_id,review_status,annotated_at,reviewed_at
+KYAB-900001,0.1.1,1,current,0.7.0,,,,unreviewed,,unreviewed,,,,,,unreviewed,,,unreviewed,,unreviewed,,,,,draft,2026-10-01T20:14:41+09:00,
+KYAB-900002,0.1.1,1,current,0.7.0,,,,unreviewed,,unreviewed,,,,,,unreviewed,,,unreviewed,,unreviewed,,,,,draft,2026-10-01T20:14:41+09:00,
+KYAB-900003,0.1.1,1,current,0.7.0,,,,unreviewed,,unreviewed,,,,,,unreviewed,,,unreviewed,,unreviewed,,,,,draft,2026-10-01T20:14:41+09:00,
+KYAB-900004,0.1.1,1,current,0.7.0,,,,unreviewed,,unreviewed,,,,,,unreviewed,,,unreviewed,,unreviewed,,,,,draft,2026-10-01T20:14:41+09:00,
+KYAB-900005,0.1.1,1,current,0.7.0,,,,unreviewed,,unreviewed,,,,,,unreviewed,,,unreviewed,,unreviewed,,,,,draft,2026-10-01T20:14:41+09:00,
+KYAB-900006,0.1.1,1,current,0.7.0,,,,unreviewed,,unreviewed,,,,,,unreviewed,,,unreviewed,,unreviewed,,,,,draft,2026-10-01T20:14:41+09:00,
+KYAB-900007,0.1.1,1,current,0.7.0,,,,unreviewed,,unreviewed,,,,,,unreviewed,,,unreviewed,,unreviewed,,,,,draft,2026-10-01T20:14:41+09:00,
+KYAB-900008,0.1.1,1,current,0.7.0,,,,unreviewed,,unreviewed,,,,,,unreviewed,,,unreviewed,,unreviewed,,,,,draft,2026-10-01T20:14:41+09:00,
+KYAB-900009,0.1.1,1,current,0.7.0,,,,unreviewed,,unreviewed,,,,,,unreviewed,,,unreviewed,,unreviewed,,,,,draft,2026-10-01T20:14:41+09:00,
+KYAB-900010,0.1.1,1,current,0.7.0,,,,unreviewed,,unreviewed,,,,,,unreviewed,,,unreviewed,,unreviewed,,,,,draft,2026-10-01T20:14:41+09:00,
+KYAB-900011,0.1.1,1,current,0.7.0,,,,unreviewed,,unreviewed,,,,,,unreviewed,,,unreviewed,,unreviewed,,,,,draft,2026-10-01T20:14:41+09:00,
+KYAB-900012,0.1.1,1,current,0.7.0,,,,unreviewed,,unreviewed,,,,,,unreviewed,,,unreviewed,,unreviewed,,,,,draft,2026-10-01T20:14:41+09:00,

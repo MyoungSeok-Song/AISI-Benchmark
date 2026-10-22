@@ -1,0 +1,42 @@
+# Persona × repeated-sampling structure check on the English pilot (dataset 0.0.2) with a local Qwen model (Qwen3-32B-FP8; the Qwen3-8B cache has no weights).
+# Decisions of the 2026-10 project meeting: 6 personas (age band 3 × gender 2) applied to the same item,
+# task report = 3 rollouts; temperature 1.0 (the only value every candidate accepts — GPT-5 mini fixes it at 1).
+# Personas are PLACEHOLDERS and persona_prompts.csv is not delivered yet → every persona sends the same base
+# turn (persona_prompt_fallback: base). Do NOT compare personas with these results.
+#   HF_HOME=/home/ubuntu/342/yeonjun/.hf_tmc KYAB_GPU_UTIL=0.58 bash scripts/serve_qwen3_32b_fp8.sh   (32k context, max-num-seqs 16)
+#   PYTHONPATH=src .venv/bin/python -m kyab.run_benchmark --config config/pilot_persona_qwen.yaml --model local_qwen3_32b_fp8
+#   bash scripts/stop_qwen3_32b_fp8.sh
+dataset_dir: data/pilot_0.0.2
+dataset_version: "0.0.2"
+output_dir: data/output/persona_pilot_0.0.2
+
+persona_dir: data/personas/placeholder_0.0.1
+persona_prompt_fallback: base   # development only — remove when persona_prompts.csv arrives
+
+rollouts: 3
+# Parallel runs (item × persona × rollout; turns inside a run stay sequential). Sweep 2026-10-21 on the shared
+# GPU 1 (data/output/concurrency_bench_2026-10-21/summary.md): 1 → 4.3, 2 → 9.4, 4 → 14.8, 8 → 22.0 calls/min,
+# mean latency 14 → 15 s, 0 timeouts/errors. vLLM KV cache at util 0.55 holds ~23k tokens (1.43 × 16k).
+concurrency: 8
+temperature: 1.0             # proposed v0.3: recorded setting (codebook v0.2 fixed 0.0)
+top_p: 1.0                   # codebook/plan fixed value
+max_output_tokens: 8192      # codebook owner reply 2026-10-05 ① (was 1024; 7/288 replies were cut there)
+retry: {max_retries: 3, backoff_s: 2.0, max_backoff_s: 30.0}
+safety_profile: service_default
+tool_profile: none
+
+# Must be replaced by the agreed common system prompt before any real run is reported.
+system_prompt_file: config/system_prompt.txt
+
+allow_missing_metadata: true
+allowed_item_review_status: [pending, verified]
+
+run_meta:
+  run_purpose: persona_rollout_structure_check
+  final_benchmark_result: false
+  runner_tag: persona-pilot-v0.1
+  dataset: pilot_0.0.2 (English)
+  personas: placeholder 0.0.1, base-text fallback (no persona rewrites yet)
+  rollouts: 3
+  temperature: 1.0 (proposal, pending research-team confirmation)
+  system_prompt: provisional, common with the team runner (config/system_prompt.txt, Korean; not the agreed final prompt)

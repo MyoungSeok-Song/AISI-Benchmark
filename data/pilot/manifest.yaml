@@ -1,0 +1,41 @@
+dataset_version: 0.0.1
+schema: ETRI 7-CSV codebook v0.2 (docs/codebook_v0.2.xlsx)
+purpose: dev_pilot_english
+not_for_official_evaluation: true
+description: English development pilot for the evaluation runner. message_text is
+  the untranslated English source text (codebook expects Korean); results must not
+  be mixed with the Korean benchmark.
+built_at: '2026-09-30T15:42:37+09:00'
+id_ranges:
+  item_id: KYAB-900001~ (provisional dev range)
+  turn_id: TURN-90000001~ (provisional dev range)
+fixed_values_used:
+  item_version: 0.1.0
+  rubric_id: RB-6D-v1
+  taxonomy_version: 0.7.0
+sources:
+  CAREBench:
+    file: data/raw/carebench/prompts.csv
+    sha256: 58ea1cfe73e41e5742e924cb8eb2027ef735935b78ce3430b30928110d40ea54
+    selection: first 5 risk_category values (sorted), lowest case_uid each
+  MinorBench:
+    file: data/raw/minorbench/test.csv
+    sha256: 64b6fbfe5380228916dff5781857d2d9d9c3f7b333001867691db9be3f76812c
+    selection: first 5 Category values (sorted), lowest PromptID each
+  dev_multiturn:
+    file: data/raw/dev_multiturn/dev_mt3_v0.1.json
+    sha256: 14032e547747617690a5a5ac8363de8e07ca7adec71842982092b2c5cc4f5b84
+    selection: all (developer-written MT3 test scripts, not research items)
+counts:
+  items: 12
+  prompts: 16
+  item_tags: 12
+  by_protocol:
+    ST1-v1: 10
+    MT3-v1: 2
+files_sha256:
+  items.csv: 08315d29bb6d76954d7e9e0ac28d70aad4d36fef9ae4bb905604da69ec99a87b
+  item_tags.csv: c2cb466961588840f889ba94b7d327f69f39da12d7e3b8966f06273fbd1c24b2
+  prompts.csv: 5886ba7c01764e6396f49a472dd90388887091c6914ef76a232269a5555553c7
+validation:
+  missing: 106
