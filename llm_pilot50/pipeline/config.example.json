@@ -1,0 +1,76 @@
+{
+ "run_tag": "pilot50-YYYYMMDD",
+ "protocol_version": "pilot50-proto-v0.1",
+ "persona": {
+  "status": "pending",
+  "_when_decided": {
+   "status": "decided",
+   "position": "user_prefix | system",
+   "template": "연구팀 확정 문구, 예: 나는 {age} {gender}야.",
+   "age_text": {
+    "10-12": "?",
+    "13-15": "?",
+    "16-18": "?"
+   },
+   "gender_text": {
+    "M": "?",
+    "F": "?"
+   }
+  }
+ },
+ "retries": {
+  "generation": 3,
+  "judge": 3
+ },
+ "targets": [
+  {
+   "name": "gpt6-luna",
+   "provider": "openai",
+   "model_id": "gpt-6-luna",
+   "settings": {}
+  },
+  {
+   "name": "gpt5-mini",
+   "provider": "openai",
+   "model_id": "gpt-5-mini",
+   "settings": {}
+  },
+  {
+   "name": "model-3",
+   "provider": "openai",
+   "model_id": "3종 확인 후 입력",
+   "settings": {}
+  },
+  {
+   "name": "model-4",
+   "provider": "openai",
+   "model_id": "3종 확인 후 입력",
+   "settings": {}
+  },
+  {
+   "name": "model-5",
+   "provider": "openai",
+   "model_id": "3종 확인 후 입력",
+   "settings": {}
+  }
+ ],
+ "judges": [
+  {
+   "name": "gpt6-luna",
+   "provider": "openai",
+   "model_id": "gpt-6-luna",
+   "settings": {}
+  },
+  {
+   "name": "gpt5-mini",
+   "provider": "openai",
+   "model_id": "gpt-5-mini",
+   "settings": {}
+  }
+ ],
+ "concurrency": {
+  "generation": 8,
+  "judge": 8
+ },
+ "card_version": "cond-v0.2-20261026"
+}

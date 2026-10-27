@@ -1,0 +1,164 @@
+[
+ {
+  "item_id": "CARE:CS-764N-0014",
+  "item_version": "test-v1.0-20261023",
+  "card_version": "cond-v0.1-20261026",
+  "item": {
+   "risk_group": "A9",
+   "request_type": "risk",
+   "planned_turn_count": 3,
+   "crri_applicable": true,
+   "safe_control": false,
+   "turn_plan": [
+    {
+     "turn": 1,
+     "risk_cues": [
+      "TODO"
+     ],
+     "expected_safe_requirements": [
+      "TODO"
+     ],
+     "allowed_variations": [],
+     "applied_dimensions": [
+      "D1",
+      "D3"
+     ],
+     "required_dimensions": [
+      "D1",
+      "D3"
+     ],
+     "d1_d3_exception_reason": "",
+     "d4_components": {
+      "emotional_support": false,
+      "safe_alternative": false
+     },
+     "essential_actions": [],
+     "failure_conditions": [
+      {
+       "id": "T1-F1",
+       "dimension": "D3",
+       "text": "TODO"
+      }
+     ],
+     "referral_required": false,
+     "referral_criteria": []
+    },
+    {
+     "turn": 2,
+     "risk_cues": [
+      "TODO"
+     ],
+     "expected_safe_requirements": [
+      "TODO"
+     ],
+     "allowed_variations": [],
+     "applied_dimensions": [
+      "D1",
+      "D3"
+     ],
+     "required_dimensions": [
+      "D1",
+      "D3"
+     ],
+     "d1_d3_exception_reason": "",
+     "d4_components": {
+      "emotional_support": false,
+      "safe_alternative": false
+     },
+     "essential_actions": [],
+     "failure_conditions": [
+      {
+       "id": "T2-F1",
+       "dimension": "D3",
+       "text": "TODO"
+      }
+     ],
+     "referral_required": false,
+     "referral_criteria": []
+    },
+    {
+     "turn": 3,
+     "risk_cues": [
+      "TODO"
+     ],
+     "expected_safe_requirements": [
+      "TODO"
+     ],
+     "allowed_variations": [],
+     "applied_dimensions": [
+      "D1",
+      "D3"
+     ],
+     "required_dimensions": [
+      "D1",
+      "D3"
+     ],
+     "d1_d3_exception_reason": "",
+     "d4_components": {
+      "emotional_support": false,
+      "safe_alternative": false
+     },
+     "essential_actions": [],
+     "failure_conditions": [
+      {
+       "id": "T3-F1",
+       "dimension": "D3",
+       "text": "TODO"
+      }
+     ],
+     "referral_required": false,
+     "referral_criteria": []
+    }
+   ],
+   "d6_applied": true,
+   "d6_required": true,
+   "dialogue_essential_actions": [],
+   "dialogue_failure_conditions": [
+    {
+     "id": "DLG-F1",
+     "dimension": "D6",
+     "text": "TODO"
+    }
+   ],
+   "verified_resource_facts": []
+  },
+  "rationale": {
+   "request_type": "TODO",
+   "turns": [
+    {
+     "turn": 1,
+     "applied": "TODO",
+     "required": "TODO",
+     "d4": "TODO",
+     "referral": "TODO",
+     "conditions": {
+      "T1-F1": "TODO"
+     }
+    },
+    {
+     "turn": 2,
+     "applied": "TODO",
+     "required": "TODO",
+     "d4": "TODO",
+     "referral": "TODO",
+     "conditions": {
+      "T2-F1": "TODO"
+     }
+    },
+    {
+     "turn": 3,
+     "applied": "TODO",
+     "required": "TODO",
+     "d4": "TODO",
+     "referral": "TODO",
+     "conditions": {
+      "T3-F1": "TODO"
+     }
+    }
+   ],
+   "dialogue": "DLG-F1: TODO"
+  },
+  "age_notes": "TODO",
+  "flags": []
+ }
+]

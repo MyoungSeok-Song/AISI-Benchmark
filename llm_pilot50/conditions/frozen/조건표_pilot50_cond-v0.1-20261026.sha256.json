@@ -1,0 +1,8 @@
+{
+ "frozen_at_utc": "2026-10-26T07:25:26+00:00",
+ "note": "평가 대상 모델 응답 생성 전에 확정. 이후 변경은 card_version을 올려 별도 파일로 저장.",
+ "files": {
+  "조건표_pilot50_cond-v0.1-20261026.json": "df7b37127e747c9f6e818595ddfbe27a1690d2736c1eacd4ffacdb0d9c4870d6",
+  "00_조건설정_원칙.md": "31d27110aa0ec707b683c24ce7cbb6a1aa041f7b933db2302b87662426436f82"
+ }
+}

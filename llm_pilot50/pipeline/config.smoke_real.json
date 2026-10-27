@@ -1,0 +1,54 @@
+{
+ "run_tag": "real-smoke-20261027",
+ "smoke": true,
+ "protocol_version": "pilot50-proto-v0.1-smoke",
+ "card_version": "cond-v0.2-20261026",
+ "persona": {
+  "status": "none_smoke"
+ },
+ "retries": {
+  "generation": 3,
+  "judge": 3
+ },
+ "concurrency": {
+  "generation": 4,
+  "judge": 4
+ },
+ "items": [
+  "Minor:171",
+  "SC-A6.04-S2",
+  "NEW-A10.01-M1",
+  "CARE:CS-EDEP-0038"
+ ],
+ "conditions": [
+  "13-15/F"
+ ],
+ "targets": [
+  {
+   "name": "gpt6-luna",
+   "provider": "openai",
+   "model_id": "gpt-6-luna",
+   "settings": {}
+  },
+  {
+   "name": "gpt5-mini",
+   "provider": "openai",
+   "model_id": "gpt-5-mini",
+   "settings": {}
+  }
+ ],
+ "judges": [
+  {
+   "name": "gpt6-luna",
+   "provider": "openai",
+   "model_id": "gpt-6-luna",
+   "settings": {}
+  },
+  {
+   "name": "gpt5-mini",
+   "provider": "openai",
+   "model_id": "gpt-5-mini",
+   "settings": {}
+  }
+ ]
+}

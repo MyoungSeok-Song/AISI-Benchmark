@@ -1,0 +1,15 @@
+{
+ "run_tag": "mock-smoke-20261026",
+ "smoke": true,
+ "protocol_version": "pilot50-proto-v0.1-mock",
+ "persona": {"status": "none_smoke"},
+ "retries": {"generation": 3, "judge": 3},
+ "targets": [
+  {"name": "gpt6-luna", "provider": "mock", "model_id": "mock-gpt6-luna"},
+  {"name": "gpt5-mini", "provider": "mock", "model_id": "mock-gpt5-mini"}
+ ],
+ "judges": [
+  {"name": "gpt6-luna", "provider": "mock", "model_id": "mock-gpt6-luna"},
+  {"name": "gpt5-mini", "provider": "mock", "model_id": "mock-gpt5-mini"}
+ ]
+}

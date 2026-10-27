@@ -9,3 +9,7 @@ data/output/
 data/raw/
 data/release/
 reports/
+
+# llm_pilot50: 실행 결과와 로컬 라이브러리는 올리지 않음
+llm_pilot50/runs/
+llm_pilot50/.pylib/
